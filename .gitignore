@@ -1,0 +1,23 @@
+# Build outputs
+build/
+*.o
+*.wasm
+*.html
+*.js
+!src/js/*.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Emscripten cache
+.emscripten_cache/
