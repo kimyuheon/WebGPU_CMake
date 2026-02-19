@@ -5,12 +5,18 @@ build/
 *.html
 *.js
 !src/js/*.js
+compile_commands.json
 
 # IDE
-.vscode/
+.vscode/*.log
+.vscode/.react/
+.vscode/settings.json
 .idea/
 *.swp
 *.swo
+
+# Cache
+.cache/
 
 # Claude
 .claude/

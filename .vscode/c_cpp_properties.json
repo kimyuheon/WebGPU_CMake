@@ -1,0 +1,60 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "compileCommands": "${workspaceFolder}/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/cache/sysroot/include/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/system/include/**"
+            ],
+            "defines": [
+                "__EMSCRIPTEN__",
+                "EMSCRIPTEN"
+            ],
+            "compilerPath": "${workspaceFolder}/../emsdk/upstream/emscripten/em++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        },
+        {
+            "name": "Linux",
+            "compileCommands": "${workspaceFolder}/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/cache/sysroot/include/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/system/include/**"
+            ],
+            "defines": [
+                "__EMSCRIPTEN__",
+                "EMSCRIPTEN"
+            ],
+            "compilerPath": "${workspaceFolder}/../emsdk/upstream/emscripten/em++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        },
+        {
+            "name": "Win32",
+            "compileCommands": "${workspaceFolder}/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/cache/sysroot/include/**",
+                "${workspaceFolder}/../emsdk/upstream/emscripten/system/include/**"
+            ],
+            "defines": [
+                "__EMSCRIPTEN__",
+                "EMSCRIPTEN",
+                "_WINDOWS"
+            ],
+            "compilerPath": "${workspaceFolder}/../emsdk/upstream/emscripten/em++.bat",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-clang-x64"
+        }
+    ],
+    "version": 4
+}
