@@ -73,34 +73,18 @@ Tool : Visual Studio Code
   ---  
   - 윈도우  
       - 실행방법    
-        <kbd>PS D:\programming\vulkan\3dEngine></kbd> cd .\build\Debug\  
-        <kbd>PS D:\programming\vulkan\3dEngine\build\Debug></kbd> .\VulkanApp.exe
+        <kbd>PS D:\vulkan\3dengine_web></kbd> .\clean.bat  
+        <kbd>PS D:\vulkan\3dengine_web></kbd> .\build.bat 
+        <kbd>PS D:\vulkan\3dengine_web></kbd> .\run.bat 
           
         https://github.com/user-attachments/assets/c01a49ca-fdf8-439f-9751-553695b2dba4                    
     
-  - MacOS
+  - MacOS/Linux(Ubuntu)
       - 실행방법  
-        <kbd>test@MacBookPro build % </kbd> ./run_vulkan.sh  
-      - 검증 레이어(validation layers) 오류시 아래의 해결방법 수행  
-        libc++abi: terminating due to uncaught exception of type std::runtime_error: validation layers requested, but not available!  
-      - 해결방법 (환경변수 설정 후 실행)  
-        <kbd>test@MacBookPro build % </kbd> export VK_LAYER_PATH="/Users/lot700/Desktop/mac_vk/vk_cmake/VulkanSdk/Apple/share/vulkan/explicit_layer.d"          
-        <kbd>test@MacBookPro build % </kbd> export VK_ICD_FILENAMES="/Users/lot700/Desktop/mac_vk/vk_cmake/VulkanSdk/Apple/share/vulkan/icd.d/MoltenVK_icd.json"  
-        <kbd>test@MacBookPro build % </kbd> ./VulkanApp 
+        <kbd>test@MacBookPro build % </kbd> .\clean.sh
+        <kbd>test@MacBookPro build % </kbd> .\build.sh
+        <kbd>test@MacBookPro build % </kbd> .\run.sh  
 
         https://github.com/user-attachments/assets/87199165-0bd9-4481-840e-6ad8b49c2362  
-        
-  - Linux(Ubuntu)
-      - 실행방법  
-        <kbd>test@test-IdeaPad-1-15ALC7:~/Vulkan/3dEngine/build$ </kbd> ./run_vulkan.sh   
-      - 검증 레이어(validation layers) 오류시 해결방법 수행  
-        terminate called after throwing an instance of 'std::runtime_error' what():  validation layers requested, but not available!  
-      - 해결방법 (환경변수 설정 후 실행)   
-        <kbd>test@test-IdeaPad-1-15ALC7:~/Vulkan/3dEngine/build$ </kbd> export VK_LAYER_PATH="/home/lot700/Vulkan/VulkanSdk/Linux/share/vulkan/explicit_layer.d"          
-        <kbd>test@test-IdeaPad-1-15ALC7:~/Vulkan/3dEngine/build$ </kbd> export LD_LIBRARY_PATH="/home/lot700/Vulkan/VulkanSdk/Linux/lib:$LD_LIBRARY_PATH"  
-        <kbd>test@test-IdeaPad-1-15ALC7:~/Vulkan/3dEngine/build$ </kbd> export XDG_SESSION_TYPE=x11  // x11 창 선택  
-        <kbd>test@test-IdeaPad-1-15ALC7:~/Vulkan/3dEngine/build$ </kbd> ./VulkanApp  
-
-        https://github.com/user-attachments/assets/6bea02f9-5e39-4b8d-960e-3abea6a0a85a    
         
 
