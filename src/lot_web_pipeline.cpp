@@ -18,9 +18,11 @@ lot_web_pipeline::~lot_web_pipeline() {
     }
 }
 
-void lot_web_pipeline::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat) {
+void lot_web_pipeline::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
+                                      WGPUPipelineLayout layout) {
     device_ = device.getDevice();
     colorFormat_ = colorFormat;
+    layout_ = layout;
 
     std::cout << "lot_web_pipeline: Loading shader from " << shaderPath_ << std::endl;
 
@@ -86,7 +88,7 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     // 4. 파이프라인
     WGPURenderPipelineDescriptor desc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     desc.label = lotStringView(shaderPath_);
-    desc.layout = nullptr;  // 'auto' 레이아웃 - 셰이더에서 추론
+    desc.layout = layout_;  // 렌더 시스템이 만든 레이아웃 (dynamic offset 포함)
     desc.vertex.module = shaderModule;
     desc.vertex.entryPoint = lotStringView("vs_main");
     desc.vertex.bufferCount = 1;

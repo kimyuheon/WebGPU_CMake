@@ -23,27 +23,21 @@ struct VertexOutput {
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
 
-    // 정삼각형 중심점 (centroid)
-    // x = (0.0 + (-0.5) + 0.5) / 3 = 0.0
-    // y = (0.577 + (-0.289) + (-0.289)) / 3 = -0.001 / 3 ≈ 0.0
-    let center = vec2<f32>(0.0, 0.0);
-
-    // 회전 행렬 계산
     let cosTheta = cos(uniforms.rotation);
     let sinTheta = sin(uniforms.rotation);
 
-    // 1. 중심점으로 이동 (pivot to origin)
-    var pos = input.position.xy - center;
+    // 1. 스케일 (원점 기준)
+    let scaled = input.position.xy * uniforms.scale;
 
-    // 2. 회전 적용 (rotate around origin)
-    var rotatedPos: vec2<f32>;
-    rotatedPos.x = pos.x * cosTheta - pos.y * sinTheta;
-    rotatedPos.y = pos.x * sinTheta + pos.y * cosTheta;
+    // 2. 회전 (원점 기준)
+    var rotated: vec2<f32>;
+    rotated.x = scaled.x * cosTheta - scaled.y * sinTheta;
+    rotated.y = scaled.x * sinTheta + scaled.y * cosTheta;
 
-    // 3. 다시 원래 위치로 + 오프셋 (translate back + offset)
-    rotatedPos = rotatedPos + center /** uniforms.scale*/ + uniforms.offset;
+    // 3. 이동
+    let worldPos = rotated + uniforms.offset;
 
-    output.position = vec4<f32>(rotatedPos, input.position.z, 1.0);
+    output.position = vec4<f32>(worldPos, input.position.z, 1.0);
     output.color = input.color;
     return output;
 }

@@ -33,24 +33,40 @@ static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
 static bool g_gameObjectsCreated = false;
 
+// 오브젝트별 회전 속도 (per-object uniform 이 실제로 도는지 눈으로 확인하려고 다르게 준다)
+static const float kSpinSpeeds[] = {1.0f, -1.6f, 0.7f};
+
 // 게임 오브젝트 생성
 void createGameObjects() {
-    // 삼각형 게임 오브젝트 생성
-    auto triangle = LotGameObject::createGameObject();
+    struct Spawn {
+        vec2 translation;
+        float scale;
+    };
+    // 위치와 크기가 서로 다른 삼각형 3개.
+    // 유니폼 슬롯이 하나뿐이던 시절에는 셋 다 같은 자리에 겹쳐 그려졌다.
+    const Spawn spawns[] = {
+        {vec2(-0.5f,  0.0f), 0.5f},
+        {vec2( 0.0f,  0.0f), 0.8f},
+        {vec2( 0.5f,  0.0f), 0.5f},
+    };
 
-    // 색상 설정 (현재 셰이더에서는 버텍스 컬러 사용)
-    triangle.color = vec3(1.0f, 0.5f, 0.0f);
+    for (const auto& spawn : spawns) {
+        auto triangle = LotGameObject::createGameObject();
 
-    // Transform 설정
-    triangle.transform2d.translation = vec2(0.0f, 0.0f);
-    triangle.transform2d.scale = vec2(1.0f, 1.0f);
-    triangle.transform2d.rotation = 0.0f;
+        // 색상 설정 (현재 셰이더에서는 버텍스 컬러 사용)
+        triangle.color = vec3(1.0f, 0.5f, 0.0f);
 
-    // 모델 정보 설정 (버퍼를 직접 가리킨다 - 예전의 매직 넘버 ID 없음)
-    triangle.model = g_vertexBuffer.get();
-    triangle.vertexCount = 3;
+        // Transform 설정
+        triangle.transform2d.translation = spawn.translation;
+        triangle.transform2d.scale = vec2(spawn.scale, spawn.scale);
+        triangle.transform2d.rotation = 0.0f;
 
-    g_gameObjects.push_back(std::move(triangle));
+        // 모델 정보 설정 (버퍼를 직접 가리킨다 - 예전의 매직 넘버 ID 없음)
+        triangle.model = g_vertexBuffer.get();
+        triangle.vertexCount = 3;
+
+        g_gameObjects.push_back(std::move(triangle));
+    }
 
     std::cout << "Game objects created: " << g_gameObjects.size() << std::endl;
 }
@@ -67,20 +83,21 @@ void renderLoop() {
         g_bufferCreated = true;
     }
 
-    // 2. 파이프라인 생성 (버퍼 준비 후)
-    if (!g_pipelineCreated && g_vertexBuffer->isReady()) {
-        g_renderSystem->createPipeline(device, g_renderer->getSwapchain().getFormat());
-        g_pipelineCreated = true;
-    }
-
-    // 3. Uniform 버퍼 생성 (파이프라인 준비 후)
-    if (!g_uniformCreated && g_renderSystem->isPipelineReady()) {
+    // 2. Uniform 리소스 생성 (버퍼 준비 후).
+    //    파이프라인보다 먼저다 - 여기서 나온 바인드 그룹 레이아웃으로 파이프라인을 만든다.
+    if (!g_uniformCreated && g_vertexBuffer->isReady()) {
         g_renderSystem->createUniformBuffer(device);
         g_uniformCreated = g_renderSystem->isUniformReady();
     }
 
+    // 3. 파이프라인 생성 (uniform 레이아웃 준비 후)
+    if (!g_pipelineCreated && g_uniformCreated) {
+        g_renderSystem->createPipeline(device, g_renderer->getSwapchain().getFormat());
+        g_pipelineCreated = true;
+    }
+
     // 4. 게임 오브젝트 생성 (한 번만)
-    if (!g_gameObjectsCreated && g_uniformCreated) {
+    if (!g_gameObjectsCreated && g_renderSystem->isPipelineReady()) {
         createGameObjects();
         g_gameObjectsCreated = true;
     }
@@ -99,9 +116,10 @@ void renderLoop() {
         g_lastFrameMs = nowMs;
         g_time += deltaSec;
 
-        // 게임 오브젝트 업데이트
-        for (auto& obj : g_gameObjects) {
-            obj.transform2d.rotation = static_cast<float>(g_time);
+        // 게임 오브젝트 업데이트 (각자 다른 속도로 돈다)
+        for (size_t i = 0; i < g_gameObjects.size(); ++i) {
+            const float speed = kSpinSpeeds[i % (sizeof(kSpinSpeeds) / sizeof(kSpinSpeeds[0]))];
+            g_gameObjects[i].transform2d.rotation = static_cast<float>(g_time) * speed;
         }
 
         // 렌더 패스 시작
