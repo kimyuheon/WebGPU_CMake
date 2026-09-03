@@ -2,7 +2,10 @@
 #include "simple_render_system.h"
 #include "lot_game_object.h"
 #include "lot_web_buffer.h"
+#include "lot_vertex.h"
+
 #include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -13,8 +16,16 @@ std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::unique_ptr<lot_web_buffer> g_vertexBuffer = nullptr;
 std::vector<LotGameObject> g_gameObjects;
 
+// 삼각형 정점 (레이아웃은 lot_vertex.h 의 Vertex 하나로 정해진다)
+static const Vertex kTriangleVertices[] = {
+    {{ 0.0f,  0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},  // 상단 (빨강)
+    {{-0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},  // 좌하단 (초록)
+    {{ 0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},  // 우하단 (파랑)
+};
+
 // 애니메이션 시간
 static double g_time = 0.0;
+static double g_lastFrameMs = 0.0;
 
 // 초기화 상태
 static bool g_bufferCreated = false;
@@ -35,9 +46,9 @@ void createGameObjects() {
     triangle.transform2d.scale = vec2(1.0f, 1.0f);
     triangle.transform2d.rotation = 0.0f;
 
-    // 모델 정보 설정
+    // 모델 정보 설정 (버퍼를 직접 가리킨다 - 예전의 매직 넘버 ID 없음)
+    triangle.model = g_vertexBuffer.get();
     triangle.vertexCount = 3;
-    triangle.modelBufferId = 1;  // lot_web_buffer의 첫 번째 버퍼 ID
 
     g_gameObjects.push_back(std::move(triangle));
 
@@ -48,28 +59,24 @@ void createGameObjects() {
 void renderLoop() {
     if (!g_renderer || !g_renderSystem || !g_vertexBuffer) return;
 
+    auto& device = g_renderer->getDevice();
+
     // 1. 버퍼 생성 (스왑체인 준비 후)
     if (!g_bufferCreated && g_renderer->getSwapchain().isReady()) {
-        float vertices[] = {
-            // position (x, y, z)    // color (r, g, b)
-            0.0f,  0.5f, 0.0f,       1.0f, 0.0f, 0.0f,  // 상단 (빨강)
-           -0.5f, -0.5f, 0.0f,       0.0f, 1.0f, 0.0f,  // 좌하단 (초록)
-            0.5f, -0.5f, 0.0f,       0.0f, 0.0f, 1.0f   // 우하단 (파랑)
-        };
-        g_vertexBuffer->createBuffer(vertices);
+        g_vertexBuffer->createBuffer(device, kTriangleVertices);
         g_bufferCreated = true;
     }
 
     // 2. 파이프라인 생성 (버퍼 준비 후)
     if (!g_pipelineCreated && g_vertexBuffer->isReady()) {
-        g_renderSystem->createPipeline();
+        g_renderSystem->createPipeline(device, g_renderer->getSwapchain().getFormat());
         g_pipelineCreated = true;
     }
 
     // 3. Uniform 버퍼 생성 (파이프라인 준비 후)
     if (!g_uniformCreated && g_renderSystem->isPipelineReady()) {
-        g_renderSystem->createUniformBuffer();
-        g_uniformCreated = true;
+        g_renderSystem->createUniformBuffer(device);
+        g_uniformCreated = g_renderSystem->isUniformReady();
     }
 
     // 4. 게임 오브젝트 생성 (한 번만)
@@ -86,8 +93,11 @@ void renderLoop() {
 
     // 6. 렌더링
     if (g_renderer->beginFrame()) {
-        // 시간 업데이트
-        g_time += 0.016;
+        // 시간 업데이트 (고정 0.016 대신 실제 경과 시간을 쓴다)
+        const double nowMs = emscripten_get_now();
+        const double deltaSec = (g_lastFrameMs > 0.0) ? (nowMs - g_lastFrameMs) / 1000.0 : 0.0;
+        g_lastFrameMs = nowMs;
+        g_time += deltaSec;
 
         // 게임 오브젝트 업데이트
         for (auto& obj : g_gameObjects) {
@@ -98,7 +108,7 @@ void renderLoop() {
         g_renderer->beginRenderPass();
 
         // 게임 오브젝트들 렌더링
-        g_renderSystem->renderGameObjects(g_gameObjects);
+        g_renderSystem->renderGameObjects(g_renderer->getCurrentRenderPass(), g_gameObjects);
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
@@ -121,8 +131,9 @@ int main() {
     // Render System 생성 (Pipeline + Uniform 관리)
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
 
-    // Vertex 버퍼 생성 (3개 정점 * 6개 float = 72 bytes)
-    g_vertexBuffer = std::make_unique<lot_web_buffer>(BufferType::VERTEX, 72);
+    // Vertex 버퍼 생성
+    g_vertexBuffer = std::make_unique<lot_web_buffer>(BufferType::VERTEX,
+                                                      sizeof(kTriangleVertices));
 
     std::cout << "Renderer initialized (fullscreen canvas)." << std::endl;
 

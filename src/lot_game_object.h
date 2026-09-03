@@ -1,7 +1,9 @@
 #pragma once
 
-#include <memory>
 #include <cmath>
+#include <cstdint>
+
+class lot_web_buffer;
 
 // 간단한 2D 벡터
 struct vec2 {
@@ -87,9 +89,12 @@ public:
     vec3 color{1.0f, 1.0f, 1.0f};
     Transform2DComponent transform2d{};
 
-    // 모델 정보 (vertex count, buffer ID 등)
-    int vertexCount = 0;
-    int modelBufferId = -1;  // JavaScript에서 관리하는 버퍼 ID
+    // 모델 정보.
+    // 예전에는 JS 쪽 버퍼 테이블을 가리키는 int ID(매직 넘버 1)였지만,
+    // 이제 버퍼를 C++ 가 직접 소유하므로 포인터로 가리킨다.
+    // (소유권은 없다 - 버퍼의 수명은 바깥에서 관리한다)
+    lot_web_buffer* model = nullptr;
+    uint32_t vertexCount = 0;
 
 private:
     explicit LotGameObject(id_t objId) : id_(objId) {}

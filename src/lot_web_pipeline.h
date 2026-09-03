@@ -1,25 +1,40 @@
 #pragma once
 
-#include <emscripten/emscripten.h>
+#include <webgpu/webgpu.h>
 #include <string>
+
+class lot_web_device;
 
 class lot_web_pipeline {
 public:
     lot_web_pipeline(const std::string& shaderPath);
     ~lot_web_pipeline();
 
-    // 파이프라인 생성 (비동기)
-    void createPipeline();
+    // 복사 금지
+    lot_web_pipeline(const lot_web_pipeline&) = delete;
+    lot_web_pipeline& operator=(const lot_web_pipeline&) = delete;
+
+    // 파이프라인 생성 (셰이더 파일을 비동기로 받아온 뒤 완성된다)
+    void createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat);
 
     // 파이프라인 바인딩
-    void bind();
+    void bind(WGPURenderPassEncoder pass);
 
     // 그리기
-    void draw(int vertexCount);
+    void draw(WGPURenderPassEncoder pass, uint32_t vertexCount);
 
-    // 파이프라인이 준비되었는지 확인
-    bool isReady() const;
+    bool isReady() const { return pipeline_ != nullptr; }
+    WGPURenderPipeline getHandle() const { return pipeline_; }
 
 private:
+    // 셰이더 로드 콜백 (emscripten_async_wget_data)
+    static void onShaderLoaded(void* arg, void* buffer, int size);
+    static void onShaderFailed(void* arg);
+
+    void build(const std::string& shaderCode);
+
     std::string shaderPath_;
+    WGPUDevice device_ = nullptr;
+    WGPUTextureFormat colorFormat_ = WGPUTextureFormat_Undefined;
+    WGPURenderPipeline pipeline_ = nullptr;
 };

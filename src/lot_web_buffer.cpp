@@ -1,49 +1,78 @@
 #include "lot_web_buffer.h"
+#include "lot_web_device.h"
+#include "lot_web_common.h"
 #include <iostream>
 
-// 다음 버퍼 ID (C++에서 추적)
-static int g_nextBufferId = 1;
+namespace {
 
-// JavaScript 함수 선언 (webgpu_bindings.js에서 구현)
-extern "C" {
-    extern void js_createBuffer(int bufferId, int bufferType, const void* data, size_t size);
-    extern bool js_isBufferReady(int bufferId);
-    extern void js_bindVertexBuffer(int bufferId, int slot);
-    extern void js_bindIndexBuffer(int bufferId);
-    extern void js_destroyBuffer(int bufferId);
+const char* typeName(BufferType type) {
+    switch (type) {
+        case BufferType::VERTEX:  return "Vertex";
+        case BufferType::INDEX:   return "Index";
+        case BufferType::UNIFORM: return "Uniform";
+    }
+    return "Unknown";
 }
 
-// C++ 구현
+WGPUBufferUsage typeUsage(BufferType type) {
+    switch (type) {
+        case BufferType::VERTEX:  return WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        case BufferType::INDEX:   return WGPUBufferUsage_Index | WGPUBufferUsage_CopyDst;
+        case BufferType::UNIFORM: return WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    }
+    return WGPUBufferUsage_None;
+}
+
+}  // namespace
+
 lot_web_buffer::lot_web_buffer(BufferType type, size_t size)
-    : type_(type), size_(size), bufferId_(g_nextBufferId++) {
-    const char* typeName =
-        (type == BufferType::VERTEX) ? "Vertex" :
-        (type == BufferType::INDEX) ? "Index" : "Uniform";
-    std::cout << "lot_web_buffer: Constructor (" << typeName << ", " << size << " bytes)" << std::endl;
+    : type_(type), size_(size) {
+    std::cout << "lot_web_buffer: Constructor (" << typeName(type)
+              << ", " << size << " bytes)" << std::endl;
 }
 
 lot_web_buffer::~lot_web_buffer() {
-    std::cout << "lot_web_buffer: Destructor (ID: " << bufferId_ << ")" << std::endl;
-    if (isReady()) {
-        js_destroyBuffer(bufferId_);
+    std::cout << "lot_web_buffer: Destructor (" << typeName(type_) << ")" << std::endl;
+    if (buffer_) {
+        wgpuBufferDestroy(buffer_);
+        wgpuBufferRelease(buffer_);
     }
 }
 
-void lot_web_buffer::createBuffer(const void* data) {
-    std::cout << "lot_web_buffer: Creating buffer (ID: " << bufferId_ << ")..." << std::endl;
-    js_createBuffer(bufferId_, static_cast<int>(type_), data, size_);
+void lot_web_buffer::createBuffer(lot_web_device& device, const void* data) {
+    if (buffer_) {
+        return;  // 이미 생성됨
+    }
+
+    std::string label = std::string(typeName(type_)) + " Buffer";
+
+    WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    desc.label = lotStringView(label);
+    desc.usage = typeUsage(type_);
+    desc.size = size_;
+
+    buffer_ = wgpuDeviceCreateBuffer(device.getDevice(), &desc);
+    if (!buffer_) {
+        std::cerr << "lot_web_buffer: Failed to create buffer!" << std::endl;
+        return;
+    }
+
+    if (data != nullptr) {
+        wgpuQueueWriteBuffer(device.getQueue(), buffer_, 0, data, size_);
+    }
+
+    std::cout << "lot_web_buffer: Created " << typeName(type_)
+              << " buffer (" << size_ << " bytes)" << std::endl;
 }
 
-void lot_web_buffer::bind(int slot) {
-    if (!isReady()) return;
+void lot_web_buffer::bind(WGPURenderPassEncoder pass, uint32_t slot) {
+    if (!buffer_ || pass == nullptr) {
+        return;
+    }
 
     if (type_ == BufferType::VERTEX) {
-        js_bindVertexBuffer(bufferId_, slot);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, slot, buffer_, 0, size_);
     } else if (type_ == BufferType::INDEX) {
-        js_bindIndexBuffer(bufferId_);
+        wgpuRenderPassEncoderSetIndexBuffer(pass, buffer_, WGPUIndexFormat_Uint32, 0, size_);
     }
-}
-
-bool lot_web_buffer::isReady() const {
-    return js_isBufferReady(bufferId_);
 }

@@ -2,6 +2,7 @@
 
 #include "lot_web_device.h"
 #include "lot_web_swapchain.h"
+#include <webgpu/webgpu.h>
 #include <memory>
 #include <cassert>
 
@@ -16,7 +17,7 @@ public:
 
     // 초기화 및 상태 확인
     void init();
-    bool isReady() const;
+    bool isReady() const { return deviceInitialized_ && swapchainCreated_; }
 
     // 프레임 시작/종료
     bool beginFrame();
@@ -25,6 +26,12 @@ public:
     // 렌더 패스 시작/종료
     void beginRenderPass();
     void endRenderPass();
+
+    // 현재 프레임의 렌더 패스 (렌더 시스템이 여기에 명령을 기록한다)
+    WGPURenderPassEncoder getCurrentRenderPass() const {
+        assert(isFrameStarted_ && "Cannot get render pass when frame not in progress");
+        return currentPass_;
+    }
 
     // 프레임 상태 확인
     bool isFrameInProgress() const { return isFrameStarted_; }
@@ -40,10 +47,18 @@ public:
     // 동적 크기 (스왑체인에서 가져옴)
     int getWidth() const { return swapchain_->getWidth(); }
     int getHeight() const { return swapchain_->getHeight(); }
+    float getAspectRatio() const {
+        return static_cast<float>(swapchain_->getWidth())
+             / static_cast<float>(swapchain_->getHeight());
+    }
 
 private:
     std::unique_ptr<lot_web_device> device_;
     std::unique_ptr<lot_web_swapchain> swapchain_;
+
+    WGPUCommandEncoder currentEncoder_ = nullptr;
+    WGPURenderPassEncoder currentPass_ = nullptr;
+    WGPUTextureView currentView_ = nullptr;
 
     bool isFrameStarted_ = false;
     bool deviceInitialized_ = false;

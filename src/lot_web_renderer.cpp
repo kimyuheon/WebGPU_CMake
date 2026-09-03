@@ -1,4 +1,5 @@
 #include "lot_web_renderer.h"
+#include "lot_web_common.h"
 #include <iostream>
 
 LotWebRenderer::LotWebRenderer() {
@@ -7,6 +8,8 @@ LotWebRenderer::LotWebRenderer() {
 }
 
 LotWebRenderer::~LotWebRenderer() {
+    if (currentPass_) wgpuRenderPassEncoderRelease(currentPass_);
+    if (currentEncoder_) wgpuCommandEncoderRelease(currentEncoder_);
 }
 
 void LotWebRenderer::init() {
@@ -14,14 +17,10 @@ void LotWebRenderer::init() {
     std::cout << "Renderer: Device initialization started..." << std::endl;
 }
 
-bool LotWebRenderer::isReady() const {
-    return deviceInitialized_ && swapchainCreated_;
-}
-
 bool LotWebRenderer::beginFrame() {
     // 디바이스 초기화 확인 (한 번만)
     if (!deviceInitialized_ && device_->isInitialized()) {
-        swapchain_->createSwapchain();
+        swapchain_->createSwapchain(*device_);
         deviceInitialized_ = true;
         std::cout << "Renderer: Device initialized, swapchain created." << std::endl;
     }
@@ -39,21 +38,63 @@ bool LotWebRenderer::beginFrame() {
     }
 
     assert(!isFrameStarted_ && "Cannot call beginFrame while frame is in progress");
+
+    // 이번 프레임에 그릴 텍스처 획득
+    currentView_ = swapchain_->acquireNextImage();
+    if (!currentView_) {
+        return false;  // 탭이 백그라운드인 경우 등 - 이번 프레임은 건너뛴다
+    }
+
+    WGPUCommandEncoderDescriptor encoderDesc = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
+    encoderDesc.label = lotStringView("Frame Encoder");
+    currentEncoder_ = wgpuDeviceCreateCommandEncoder(device_->getDevice(), &encoderDesc);
+
     isFrameStarted_ = true;
     return true;
 }
 
-void LotWebRenderer::endFrame() {
-    assert(isFrameStarted_ && "Cannot call endFrame while frame is not in progress");
-    isFrameStarted_ = false;
-}
-
 void LotWebRenderer::beginRenderPass() {
     assert(isFrameStarted_ && "Cannot begin render pass if frame not started");
-    swapchain_->beginRenderPass();
+
+    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAttachment.view = currentView_;
+    colorAttachment.loadOp = WGPULoadOp_Clear;
+    colorAttachment.storeOp = WGPUStoreOp_Store;
+    colorAttachment.clearValue = WGPUColor{0.1, 0.1, 0.1, 1.0};
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.label = lotStringView("Main Render Pass");
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+
+    currentPass_ = wgpuCommandEncoderBeginRenderPass(currentEncoder_, &passDesc);
 }
 
 void LotWebRenderer::endRenderPass() {
     assert(isFrameStarted_ && "Cannot end render pass if frame not started");
-    swapchain_->endRenderPass();
+    if (!currentPass_) return;
+
+    wgpuRenderPassEncoderEnd(currentPass_);
+    wgpuRenderPassEncoderRelease(currentPass_);
+    currentPass_ = nullptr;
+}
+
+void LotWebRenderer::endFrame() {
+    assert(isFrameStarted_ && "Cannot call endFrame while frame is not in progress");
+
+    WGPUCommandBufferDescriptor cmdDesc = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
+    WGPUCommandBuffer commands = wgpuCommandEncoderFinish(currentEncoder_, &cmdDesc);
+
+    wgpuQueueSubmit(device_->getQueue(), 1, &commands);
+
+    wgpuCommandBufferRelease(commands);
+    wgpuCommandEncoderRelease(currentEncoder_);
+    currentEncoder_ = nullptr;
+
+    // 주의: 웹에서는 wgpuSurfacePresent 를 부르면 abort 한다.
+    // 브라우저가 rAF 시점에 알아서 표시하므로 present 호출이 없다.
+    swapchain_->releaseCurrentImage();
+    currentView_ = nullptr;
+
+    isFrameStarted_ = false;
 }
