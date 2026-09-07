@@ -1,4 +1,5 @@
 #include "simple_render_system.h"
+#include "lot_model.h"
 #include "lot_web_device.h"
 #include "lot_web_common.h"
 #include <iostream>
@@ -96,21 +97,26 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
               << " bytes, " << kMaxObjects << " slots)" << std::endl;
 }
 
-void SimpleRenderSystem::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat) {
+void SimpleRenderSystem::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
+                                        WGPUTextureFormat depthFormat) {
     if (!pipelineLayout_) {
         std::cerr << "SimpleRenderSystem: createUniformBuffer must run first!" << std::endl;
         return;
     }
-    pipeline_->createPipeline(device, colorFormat, pipelineLayout_);
+    pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_);
     std::cout << "SimpleRenderSystem: Pipeline creation started" << std::endl;
 }
 
 void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
-                                           std::vector<LotGameObject>& gameObjects) {
+                                           std::vector<LotGameObject>& gameObjects,
+                                           const LotCamera& camera) {
     if (!isReady() || pass == nullptr) return;
 
     // 파이프라인 바인딩
     pipeline_->bind(pass);
+
+    // 카메라 쪽 두 행렬은 프레임당 한 번만 곱하면 된다
+    const mat4 projectionView = camera.getProjectionView();
 
     uint32_t slot = 0;
     for (auto& obj : gameObjects) {
@@ -126,13 +132,9 @@ void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
         // 오브젝트마다 자기 슬롯에 transform 을 쓴다.
         // 예전에는 슬롯이 하나뿐이라 모든 draw 가 마지막 값을 봤다
         // (writeBuffer 는 submit 시점에 반영되므로).
-        const auto& transform = obj.transform2d;
-        const UniformData uniform{
-            transform.translation.x,
-            transform.translation.y,
-            transform.rotation,
-            transform.scale.x,
-        };
+        // projection * view * model 을 CPU 에서 한 행렬로 접어 보낸다.
+        // 셰이더는 정점마다 곱셈 한 번만 하면 된다.
+        const UniformData uniform{projectionView * obj.transform.mat4Transform()};
 
         const uint32_t byteOffset = slot * uniformStride_;
         wgpuQueueWriteBuffer(queue_, uniformBuffer_->getHandle(), byteOffset,
@@ -141,14 +143,10 @@ void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
         // dynamic offset 으로 이 오브젝트의 슬롯을 가리킨다
         wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 1, &byteOffset);
 
-        // Vertex 버퍼 바인딩
-        if (obj.model != nullptr) {
-            obj.model->bind(pass, 0);
-        }
-
-        // Draw 호출
-        if (obj.vertexCount > 0) {
-            pipeline_->draw(pass, obj.vertexCount);
+        // 정점/인덱스 버퍼 바인딩과 draw 는 모델이 알아서 한다
+        if (obj.model) {
+            obj.model->bind(pass);
+            obj.model->draw(pass);
         }
 
         ++slot;

@@ -19,9 +19,10 @@ lot_web_pipeline::~lot_web_pipeline() {
 }
 
 void lot_web_pipeline::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
-                                      WGPUPipelineLayout layout) {
+                                      WGPUTextureFormat depthFormat, WGPUPipelineLayout layout) {
     device_ = device.getDevice();
     colorFormat_ = colorFormat;
+    depthFormat_ = depthFormat;
     layout_ = layout;
 
     std::cout << "lot_web_pipeline: Loading shader from " << shaderPath_ << std::endl;
@@ -85,7 +86,14 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
-    // 4. 파이프라인
+    // 4. 뎁스 상태 - 렌더 패스의 뎁스 어태치먼트와 포맷이 같아야 한다.
+    //    Less: 더 가까운(z 가 작은) 조각만 통과. WebGPU 의 깊이 범위는 [0, 1] 이다.
+    WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
+    depthStencil.format = depthFormat_;
+    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
+    depthStencil.depthCompare = WGPUCompareFunction_Less;
+
+    // 5. 파이프라인
     WGPURenderPipelineDescriptor desc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     desc.label = lotStringView(shaderPath_);
     desc.layout = layout_;  // 렌더 시스템이 만든 레이아웃 (dynamic offset 포함)
@@ -94,7 +102,20 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     desc.vertex.bufferCount = 1;
     desc.vertex.buffers = &vertexLayout;
     desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    // 백페이스 컬링. 뒤통수를 보이는 면은 래스터라이즈 전에 버려진다.
+    //
+    // 규약: 메시의 삼각형은 오른손 법칙 법선이 바깥을 향하도록 감는다
+    // (LotModel::createCube 참고). 우리 좌표계(+Y 아래, +Z 화면 안쪽)와
+    // 투영 행렬의 Y 뒤집기까지 거치면 그런 삼각형이 CCW 로 판정된다.
+    //
+    // 부호를 손으로 따라가면 틀리기 쉬운 자리다. 반대로 넣으면 정육면체의
+    // '안쪽'이 보인다 - 정면 대신 뒷면 색이 화면을 채우면 이 값을 의심할 것.
+    desc.primitive.frontFace = WGPUFrontFace_CCW;
+    desc.primitive.cullMode = WGPUCullMode_Back;
     desc.fragment = &fragmentState;
+    if (depthFormat_ != WGPUTextureFormat_Undefined) {
+        desc.depthStencil = &depthStencil;
+    }
 
     pipeline_ = wgpuDeviceCreateRenderPipeline(device_, &desc);
 
@@ -111,9 +132,4 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
 void lot_web_pipeline::bind(WGPURenderPassEncoder pass) {
     if (!pipeline_ || pass == nullptr) return;
     wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
-}
-
-void lot_web_pipeline::draw(WGPURenderPassEncoder pass, uint32_t vertexCount) {
-    if (!pipeline_ || pass == nullptr) return;
-    wgpuRenderPassEncoderDraw(pass, vertexCount, 1, 0, 0);
 }

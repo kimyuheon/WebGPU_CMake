@@ -1,8 +1,8 @@
-// Uniform 데이터 (매 프레임 업데이트)
+// Uniform 데이터 (오브젝트마다 dynamic offset 으로 다른 슬롯을 본다)
 struct Uniforms {
-    offset: vec2<f32>,  // x, y 오프셋
-    rotation: f32,      // 회전 각도 (라디안)
-    scale: f32,         // 크기
+    // translate * Ry * Rx * Rz * scale 이 이미 접혀 있는 모델 행렬.
+    // C++ 쪽 TransformComponent::mat4Transform() 이 만든다.
+    transform: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -23,21 +23,8 @@ struct VertexOutput {
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
 
-    let cosTheta = cos(uniforms.rotation);
-    let sinTheta = sin(uniforms.rotation);
-
-    // 1. 스케일 (원점 기준)
-    let scaled = input.position.xy * uniforms.scale;
-
-    // 2. 회전 (원점 기준)
-    var rotated: vec2<f32>;
-    rotated.x = scaled.x * cosTheta - scaled.y * sinTheta;
-    rotated.y = scaled.x * sinTheta + scaled.y * cosTheta;
-
-    // 3. 이동
-    let worldPos = rotated + uniforms.offset;
-
-    output.position = vec4<f32>(worldPos, input.position.z, 1.0);
+    // 스케일 -> 회전 -> 이동이 행렬 하나에 다 들어 있으므로 곱셈 한 번이면 된다.
+    output.position = uniforms.transform * vec4<f32>(input.position, 1.0);
     output.color = input.color;
     return output;
 }

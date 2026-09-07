@@ -19,14 +19,14 @@ public:
     // layout 은 렌더 시스템이 만들어 넘긴다 (Vulkan 쪽 pipelineLayout 과 같은 역할).
     // nullptr 을 주면 'auto' 레이아웃이 되는데, auto 로는 dynamic offset 을
     // 켤 수 없으므로 오브젝트별 uniform 을 쓰려면 반드시 명시해야 한다.
+    //
+    // depthFormat 이 Undefined 면 뎁스 테스트 없이 만든다.
     void createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
-                        WGPUPipelineLayout layout);
+                        WGPUTextureFormat depthFormat, WGPUPipelineLayout layout);
 
-    // 파이프라인 바인딩
+    // 파이프라인 바인딩.
+    // 실제 draw 는 정점 개수를 아는 LotModel 이 한다.
     void bind(WGPURenderPassEncoder pass);
-
-    // 그리기
-    void draw(WGPURenderPassEncoder pass, uint32_t vertexCount);
 
     bool isReady() const { return pipeline_ != nullptr; }
     WGPURenderPipeline getHandle() const { return pipeline_; }
@@ -41,6 +41,7 @@ private:
     std::string shaderPath_;
     WGPUDevice device_ = nullptr;
     WGPUTextureFormat colorFormat_ = WGPUTextureFormat_Undefined;
+    WGPUTextureFormat depthFormat_ = WGPUTextureFormat_Undefined;
     WGPUPipelineLayout layout_ = nullptr;
     WGPURenderPipeline pipeline_ = nullptr;
 };

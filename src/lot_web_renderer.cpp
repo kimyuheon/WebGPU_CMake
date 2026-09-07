@@ -62,10 +62,21 @@ void LotWebRenderer::beginRenderPass() {
     colorAttachment.storeOp = WGPUStoreOp_Store;
     colorAttachment.clearValue = WGPUColor{0.1, 0.1, 0.1, 1.0};
 
+    // 뎁스 어태치먼트 - 매 프레임 가장 먼 값(1.0)으로 지운다.
+    WGPURenderPassDepthStencilAttachment depthAttachment =
+        WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    depthAttachment.view = swapchain_->getDepthView();
+    depthAttachment.depthLoadOp = WGPULoadOp_Clear;
+    depthAttachment.depthStoreOp = WGPUStoreOp_Store;
+    depthAttachment.depthClearValue = 1.0f;
+
     WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
     passDesc.label = lotStringView("Main Render Pass");
     passDesc.colorAttachmentCount = 1;
     passDesc.colorAttachments = &colorAttachment;
+    if (depthAttachment.view != nullptr) {
+        passDesc.depthStencilAttachment = &depthAttachment;
+    }
 
     currentPass_ = wgpuCommandEncoderBeginRenderPass(currentEncoder_, &passDesc);
 }

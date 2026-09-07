@@ -36,6 +36,7 @@ lot_web_swapchain::lot_web_swapchain() {
 lot_web_swapchain::~lot_web_swapchain() {
     std::cout << "lot_web_swapchain: Destructor" << std::endl;
     releaseCurrentImage();
+    releaseDepthResources();
     if (surface_) wgpuSurfaceRelease(surface_);
     g_swapchainInstance = nullptr;
 }
@@ -79,6 +80,7 @@ void lot_web_swapchain::createSwapchain(lot_web_device& device) {
 
     device_ = device.getDevice();
     configure();
+    createDepthResources();
     configured_ = true;
 
     // 4. 리사이즈 리스너 등록 (html5.h - JS 리스너 불필요)
@@ -120,7 +122,54 @@ void lot_web_swapchain::resize(int width, int height) {
     js_setCanvasSize(width_, height_);
     configure();
 
+    // 뎁스 버퍼는 스왑체인과 크기가 정확히 같아야 하므로 새로 만든다.
+    releaseDepthResources();
+    createDepthResources();
+
     std::cout << "Resized: " << width_ << "x" << height_ << std::endl;
+}
+
+void lot_web_swapchain::createDepthResources() {
+    WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    desc.label = lotStringView("Depth Texture");
+    desc.usage = WGPUTextureUsage_RenderAttachment;
+    desc.dimension = WGPUTextureDimension_2D;
+    desc.size.width = static_cast<uint32_t>(width_);
+    desc.size.height = static_cast<uint32_t>(height_);
+    desc.size.depthOrArrayLayers = 1;
+    desc.format = kDepthFormat;
+    desc.mipLevelCount = 1;
+    desc.sampleCount = 1;
+
+    depthTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+    if (!depthTexture_) {
+        std::cerr << "lot_web_swapchain: Failed to create depth texture!" << std::endl;
+        return;
+    }
+
+    WGPUTextureViewDescriptor viewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+    viewDesc.label = lotStringView("Depth View");
+    viewDesc.format = kDepthFormat;
+    viewDesc.dimension = WGPUTextureViewDimension_2D;
+    viewDesc.baseMipLevel = 0;
+    viewDesc.mipLevelCount = 1;
+    viewDesc.baseArrayLayer = 0;
+    viewDesc.arrayLayerCount = 1;
+    viewDesc.aspect = WGPUTextureAspect_All;
+
+    depthView_ = wgpuTextureCreateView(depthTexture_, &viewDesc);
+}
+
+void lot_web_swapchain::releaseDepthResources() {
+    if (depthView_) {
+        wgpuTextureViewRelease(depthView_);
+        depthView_ = nullptr;
+    }
+    if (depthTexture_) {
+        wgpuTextureDestroy(depthTexture_);
+        wgpuTextureRelease(depthTexture_);
+        depthTexture_ = nullptr;
+    }
 }
 
 WGPUTextureView lot_web_swapchain::acquireNextImage() {

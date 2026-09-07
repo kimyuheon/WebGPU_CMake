@@ -28,6 +28,10 @@ public:
     // 획득한 텍스처 뷰 해제
     void releaseCurrentImage();
 
+    // 뎁스 버퍼 (스왑체인과 같은 크기로 유지된다)
+    WGPUTextureView getDepthView() const { return depthView_; }
+    WGPUTextureFormat getDepthFormat() const { return kDepthFormat; }
+
     bool isReady() const { return configured_; }
 
     bool wasResized() const { return wasResized_; }
@@ -38,7 +42,11 @@ public:
     WGPUTextureFormat getFormat() const { return format_; }
 
 private:
+    static constexpr WGPUTextureFormat kDepthFormat = WGPUTextureFormat_Depth24Plus;
+
     void configure();
+    void createDepthResources();
+    void releaseDepthResources();
 
     WGPUSurface surface_ = nullptr;
     WGPUDevice device_ = nullptr;
@@ -46,6 +54,9 @@ private:
 
     WGPUTexture currentTexture_ = nullptr;
     WGPUTextureView currentView_ = nullptr;
+
+    WGPUTexture depthTexture_ = nullptr;
+    WGPUTextureView depthView_ = nullptr;
 
     int width_ = 0;
     int height_ = 0;

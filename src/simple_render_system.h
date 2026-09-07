@@ -3,6 +3,8 @@
 #include "lot_web_pipeline.h"
 #include "lot_web_buffer.h"
 #include "lot_game_object.h"
+#include "lot_camera.h"
+#include "lot_math.h"
 #include <webgpu/webgpu.h>
 #include <cstdint>
 #include <memory>
@@ -28,10 +30,13 @@ public:
     // uniform 리소스를 먼저 만들고(바인드 그룹 레이아웃이 여기서 나온다),
     // 그 레이아웃으로 파이프라인을 만든다. 순서가 바뀌면 안 된다.
     void createUniformBuffer(lot_web_device& device);
-    void createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat);
+    void createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
+                        WGPUTextureFormat depthFormat);
 
     // 게임 오브젝트들 렌더링
-    void renderGameObjects(WGPURenderPassEncoder pass, std::vector<LotGameObject>& gameObjects);
+    void renderGameObjects(WGPURenderPassEncoder pass,
+                           std::vector<LotGameObject>& gameObjects,
+                           const LotCamera& camera);
 
     // 상태 확인
     bool isReady() const { return pipeline_->isReady() && uniformCreated_; }
@@ -40,16 +45,15 @@ public:
 
 private:
     // 셰이더의 Uniforms 구조체와 반드시 같은 레이아웃이어야 한다.
-    //   offset: vec2<f32>  (offset 0)
-    //   rotation: f32      (offset 8)
-    //   scale: f32         (offset 12)
+    //   transform: mat4x4<f32>  (offset 0, 64 바이트)
+    //
+    // mat4 가 열 우선이라 WGSL 의 mat4x4<f32> 로 그대로 memcpy 된다.
+    // Vulkan 쪽에서는 이걸 push constant 로 보냈지만 WebGPU 에는 push constant 가
+    // 없어서, 오브젝트마다 uniform 버퍼의 자기 슬롯에 써넣는다.
     struct UniformData {
-        float offsetX;
-        float offsetY;
-        float rotation;
-        float scale;
+        mat4 transform;  // projection * view * model
     };
-    static_assert(sizeof(UniformData) == 16, "Uniform layout must match triangle.wgsl");
+    static_assert(sizeof(UniformData) == 64, "Uniform layout must match triangle.wgsl");
 
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<lot_web_buffer> uniformBuffer_;
