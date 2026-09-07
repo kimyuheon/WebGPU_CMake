@@ -59,7 +59,8 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
 
     // 2. 정점 레이아웃 - lot_vertex.h 의 Vertex 구조체가 유일한 정의처다.
     //    (예전에는 C++ 72바이트 / JS arrayStride 24 / WGSL 이 따로 놀았다)
-    WGPUVertexAttribute attributes[2] = {
+    WGPUVertexAttribute attributes[3] = {
+        WGPU_VERTEX_ATTRIBUTE_INIT,
         WGPU_VERTEX_ATTRIBUTE_INIT,
         WGPU_VERTEX_ATTRIBUTE_INIT,
     };
@@ -69,11 +70,14 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     attributes[1].format = WGPUVertexFormat_Float32x3;
     attributes[1].offset = offsetof(Vertex, color);
     attributes[1].shaderLocation = 1;
+    attributes[2].format = WGPUVertexFormat_Float32x3;
+    attributes[2].offset = offsetof(Vertex, normal);
+    attributes[2].shaderLocation = 2;
 
     WGPUVertexBufferLayout vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
     vertexLayout.arrayStride = sizeof(Vertex);
-    vertexLayout.attributeCount = 2;
+    vertexLayout.attributeCount = 3;
     vertexLayout.attributes = attributes;
 
     // 3. 프래그먼트 스테이지

@@ -67,6 +67,16 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
         {0.1f, 0.8f, 0.1f},  // 뒤    - 초록
     };
 
+    // 면마다 바깥을 향하는 법선. 위의 감는 방향과 반드시 일치해야 한다.
+    const vec3 kFaceNormals[6] = {
+        {-1.0f,  0.0f,  0.0f},  // 왼쪽
+        { 1.0f,  0.0f,  0.0f},  // 오른쪽
+        { 0.0f, -1.0f,  0.0f},  // 위 (+Y 가 아래라 윗면 법선은 -Y)
+        { 0.0f,  1.0f,  0.0f},  // 아래
+        { 0.0f,  0.0f, -1.0f},  // 앞 (카메라 쪽)
+        { 0.0f,  0.0f,  1.0f},  // 뒤
+    };
+
     const float kFaceCorners[6][4][3] = {
         // 왼쪽 (x = -0.5, 법선 -X)
         {{-0.5f, -0.5f,  0.5f}, {-0.5f,  0.5f,  0.5f}, {-0.5f,  0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f}},
@@ -88,10 +98,14 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
 
     for (uint32_t face = 0; face < 6; ++face) {
         const vec3& color = kFaceColors[face];
+        const vec3& normal = kFaceNormals[face];
         for (int corner = 0; corner < 4; ++corner) {
             const float* p = kFaceCorners[face][corner];
+            // 면의 네 꼭짓점이 같은 법선을 쓴다 - 그래서 면이 평평하게 보인다
+            // (부드럽게 하려면 꼭짓점을 공유하고 법선을 평균내야 한다).
             builder.vertices.push_back(Vertex{{p[0], p[1], p[2]},
-                                              {color.x, color.y, color.z}});
+                                              {color.x, color.y, color.z},
+                                              {normal.x, normal.y, normal.z}});
         }
 
         // 사각형 하나를 삼각형 둘로: (a, b, c) 와 (a, c, d)

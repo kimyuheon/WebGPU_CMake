@@ -45,15 +45,20 @@ public:
 
 private:
     // 셰이더의 Uniforms 구조체와 반드시 같은 레이아웃이어야 한다.
-    //   transform: mat4x4<f32>  (offset 0, 64 바이트)
+    //   transform:    mat4x4<f32>  (offset 0,  64 바이트)
+    //   normalMatrix: mat4x4<f32>  (offset 64, 64 바이트)
     //
     // mat4 가 열 우선이라 WGSL 의 mat4x4<f32> 로 그대로 memcpy 된다.
     // Vulkan 쪽에서는 이걸 push constant 로 보냈지만 WebGPU 에는 push constant 가
     // 없어서, 오브젝트마다 uniform 버퍼의 자기 슬롯에 써넣는다.
+    //
+    // normalMatrix 는 상단 3x3 만 쓴다. mat3x3 은 WGSL 에서 열마다 16바이트로
+    // 패딩되어 C++ 쪽과 어긋나기 쉬우므로 mat4 로 보내는 편이 안전하다.
     struct UniformData {
-        mat4 transform;  // projection * view * model
+        mat4 transform;     // projection * view * model
+        mat4 normalMatrix;  // transpose(inverse(mat3(model)))
     };
-    static_assert(sizeof(UniformData) == 64, "Uniform layout must match triangle.wgsl");
+    static_assert(sizeof(UniformData) == 128, "Uniform layout must match triangle.wgsl");
 
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<lot_web_buffer> uniformBuffer_;

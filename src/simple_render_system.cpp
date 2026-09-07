@@ -134,7 +134,13 @@ void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
         // (writeBuffer 는 submit 시점에 반영되므로).
         // projection * view * model 을 CPU 에서 한 행렬로 접어 보낸다.
         // 셰이더는 정점마다 곱셈 한 번만 하면 된다.
-        const UniformData uniform{projectionView * obj.transform.mat4Transform()};
+        //
+        // 노멀은 이 행렬로 변환하면 안 된다 - 투영이 섞여 있고, 축마다 다른
+        // 스케일이 방향을 틀어놓기 때문이다. 그래서 별도로 하나 더 보낸다.
+        const UniformData uniform{
+            projectionView * obj.transform.mat4Transform(),
+            obj.transform.normalMatrix(),
+        };
 
         const uint32_t byteOffset = slot * uniformStride_;
         wgpuQueueWriteBuffer(queue_, uniformBuffer_->getHandle(), byteOffset,

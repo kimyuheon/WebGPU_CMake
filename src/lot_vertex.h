@@ -11,6 +11,7 @@
 struct Vertex {
     float position[3];  // @location(0)
     float color[3];     // @location(1)
+    float normal[3];    // @location(2)
 };
 
-static_assert(sizeof(Vertex) == 24, "Vertex layout must stay tightly packed");
+static_assert(sizeof(Vertex) == 36, "Vertex layout must stay tightly packed");

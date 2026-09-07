@@ -169,4 +169,40 @@ struct TransformComponent {
         result.m[3][3] = 1.0f;
         return result;
     }
+
+    // 노멀 변환 행렬 = transpose(inverse(mat3(model))).
+    //
+    // 모델 행렬을 노멀에 그대로 쓰면 안 된다. 스케일이 축마다 다를 때
+    // (예: scale{2, 1, 1}) 노멀이 면에 수직이 아니게 기울어지기 때문이다.
+    // 회전은 직교행렬이라 역전치가 자기 자신이고, 스케일만 역수를 취하면
+    // 되므로 일반적인 역행렬 계산 없이 mat4Transform 의 스케일 자리에
+    // 1/scale 을 넣은 것과 같다.
+    //
+    // 상단 3x3 만 의미가 있다. 셰이더에서는 vec4(normal, 0) 을 곱해 쓴다.
+    mat4 normalMatrix() const {
+        const float c3 = std::cos(rotation.z);
+        const float s3 = std::sin(rotation.z);
+        const float c2 = std::cos(rotation.x);
+        const float s2 = std::sin(rotation.x);
+        const float c1 = std::cos(rotation.y);
+        const float s1 = std::sin(rotation.y);
+
+        const vec3 invScale{1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z};
+
+        mat4 result;
+        result.m[0][0] = invScale.x * (c1 * c3 + s1 * s2 * s3);
+        result.m[0][1] = invScale.x * (c2 * s3);
+        result.m[0][2] = invScale.x * (c1 * s2 * s3 - c3 * s1);
+
+        result.m[1][0] = invScale.y * (c3 * s1 * s2 - c1 * s3);
+        result.m[1][1] = invScale.y * (c2 * c3);
+        result.m[1][2] = invScale.y * (c1 * c3 * s2 + s1 * s3);
+
+        result.m[2][0] = invScale.z * (c2 * s1);
+        result.m[2][1] = invScale.z * (-s2);
+        result.m[2][2] = invScale.z * (c1 * c2);
+
+        result.m[3][3] = 1.0f;
+        return result;
+    }
 };
