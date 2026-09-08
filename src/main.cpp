@@ -17,6 +17,7 @@
 std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
 std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::shared_ptr<LotModel> g_cubeModel = nullptr;
+std::shared_ptr<LotModel> g_objModel = nullptr;
 std::vector<LotGameObject> g_gameObjects;
 LotCamera g_camera;
 KeyboardMovementController g_cameraController;
@@ -31,6 +32,8 @@ static double g_lastFrameMs = 0.0;
 
 // 초기화 상태
 static bool g_modelCreated = false;
+static bool g_objRequested = false;   // fetch 를 시작했는지 (한 번만 보낸다)
+static bool g_objPlaced = false;      // 받아온 모델을 장면에 넣었는지
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
 static bool g_gameObjectsCreated = false;
@@ -66,12 +69,12 @@ static const float kSpinSpeeds[] = {1.0f, -1.6f, 0.7f};
 
 // 게임 오브젝트 생성
 void createGameObjects() {
-    // 큐브 하나를 세 오브젝트가 공유한다 (모델이 shared_ptr 인 이유).
+    // 큐브 하나를 여러 오브젝트가 공유한다 (모델이 shared_ptr 인 이유).
     // 정점 데이터는 GPU 에 한 번만 올라가고, 오브젝트마다 다른 것은 transform 뿐이다.
+    // 가운데는 OBJ 로 불러온 모델 자리로 비워둔다.
     const vec3 spawns[] = {
-        vec3(-1.2f, 0.0f, 0.0f),
-        vec3( 0.0f, 0.0f, 0.0f),
-        vec3( 1.2f, 0.0f, 0.0f),
+        vec3(-1.5f, 0.0f, 0.0f),
+        vec3( 1.5f, 0.0f, 0.0f),
     };
 
     for (const auto& translation : spawns) {
@@ -88,6 +91,21 @@ void createGameObjects() {
     std::cout << "Game objects created: " << g_gameObjects.size() << std::endl;
 }
 
+// 받아온 OBJ 모델을 장면 가운데에 놓는다.
+//
+// fetch 콜백은 렌더 루프 바깥(브라우저 이벤트 루프)에서 불리므로,
+// 프레임 도중에 벡터가 바뀔 걱정은 없다.
+void placeObjModel() {
+    auto object = LotGameObject::createGameObject();
+    object.model = g_objModel;
+    object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
+    object.transform.scale = vec3(0.5f);
+    g_gameObjects.push_back(std::move(object));
+
+    g_objPlaced = true;
+    std::cout << "OBJ model placed at scene center" << std::endl;
+}
+
 // 렌더 루프
 void renderLoop() {
     if (!g_renderer || !g_renderSystem) return;
@@ -98,6 +116,16 @@ void renderLoop() {
     if (!g_modelCreated && g_renderer->getSwapchain().isReady()) {
         g_cubeModel = LotModel::createCube(device);
         g_modelCreated = g_cubeModel && g_cubeModel->isReady();
+    }
+
+    // 1-1. OBJ 모델은 네트워크로 받아오므로 요청만 보내두고 넘어간다.
+    //      도착하면 콜백에서 g_objModel 이 채워지고, 아래 4-1 에서 장면에 들어간다.
+    if (!g_objRequested && g_modelCreated) {
+        g_objRequested = true;
+        LotModel::loadFromObjAsync(device, "models/torus.obj",
+                                   [](std::unique_ptr<LotModel> model) {
+                                       if (model) g_objModel = std::move(model);
+                                   });
     }
 
     // 2. Uniform 리소스 생성 (모델 준비 후).
@@ -119,6 +147,12 @@ void renderLoop() {
     if (!g_gameObjectsCreated && g_renderSystem->isPipelineReady()) {
         createGameObjects();
         g_gameObjectsCreated = true;
+    }
+
+    // 4-1. OBJ 모델이 도착했으면 장면에 넣는다 (한 번만).
+    //      큐브들은 그 전에 이미 그려지고 있다 - 로딩이 화면을 막지 않는다.
+    if (!g_objPlaced && g_objModel && g_gameObjectsCreated) {
+        placeObjModel();
     }
 
     // 5. 리사이즈 처리.

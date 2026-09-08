@@ -5,7 +5,9 @@
 
 #include <webgpu/webgpu.h>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 class lot_web_device;
@@ -38,6 +40,15 @@ public:
 
     // 정육면체 (한 변 1.0, 중심이 원점)
     static std::unique_ptr<LotModel> createCube(lot_web_device& device);
+
+    // OBJ 파일을 받아와서 모델을 만든다.
+    //
+    // 웹에는 동기 파일 읽기가 없다. 셰이더와 마찬가지로 fetch 로 받아오므로
+    // 결과는 콜백으로 온다. 실패하면 nullptr 이 넘어온다.
+    //
+    // device 는 콜백이 불릴 때까지 살아 있어야 한다.
+    static void loadFromObjAsync(lot_web_device& device, const std::string& path,
+                                 std::function<void(std::unique_ptr<LotModel>)> onLoaded);
 
 private:
     std::unique_ptr<lot_web_buffer> vertexBuffer_;

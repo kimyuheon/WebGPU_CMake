@@ -1,8 +1,11 @@
 #include "lot_model.h"
 #include "lot_math.h"
+#include "lot_obj_loader.h"
 #include "lot_web_device.h"
 
+#include <emscripten/emscripten.h>
 #include <iostream>
+#include <utility>
 
 LotModel::LotModel(lot_web_device& device, const Builder& builder) {
     vertexCount_ = static_cast<uint32_t>(builder.vertices.size());
@@ -119,4 +122,53 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
     }
 
     return std::make_unique<LotModel>(device, builder);
+}
+
+namespace {
+
+// 비동기 fetch 콜백은 C 함수 포인터라 캡처를 못 넘긴다.
+// 그래서 필요한 것들을 힙에 담아 void* 로 들려 보낸다.
+struct ObjLoadContext {
+    lot_web_device* device;
+    std::string path;
+    std::function<void(std::unique_ptr<LotModel>)> onLoaded;
+};
+
+void onObjLoaded(void* arg, void* buffer, int size) {
+    // 콜백이 어떻게 끝나든 컨텍스트는 여기서 정리된다
+    std::unique_ptr<ObjLoadContext> ctx{static_cast<ObjLoadContext*>(arg)};
+
+    // wget_data 의 버퍼는 널 종료가 아니므로 길이를 명시해 복사한다
+    const std::string text(static_cast<const char*>(buffer), static_cast<size_t>(size));
+
+    lot_obj::LoadResult parsed = lot_obj::parse(text);
+    if (!parsed.ok) {
+        std::cerr << "LotModel: failed to parse " << ctx->path
+                  << " - " << parsed.error << std::endl;
+        ctx->onLoaded(nullptr);
+        return;
+    }
+
+    std::cout << "LotModel: loaded " << ctx->path << std::endl;
+    auto model = std::make_unique<LotModel>(*ctx->device, parsed.builder);
+    if (!model->isReady()) {
+        ctx->onLoaded(nullptr);
+        return;
+    }
+    ctx->onLoaded(std::move(model));
+}
+
+void onObjFailed(void* arg) {
+    std::unique_ptr<ObjLoadContext> ctx{static_cast<ObjLoadContext*>(arg)};
+    std::cerr << "LotModel: failed to fetch " << ctx->path << std::endl;
+    ctx->onLoaded(nullptr);
+}
+
+}  // namespace
+
+void LotModel::loadFromObjAsync(lot_web_device& device, const std::string& path,
+                                std::function<void(std::unique_ptr<LotModel>)> onLoaded) {
+    auto* ctx = new ObjLoadContext{&device, path, std::move(onLoaded)};
+    std::cout << "LotModel: fetching " << path << std::endl;
+    emscripten_async_wget_data(path.c_str(), ctx, onObjLoaded, onObjFailed);
 }

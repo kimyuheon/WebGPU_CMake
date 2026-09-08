@@ -54,3 +54,12 @@ add_custom_command(TARGET WebGPUApp POST_BUILD
         "$<TARGET_FILE_DIR:WebGPUApp>/shaders"
     COMMENT "Copying shaders to build directory"
 )
+
+# 모델도 같이 복사한다. 셰이더와 마찬가지로 런타임에 fetch 로 받아온다.
+add_custom_command(TARGET WebGPUApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WebGPUApp>/models"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/models"
+        "$<TARGET_FILE_DIR:WebGPUApp>/models"
+    COMMENT "Copying models to build directory"
+)
