@@ -4,6 +4,7 @@
 #include "lot_web_buffer.h"
 #include "lot_game_object.h"
 #include "lot_camera.h"
+#include "lot_lighting.h"
 #include "lot_math.h"
 #include <webgpu/webgpu.h>
 #include <cstdint>
@@ -36,7 +37,8 @@ public:
     // 게임 오브젝트들 렌더링
     void renderGameObjects(WGPURenderPassEncoder pass,
                            std::vector<LotGameObject>& gameObjects,
-                           const LotCamera& camera);
+                           const LotCamera& camera,
+                           const SceneLighting& lighting);
 
     // 상태 확인
     bool isReady() const { return pipeline_->isReady() && uniformCreated_; }
@@ -44,9 +46,25 @@ public:
     bool isUniformReady() const { return uniformCreated_; }
 
 private:
-    // 셰이더의 Uniforms 구조체와 반드시 같은 레이아웃이어야 한다.
-    //   transform:    mat4x4<f32>  (offset 0,  64 바이트)
-    //   normalMatrix: mat4x4<f32>  (offset 64, 64 바이트)
+    // --- group(0): 프레임당 한 번 (카메라 + 조명) ---
+    //
+    // 오브젝트마다 바뀌지 않는 값들이라 따로 뺐다. 예전에는 projection * view 를
+    // 오브젝트 유니폼에 미리 곱해 넣었지만, 점 광원은 월드 좌표가 필요해서
+    // 셰이더가 model 과 view/projection 을 따로 알아야 한다.
+    //
+    // vec3 는 WGSL 에서 16바이트로 정렬되므로 vec4 로 보내고 w 를 세기로 쓴다
+    // (색상의 w = 세기). 이러면 C++ 과 WGSL 의 오프셋이 어긋날 일이 없다.
+    struct GlobalUniformData {
+        mat4 projection;              // offset 0
+        mat4 view;                    // offset 64
+        float ambientLightColor[4];   // offset 128, rgb + 세기
+        float lightPosition[4];       // offset 144, xyz + 패딩
+        float lightColor[4];          // offset 160, rgb + 세기
+    };
+    static_assert(sizeof(GlobalUniformData) == 176,
+                  "Global uniform layout must match triangle.wgsl");
+
+    // --- group(1): 오브젝트당 (dynamic offset 으로 슬롯을 옮긴다) ---
     //
     // mat4 가 열 우선이라 WGSL 의 mat4x4<f32> 로 그대로 memcpy 된다.
     // Vulkan 쪽에서는 이걸 push constant 로 보냈지만 WebGPU 에는 push constant 가
@@ -55,17 +73,20 @@ private:
     // normalMatrix 는 상단 3x3 만 쓴다. mat3x3 은 WGSL 에서 열마다 16바이트로
     // 패딩되어 C++ 쪽과 어긋나기 쉬우므로 mat4 로 보내는 편이 안전하다.
     struct UniformData {
-        mat4 transform;     // projection * view * model
+        mat4 modelMatrix;   // 월드 변환만. 카메라는 group(0) 이 들고 있다.
         mat4 normalMatrix;  // transpose(inverse(mat3(model)))
     };
     static_assert(sizeof(UniformData) == 128, "Uniform layout must match triangle.wgsl");
 
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<lot_web_buffer> uniformBuffer_;
+    std::unique_ptr<lot_web_buffer> globalBuffer_;
 
     WGPUQueue queue_ = nullptr;
+    WGPUBindGroupLayout globalBindGroupLayout_ = nullptr;
     WGPUBindGroupLayout bindGroupLayout_ = nullptr;
     WGPUPipelineLayout pipelineLayout_ = nullptr;
+    WGPUBindGroup globalBindGroup_ = nullptr;
     WGPUBindGroup bindGroup_ = nullptr;
 
     // 오브젝트 하나가 차지하는 uniform 버퍼 간격.

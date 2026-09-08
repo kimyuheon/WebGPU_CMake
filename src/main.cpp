@@ -3,6 +3,7 @@
 #include "lot_game_object.h"
 #include "lot_camera.h"
 #include "lot_keyboard_controller.h"
+#include "lot_lighting.h"
 #include "lot_model.h"
 #include "lot_math.h"
 
@@ -39,6 +40,26 @@ static const float kFovY = 50.0f * 3.14159265f / 180.0f;
 static const float kNearZ = 0.1f;
 static const float kFarZ = 10.0f;
 static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // +Z 가 화면 안쪽이라 카메라는 -Z 쪽
+
+// 조명. 광원은 큐브들 위쪽 앞에 두고 천천히 돌린다.
+// 감쇠가 거리 제곱에 반비례하므로 세기는 거리의 제곱 규모로 잡아야 한다
+// (거리 1.5 면 감쇠가 1/2.25 이라, 세기 4 정도는 되어야 눈에 찬다).
+static SceneLighting g_lighting = [] {
+    SceneLighting lighting;
+    lighting.ambientIntensity = 0.03f;
+    lighting.pointLight.color = vec3(1.0f, 1.0f, 1.0f);
+    lighting.pointLight.intensity = 4.0f;
+    return lighting;
+}();
+
+// 광원은 큐브들 '앞쪽'(카메라 쪽, -Z)에서 좌우로 오간다.
+// 큐브와 같은 깊이(z = 0)에 두면 카메라를 향한 앞면이 전부 광원을 등지게 되어
+// 화면이 통째로 어두워진다 - 물리적으로는 맞지만 볼 게 없다.
+static const float kLightSwingX = 1.5f;
+static const float kLightHeight = -0.8f;  // +Y 가 아래라 위쪽은 음수
+static const float kLightBaseZ = -1.2f;
+static const float kLightSwingZ = 0.8f;
+static const float kLightOrbitSpeed = 0.8f;
 
 // 오브젝트별 회전 속도 (per-object uniform 이 실제로 도는지 눈으로 확인하려고 다르게 준다)
 static const float kSpinSpeeds[] = {1.0f, -1.6f, 0.7f};
@@ -134,12 +155,19 @@ void renderLoop() {
             g_gameObjects[i].transform.rotation.x = angle * 0.5f;
         }
 
+        // 광원을 큐브들 주위로 돌린다. 점 광원이라 가까운 면일수록 밝아지는 게
+        // 눈에 보인다 (방향 광원이었다면 어디에 두든 결과가 같다).
+        const float lightAngle = static_cast<float>(g_time) * kLightOrbitSpeed;
+        g_lighting.pointLight.position = vec3(std::cos(lightAngle) * kLightSwingX,
+                                              kLightHeight,
+                                              kLightBaseZ + std::sin(lightAngle) * kLightSwingZ);
+
         // 렌더 패스 시작
         g_renderer->beginRenderPass();
 
         // 게임 오브젝트들 렌더링
         g_renderSystem->renderGameObjects(g_renderer->getCurrentRenderPass(),
-                                          g_gameObjects, g_camera);
+                                          g_gameObjects, g_camera, g_lighting);
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
