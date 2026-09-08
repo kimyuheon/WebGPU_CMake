@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lot_web_buffer.h"
+#include "lot_math.h"
 #include "lot_vertex.h"
 
 #include <webgpu/webgpu.h>
@@ -38,8 +39,22 @@ public:
 
     bool isReady() const;
 
+    // 경계 상자. 남이 만든 OBJ 는 크기가 제각각이라
+    // (몇 백 단위짜리도 흔하다) 화면에 맞추려면 이게 필요하다.
+    vec3 boundsCenter() const;
+
+    // 가장 긴 변이 targetSize 가 되도록 하는 스케일.
+    // 지오메트리를 건드리지 않고 transform 으로만 맞춘다.
+    float fitScale(float targetSize) const;
+
     // 정육면체 (한 변 1.0, 중심이 원점)
     static std::unique_ptr<LotModel> createCube(lot_web_device& device);
+
+    // OBJ 파일 '내용'으로 모델을 만든다. 실패하면 nullptr.
+    // 파일에서 읽어오든 사용자가 고른 파일이든 결국 여기로 모인다.
+    static std::unique_ptr<LotModel> createFromObjText(lot_web_device& device,
+                                                       const std::string& text,
+                                                       const std::string& label);
 
     // OBJ 파일을 받아와서 모델을 만든다.
     //
@@ -56,4 +71,7 @@ private:
 
     uint32_t vertexCount_ = 0;
     uint32_t indexCount_ = 0;
+
+    vec3 boundsMin_{0.0f, 0.0f, 0.0f};
+    vec3 boundsMax_{0.0f, 0.0f, 0.0f};
 };

@@ -5,6 +5,7 @@
  * 여기 남은 것은 브라우저에서만 할 수 있는 DOM 구성뿐이다:
  *   - 상태바 + 캔버스 엘리먼트 생성
  *   - console 출력을 화면 상태바로 미러링
+ *   - OBJ 파일 열기 버튼 (파일 선택창은 JS 로만 띄울 수 있다)
  *
  * --js-library 옵션으로 링크된다.
  */
@@ -108,6 +109,74 @@ mergeInto(LibraryManager.library, {
 
     js_getWindowHeight: function(statusBarHeight) {
         return window.innerHeight - statusBarHeight;
+    },
+
+    // OBJ 파일 열기 버튼.
+    //
+    // 파일 선택창은 사용자 제스처로만 열 수 있어서 C++ 에서 직접 띄울 수 없다.
+    // 여기서 버튼을 만들고, 고른 파일을 바이트로 읽어 wasm 힙에 복사한 뒤
+    // C++ 의 lot_onObjFileLoaded 를 부른다. 버퍼 해제는 C++ 쪽 책임이다.
+    js_setupObjFileInput__deps: ['lot_onObjFileLoaded', 'malloc'],
+    js_setupObjFileInput: function() {
+        if (!Module.lotDom) {
+            Module.lotDom = {};
+        }
+        var dom = Module.lotDom;
+        if (dom.objInput) return;
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.obj';
+        input.style.display = 'none';
+
+        var button = document.createElement('button');
+        button.textContent = 'OBJ 열기';
+        button.style.position = 'fixed';
+        button.style.right = '12px';
+        button.style.bottom = '12px';
+        button.style.zIndex = '10';
+        button.style.padding = '8px 14px';
+        button.style.fontFamily = 'monospace';
+        button.style.fontSize = '13px';
+        button.style.color = '#00ff00';
+        button.style.backgroundColor = '#0d0d0d';
+        button.style.border = '1px solid #00ff00';
+        button.style.borderRadius = '4px';
+        button.style.cursor = 'pointer';
+
+        button.addEventListener('click', function() {
+            input.click();
+        });
+
+        input.addEventListener('change', function() {
+            var file = input.files && input.files[0];
+            if (!file) return;
+
+            var reader = new FileReader();
+            reader.onload = function() {
+                var bytes = new Uint8Array(reader.result);
+                var ptr = _malloc(bytes.length);
+                if (!ptr) {
+                    console.error('OBJ 열기: 메모리를 잡지 못했습니다 (' +
+                                  bytes.length + ' 바이트)');
+                    return;
+                }
+                HEAPU8.set(bytes, ptr);
+                _lot_onObjFileLoaded(ptr, bytes.length);
+            };
+            reader.onerror = function() {
+                console.error('OBJ 열기: 파일을 읽지 못했습니다 - ' + file.name);
+            };
+            reader.readAsArrayBuffer(file);
+
+            // 같은 파일을 다시 골라도 change 가 오도록 값을 비운다
+            input.value = '';
+        });
+
+        document.body.appendChild(input);
+        document.body.appendChild(button);
+        dom.objInput = input;
+        dom.objButton = button;
     },
 
 });

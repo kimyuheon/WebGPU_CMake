@@ -4,6 +4,7 @@
 #include "lot_web_device.h"
 
 #include <emscripten/emscripten.h>
+#include <cmath>
 #include <iostream>
 #include <utility>
 
@@ -25,8 +26,33 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
         indexBuffer_->createBuffer(device, builder.indices.data());
     }
 
+    // 경계 상자
+    boundsMin_ = vec3{builder.vertices[0].position[0],
+                      builder.vertices[0].position[1],
+                      builder.vertices[0].position[2]};
+    boundsMax_ = boundsMin_;
+    for (const auto& v : builder.vertices) {
+        boundsMin_.x = std::fmin(boundsMin_.x, v.position[0]);
+        boundsMin_.y = std::fmin(boundsMin_.y, v.position[1]);
+        boundsMin_.z = std::fmin(boundsMin_.z, v.position[2]);
+        boundsMax_.x = std::fmax(boundsMax_.x, v.position[0]);
+        boundsMax_.y = std::fmax(boundsMax_.y, v.position[1]);
+        boundsMax_.z = std::fmax(boundsMax_.z, v.position[2]);
+    }
+
     std::cout << "LotModel: " << vertexCount_ << " vertices, "
               << indexCount_ << " indices" << std::endl;
+}
+
+vec3 LotModel::boundsCenter() const {
+    return (boundsMin_ + boundsMax_) * 0.5f;
+}
+
+float LotModel::fitScale(float targetSize) const {
+    const vec3 extent = boundsMax_ - boundsMin_;
+    const float largest = std::fmax(extent.x, std::fmax(extent.y, extent.z));
+    if (largest <= 0.0f) return 1.0f;  // 점 하나짜리 모델 - 나눗셈을 피한다
+    return targetSize / largest;
 }
 
 bool LotModel::isReady() const {
@@ -141,21 +167,7 @@ void onObjLoaded(void* arg, void* buffer, int size) {
     // wget_data 의 버퍼는 널 종료가 아니므로 길이를 명시해 복사한다
     const std::string text(static_cast<const char*>(buffer), static_cast<size_t>(size));
 
-    lot_obj::LoadResult parsed = lot_obj::parse(text);
-    if (!parsed.ok) {
-        std::cerr << "LotModel: failed to parse " << ctx->path
-                  << " - " << parsed.error << std::endl;
-        ctx->onLoaded(nullptr);
-        return;
-    }
-
-    std::cout << "LotModel: loaded " << ctx->path << std::endl;
-    auto model = std::make_unique<LotModel>(*ctx->device, parsed.builder);
-    if (!model->isReady()) {
-        ctx->onLoaded(nullptr);
-        return;
-    }
-    ctx->onLoaded(std::move(model));
+    ctx->onLoaded(LotModel::createFromObjText(*ctx->device, text, ctx->path));
 }
 
 void onObjFailed(void* arg) {
@@ -165,6 +177,24 @@ void onObjFailed(void* arg) {
 }
 
 }  // namespace
+
+std::unique_ptr<LotModel> LotModel::createFromObjText(lot_web_device& device,
+                                                      const std::string& text,
+                                                      const std::string& label) {
+    lot_obj::LoadResult parsed = lot_obj::parse(text);
+    if (!parsed.ok) {
+        std::cerr << "LotModel: failed to parse " << label
+                  << " - " << parsed.error << std::endl;
+        return nullptr;
+    }
+
+    std::cout << "LotModel: loaded " << label << std::endl;
+    auto model = std::make_unique<LotModel>(device, parsed.builder);
+    if (!model->isReady()) {
+        return nullptr;
+    }
+    return model;
+}
 
 void LotModel::loadFromObjAsync(lot_web_device& device, const std::string& path,
                                 std::function<void(std::unique_ptr<LotModel>)> onLoaded) {

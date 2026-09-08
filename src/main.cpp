@@ -9,9 +9,16 @@
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
+
+extern "C" {
+    // 파일 선택창은 사용자 제스처로만 열 수 있어서 JS 쪽에 버튼을 만든다.
+    extern void js_setupObjFileInput();
+}
 
 // 전역 객체들
 std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
@@ -34,6 +41,13 @@ static double g_lastFrameMs = 0.0;
 static bool g_modelCreated = false;
 static bool g_objRequested = false;   // fetch 를 시작했는지 (한 번만 보낸다)
 static bool g_objPlaced = false;      // 받아온 모델을 장면에 넣었는지
+
+// OBJ 모델이 들어가 있는 오브젝트의 자리. 파일을 새로 열면 이 자리를 갈아끼운다.
+static size_t g_objObjectIndex = SIZE_MAX;
+
+// 불러온 모델이 화면에 차는 크기. 남이 만든 OBJ 는 단위가 제각각이라
+// (몇 백 단위짜리도 흔하다) 파일 값을 그대로 쓰면 안 보이거나 화면을 덮는다.
+static const float kObjTargetSize = 1.4f;
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
 static bool g_gameObjectsCreated = false;
@@ -99,11 +113,45 @@ void placeObjModel() {
     auto object = LotGameObject::createGameObject();
     object.model = g_objModel;
     object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
-    object.transform.scale = vec3(0.5f);
+    object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
     g_gameObjects.push_back(std::move(object));
 
+    g_objObjectIndex = g_gameObjects.size() - 1;
     g_objPlaced = true;
     std::cout << "OBJ model placed at scene center" << std::endl;
+}
+
+// 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
+//
+// data 는 JS 가 malloc 으로 잡아 넘긴 버퍼다. 해제는 여기 책임이다.
+// 길이를 같이 받는 이유는 널 종료가 아니기 때문이다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onObjFileLoaded(const char* data, int length) {
+    if (data == nullptr) return;
+
+    const std::string text(data, static_cast<size_t>(length));
+    std::free(const_cast<char*>(data));
+
+    if (!g_renderer || !g_renderer->getSwapchain().isReady()) {
+        std::cerr << "OBJ open: renderer is not ready yet" << std::endl;
+        return;
+    }
+
+    auto model = LotModel::createFromObjText(g_renderer->getDevice(), text, "(opened file)");
+    if (!model) {
+        return;  // 실패 이유는 파서/모델 쪽에서 이미 출력했다
+    }
+
+    // 이전 모델은 shared_ptr 이 마지막으로 놓을 때 정리된다
+    g_objModel = std::move(model);
+
+    if (g_objObjectIndex < g_gameObjects.size()) {
+        auto& object = g_gameObjects[g_objObjectIndex];
+        object.model = g_objModel;
+        object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
+        std::cout << "OBJ open: replaced the model at scene center" << std::endl;
+    }
+    // 아직 자리를 못 잡았으면 렌더 루프의 4-1 이 넣어준다
 }
 
 // 렌더 루프
@@ -227,6 +275,9 @@ int main() {
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;
     g_cameraController.init();
+
+    // OBJ 열기 버튼
+    js_setupObjFileInput();
 
     std::cout << "Renderer initialized (fullscreen canvas)." << std::endl;
 
