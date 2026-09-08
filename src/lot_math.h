@@ -126,6 +126,34 @@ struct mat4 {
                        const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
         return view(position, target - position, up);
     }
+
+    // 오일러 각으로 직접 만드는 뷰 행렬 (Y -> X -> Z, TransformComponent 와 같은 순서).
+    //
+    // lookAt 은 '어디를 볼지'를 주는 방식이라 1인칭 조작과 잘 맞지 않는다.
+    // 카메라를 게임 오브젝트처럼 위치 + 회전으로 들고 다니려면 이쪽이 편하다.
+    // 회전 행렬이 직교라 역행렬 = 전치이므로, u/v/w 를 행에 넣는 것만으로
+    // 역변환이 된다.
+    static mat4 viewYXZ(const vec3& position, const vec3& rotation) {
+        const float c3 = std::cos(rotation.z);
+        const float s3 = std::sin(rotation.z);
+        const float c2 = std::cos(rotation.x);
+        const float s2 = std::sin(rotation.x);
+        const float c1 = std::cos(rotation.y);
+        const float s1 = std::sin(rotation.y);
+
+        const vec3 u{(c1 * c3 + s1 * s2 * s3), (c2 * s3), (c1 * s2 * s3 - c3 * s1)};
+        const vec3 v{(c3 * s1 * s2 - c1 * s3), (c2 * c3), (c1 * c3 * s2 + s1 * s3)};
+        const vec3 w{(c2 * s1), (-s2), (c1 * c2)};
+
+        mat4 result = identity();
+        result.m[0][0] = u.x;  result.m[1][0] = u.y;  result.m[2][0] = u.z;
+        result.m[0][1] = v.x;  result.m[1][1] = v.y;  result.m[2][1] = v.z;
+        result.m[0][2] = w.x;  result.m[1][2] = w.y;  result.m[2][2] = w.z;
+        result.m[3][0] = -dot(u, position);
+        result.m[3][1] = -dot(v, position);
+        result.m[3][2] = -dot(w, position);
+        return result;
+    }
 };
 
 // 3D 변환 컴포넌트

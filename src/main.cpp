@@ -2,6 +2,7 @@
 #include "simple_render_system.h"
 #include "lot_game_object.h"
 #include "lot_camera.h"
+#include "lot_keyboard_controller.h"
 #include "lot_model.h"
 #include "lot_math.h"
 
@@ -17,6 +18,11 @@ std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::shared_ptr<LotModel> g_cubeModel = nullptr;
 std::vector<LotGameObject> g_gameObjects;
 LotCamera g_camera;
+KeyboardMovementController g_cameraController;
+
+// 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
+// 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
+LotGameObject g_viewerObject = LotGameObject::createGameObject();
 
 // 애니메이션 시간
 static double g_time = 0.0;
@@ -32,7 +38,7 @@ static bool g_gameObjectsCreated = false;
 static const float kFovY = 50.0f * 3.14159265f / 180.0f;
 static const float kNearZ = 0.1f;
 static const float kFarZ = 10.0f;
-static const vec3 kCameraPosition{0.0f, 0.0f, -2.5f};  // +Z 가 화면 안쪽이라 카메라는 -Z 쪽
+static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // +Z 가 화면 안쪽이라 카메라는 -Z 쪽
 
 // 오브젝트별 회전 속도 (per-object uniform 이 실제로 도는지 눈으로 확인하려고 다르게 준다)
 static const float kSpinSpeeds[] = {1.0f, -1.6f, 0.7f};
@@ -109,10 +115,15 @@ void renderLoop() {
         g_lastFrameMs = nowMs;
         g_time += deltaSec;
 
+        // 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
+        // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
+        g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
+
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.
         g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
-        g_camera.setViewTarget(kCameraPosition, vec3(0.0f, 0.0f, 0.0f));
+        g_camera.setViewYXZ(g_viewerObject.transform.translation,
+                            g_viewerObject.transform.rotation);
 
         // 게임 오브젝트 업데이트 (각자 다른 속도로 돈다).
         // 두 축을 같이 돌려야 정육면체의 여섯 면이 다 보인다.
@@ -150,6 +161,10 @@ int main() {
 
     // Render System 생성 (Pipeline + Uniform 관리)
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
+
+    // 카메라 시작 위치 + 키보드 리스너 등록
+    g_viewerObject.transform.translation = kCameraStartPosition;
+    g_cameraController.init();
 
     std::cout << "Renderer initialized (fullscreen canvas)." << std::endl;
 

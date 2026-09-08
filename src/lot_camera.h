@@ -23,6 +23,11 @@ public:
         view_ = mat4::lookAt(position, target, up);
     }
 
+    // 위치 + 오일러 각. 카메라를 게임 오브젝트처럼 다룰 때 쓴다 (1인칭 조작).
+    void setViewYXZ(const vec3& position, const vec3& rotation) {
+        view_ = mat4::viewYXZ(position, rotation);
+    }
+
     const mat4& getProjection() const { return projection_; }
     const mat4& getView() const { return view_; }
 
