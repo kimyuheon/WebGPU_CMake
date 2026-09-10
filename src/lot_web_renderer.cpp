@@ -1,6 +1,6 @@
 #include "lot_web_renderer.h"
 #include "lot_web_common.h"
-#include <iostream>
+#include "lot_log.h"
 
 LotWebRenderer::LotWebRenderer() {
     device_ = std::make_unique<lot_web_device>();
@@ -14,7 +14,7 @@ LotWebRenderer::~LotWebRenderer() {
 
 void LotWebRenderer::init() {
     device_->init();
-    std::cout << "Renderer: Device initialization started..." << std::endl;
+    LOT_LOG("Renderer: Device initialization started...");
 }
 
 bool LotWebRenderer::beginFrame() {
@@ -22,14 +22,14 @@ bool LotWebRenderer::beginFrame() {
     if (!deviceInitialized_ && device_->isInitialized()) {
         swapchain_->createSwapchain(*device_);
         deviceInitialized_ = true;
-        std::cout << "Renderer: Device initialized, swapchain created." << std::endl;
+        LOT_LOG("Renderer: Device initialized, swapchain created.");
     }
 
     // 스왑체인 준비 확인 (한 번만)
     if (deviceInitialized_ && !swapchainCreated_ && swapchain_->isReady()) {
         swapchainCreated_ = true;
-        std::cout << "Renderer: Swapchain ready." << std::endl;
-        std::cout << "Renderer: Window size " << getWidth() << "x" << getHeight() << std::endl;
+        LOT_LOG("Renderer: Swapchain ready.");
+        LOT_LOG("Renderer: Window size " << getWidth() << "x" << getHeight());
     }
 
     // 아직 준비되지 않음

@@ -4,6 +4,15 @@ echo WebGPU Project Build Script
 echo ========================================
 echo.
 
+REM "dist" 를 붙이면 배포 빌드 (로그/디버그 정보 제거).
+REM 평소 개발에는 붙이지 않는다 - 로그가 있어야 초기화 단계를 따라갈 수 있다.
+set "CMAKE_ARGS=-DLOT_DIST=OFF"
+if /i "%~1"=="dist" (
+    set "CMAKE_ARGS=-DLOT_DIST=ON"
+    echo *** DIST BUILD - logging and debug info will be stripped ***
+    echo.
+)
+
 REM Step 1: Add Ninja to PATH if available
 if exist "C:\ninja\ninja.exe" (
     set "PATH=%PATH%;C:\ninja"
@@ -28,7 +37,7 @@ cd /d "%~dp0"
 REM Step 3: Configure with CMake
 echo.
 echo [3/4] Configuring with CMake...
-call emcmake cmake -B build
+call emcmake cmake -B build %CMAKE_ARGS%
 if errorlevel 1 (
     echo ERROR: CMake failed!
     pause

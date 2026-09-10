@@ -1,7 +1,7 @@
 #include "lot_web_buffer.h"
 #include "lot_web_device.h"
 #include "lot_web_common.h"
-#include <iostream>
+#include "lot_log.h"
 
 namespace {
 
@@ -27,12 +27,12 @@ WGPUBufferUsage typeUsage(BufferType type) {
 
 lot_web_buffer::lot_web_buffer(BufferType type, size_t size)
     : type_(type), size_(size) {
-    std::cout << "lot_web_buffer: Constructor (" << typeName(type)
-              << ", " << size << " bytes)" << std::endl;
+    LOT_LOG("lot_web_buffer: Constructor (" << typeName(type)
+              << ", " << size << " bytes)");
 }
 
 lot_web_buffer::~lot_web_buffer() {
-    std::cout << "lot_web_buffer: Destructor (" << typeName(type_) << ")" << std::endl;
+    LOT_LOG("lot_web_buffer: Destructor (" << typeName(type_) << ")");
     if (buffer_) {
         wgpuBufferDestroy(buffer_);
         wgpuBufferRelease(buffer_);
@@ -53,7 +53,7 @@ void lot_web_buffer::createBuffer(lot_web_device& device, const void* data) {
 
     buffer_ = wgpuDeviceCreateBuffer(device.getDevice(), &desc);
     if (!buffer_) {
-        std::cerr << "lot_web_buffer: Failed to create buffer!" << std::endl;
+        LOT_ERR("lot_web_buffer: Failed to create buffer!");
         return;
     }
 
@@ -61,8 +61,8 @@ void lot_web_buffer::createBuffer(lot_web_device& device, const void* data) {
         wgpuQueueWriteBuffer(device.getQueue(), buffer_, 0, data, size_);
     }
 
-    std::cout << "lot_web_buffer: Created " << typeName(type_)
-              << " buffer (" << size_ << " bytes)" << std::endl;
+    LOT_LOG("lot_web_buffer: Created " << typeName(type_)
+              << " buffer (" << size_ << " bytes)");
 }
 
 void lot_web_buffer::bind(WGPURenderPassEncoder pass, uint32_t slot) {

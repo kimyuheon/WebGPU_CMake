@@ -1,9 +1,9 @@
 #include "lot_web_swapchain.h"
 #include "lot_web_device.h"
 #include "lot_web_common.h"
+#include "lot_log.h"
 
 #include <emscripten/html5.h>
-#include <iostream>
 
 // 상태바 높이 (픽셀) - JS 쪽 DOM 구성과 공유하는 유일한 상수
 static const int STATUS_BAR_HEIGHT = 150;
@@ -29,12 +29,12 @@ static EM_BOOL onCanvasResize(int /*eventType*/, const EmscriptenUiEvent* /*uiEv
 }
 
 lot_web_swapchain::lot_web_swapchain() {
-    std::cout << "lot_web_swapchain: Constructor (dynamic size)" << std::endl;
+    LOT_LOG("lot_web_swapchain: Constructor (dynamic size)");
     g_swapchainInstance = this;
 }
 
 lot_web_swapchain::~lot_web_swapchain() {
-    std::cout << "lot_web_swapchain: Destructor" << std::endl;
+    LOT_LOG("lot_web_swapchain: Destructor");
     releaseCurrentImage();
     releaseDepthResources();
     if (surface_) wgpuSurfaceRelease(surface_);
@@ -42,7 +42,7 @@ lot_web_swapchain::~lot_web_swapchain() {
 }
 
 void lot_web_swapchain::createSwapchain(lot_web_device& device) {
-    std::cout << "lot_web_swapchain: Creating surface..." << std::endl;
+    LOT_LOG("lot_web_swapchain: Creating surface...");
 
     // 1. DOM (상태바 + 캔버스) 구성
     js_setupCanvas(STATUS_BAR_HEIGHT);
@@ -62,7 +62,7 @@ void lot_web_swapchain::createSwapchain(lot_web_device& device) {
 
     surface_ = wgpuInstanceCreateSurface(device.getInstance(), &surfaceDesc);
     if (!surface_) {
-        std::cerr << "lot_web_swapchain: Failed to create surface!" << std::endl;
+        LOT_ERR("lot_web_swapchain: Failed to create surface!");
         return;
     }
 
@@ -73,8 +73,7 @@ void lot_web_swapchain::createSwapchain(lot_web_device& device) {
         format_ = caps.formats[0];
         wgpuSurfaceCapabilitiesFreeMembers(caps);
     } else {
-        std::cerr << "lot_web_swapchain: getCapabilities failed, falling back to BGRA8Unorm"
-                  << std::endl;
+        LOT_ERR("lot_web_swapchain: getCapabilities failed, falling back to BGRA8Unorm");
         format_ = WGPUTextureFormat_BGRA8Unorm;
     }
 
@@ -86,8 +85,8 @@ void lot_web_swapchain::createSwapchain(lot_web_device& device) {
     // 4. 리사이즈 리스너 등록 (html5.h - JS 리스너 불필요)
     emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_FALSE, onCanvasResize);
 
-    std::cout << "lot_web_swapchain: Initial size " << width_ << "x" << height_ << std::endl;
-    std::cout << "lot_web_swapchain: Format " << static_cast<int>(format_) << std::endl;
+    LOT_LOG("lot_web_swapchain: Initial size " << width_ << "x" << height_);
+    LOT_LOG("lot_web_swapchain: Format " << static_cast<int>(format_));
 }
 
 void lot_web_swapchain::configure() {
@@ -126,7 +125,7 @@ void lot_web_swapchain::resize(int width, int height) {
     releaseDepthResources();
     createDepthResources();
 
-    std::cout << "Resized: " << width_ << "x" << height_ << std::endl;
+    LOT_LOG("Resized: " << width_ << "x" << height_);
 }
 
 void lot_web_swapchain::createDepthResources() {
@@ -143,7 +142,7 @@ void lot_web_swapchain::createDepthResources() {
 
     depthTexture_ = wgpuDeviceCreateTexture(device_, &desc);
     if (!depthTexture_) {
-        std::cerr << "lot_web_swapchain: Failed to create depth texture!" << std::endl;
+        LOT_ERR("lot_web_swapchain: Failed to create depth texture!");
         return;
     }
 

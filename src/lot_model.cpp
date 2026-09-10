@@ -2,16 +2,16 @@
 #include "lot_math.h"
 #include "lot_obj_loader.h"
 #include "lot_web_device.h"
+#include "lot_log.h"
 
 #include <emscripten/emscripten.h>
 #include <cmath>
-#include <iostream>
 #include <utility>
 
 LotModel::LotModel(lot_web_device& device, const Builder& builder) {
     vertexCount_ = static_cast<uint32_t>(builder.vertices.size());
     if (vertexCount_ < 3) {
-        std::cerr << "LotModel: need at least 3 vertices!" << std::endl;
+        LOT_ERR("LotModel: need at least 3 vertices!");
         return;
     }
 
@@ -40,8 +40,8 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
         boundsMax_.z = std::fmax(boundsMax_.z, v.position[2]);
     }
 
-    std::cout << "LotModel: " << vertexCount_ << " vertices, "
-              << indexCount_ << " indices" << std::endl;
+    LOT_LOG("LotModel: " << vertexCount_ << " vertices, "
+              << indexCount_ << " indices");
 }
 
 vec3 LotModel::boundsCenter() const {
@@ -172,7 +172,7 @@ void onObjLoaded(void* arg, void* buffer, int size) {
 
 void onObjFailed(void* arg) {
     std::unique_ptr<ObjLoadContext> ctx{static_cast<ObjLoadContext*>(arg)};
-    std::cerr << "LotModel: failed to fetch " << ctx->path << std::endl;
+    LOT_ERR("LotModel: failed to fetch " << ctx->path);
     ctx->onLoaded(nullptr);
 }
 
@@ -183,12 +183,12 @@ std::unique_ptr<LotModel> LotModel::createFromObjText(lot_web_device& device,
                                                       const std::string& label) {
     lot_obj::LoadResult parsed = lot_obj::parse(text);
     if (!parsed.ok) {
-        std::cerr << "LotModel: failed to parse " << label
-                  << " - " << parsed.error << std::endl;
+        LOT_ERR("LotModel: failed to parse " << label
+              << " - " << parsed.error);
         return nullptr;
     }
 
-    std::cout << "LotModel: loaded " << label << std::endl;
+    LOT_LOG("LotModel: loaded " << label);
     auto model = std::make_unique<LotModel>(device, parsed.builder);
     if (!model->isReady()) {
         return nullptr;
@@ -199,6 +199,6 @@ std::unique_ptr<LotModel> LotModel::createFromObjText(lot_web_device& device,
 void LotModel::loadFromObjAsync(lot_web_device& device, const std::string& path,
                                 std::function<void(std::unique_ptr<LotModel>)> onLoaded) {
     auto* ctx = new ObjLoadContext{&device, path, std::move(onLoaded)};
-    std::cout << "LotModel: fetching " << path << std::endl;
+    LOT_LOG("LotModel: fetching " << path);
     emscripten_async_wget_data(path.c_str(), ctx, onObjLoaded, onObjFailed);
 }

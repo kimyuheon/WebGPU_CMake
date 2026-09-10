@@ -2,7 +2,7 @@
 #include "lot_model.h"
 #include "lot_web_device.h"
 #include "lot_web_common.h"
-#include <iostream>
+#include "lot_log.h"
 
 SimpleRenderSystem::SimpleRenderSystem(const std::string& shaderPath) {
     pipeline_ = std::make_unique<lot_web_pipeline>(shaderPath);
@@ -38,7 +38,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
         BufferType::UNIFORM, static_cast<size_t>(uniformStride_) * kMaxObjects);
     uniformBuffer_->createBuffer(device, nullptr);
     if (!uniformBuffer_->isReady()) {
-        std::cerr << "SimpleRenderSystem: Failed to create uniform buffer!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create uniform buffer!");
         return;
     }
 
@@ -47,7 +47,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
         BufferType::UNIFORM, sizeof(GlobalUniformData));
     globalBuffer_->createBuffer(device, nullptr);
     if (!globalBuffer_->isReady()) {
-        std::cerr << "SimpleRenderSystem: Failed to create global uniform buffer!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create global uniform buffer!");
         return;
     }
 
@@ -67,7 +67,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
 
     bindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device.getDevice(), &layoutDesc);
     if (!bindGroupLayout_) {
-        std::cerr << "SimpleRenderSystem: Failed to create bind group layout!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create bind group layout!");
         return;
     }
 
@@ -87,7 +87,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
 
     globalBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device.getDevice(), &globalLayoutDesc);
     if (!globalBindGroupLayout_) {
-        std::cerr << "SimpleRenderSystem: Failed to create global bind group layout!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create global bind group layout!");
         return;
     }
 
@@ -102,7 +102,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
 
     pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device.getDevice(), &pipelineLayoutDesc);
     if (!pipelineLayout_) {
-        std::cerr << "SimpleRenderSystem: Failed to create pipeline layout!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create pipeline layout!");
         return;
     }
 
@@ -122,7 +122,7 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
 
     bindGroup_ = wgpuDeviceCreateBindGroup(device.getDevice(), &desc);
     if (!bindGroup_) {
-        std::cerr << "SimpleRenderSystem: Failed to create bind group!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create bind group!");
         return;
     }
 
@@ -141,23 +141,23 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
 
     globalBindGroup_ = wgpuDeviceCreateBindGroup(device.getDevice(), &globalDesc);
     if (!globalBindGroup_) {
-        std::cerr << "SimpleRenderSystem: Failed to create global bind group!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: Failed to create global bind group!");
         return;
     }
 
     uniformCreated_ = true;
-    std::cout << "SimpleRenderSystem: Uniform ready (stride " << uniformStride_
-              << " bytes, " << kMaxObjects << " slots)" << std::endl;
+    LOT_LOG("SimpleRenderSystem: Uniform ready (stride " << uniformStride_
+              << " bytes, " << kMaxObjects << " slots)");
 }
 
 void SimpleRenderSystem::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
                                         WGPUTextureFormat depthFormat) {
     if (!pipelineLayout_) {
-        std::cerr << "SimpleRenderSystem: createUniformBuffer must run first!" << std::endl;
+        LOT_ERR("SimpleRenderSystem: createUniformBuffer must run first!");
         return;
     }
     pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_);
-    std::cout << "SimpleRenderSystem: Pipeline creation started" << std::endl;
+    LOT_LOG("SimpleRenderSystem: Pipeline creation started");
 }
 
 void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
@@ -188,8 +188,8 @@ void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
     for (auto& obj : gameObjects) {
         if (slot >= kMaxObjects) {
             if (!overflowWarned_) {
-                std::cerr << "SimpleRenderSystem: more than " << kMaxObjects
-                          << " objects, extras are skipped" << std::endl;
+                LOT_ERR("SimpleRenderSystem: more than " << kMaxObjects
+              << " objects, extras are skipped");
                 overflowWarned_ = true;
             }
             break;

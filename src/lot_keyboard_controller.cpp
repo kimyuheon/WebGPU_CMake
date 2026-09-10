@@ -1,10 +1,10 @@
 #include "lot_keyboard_controller.h"
 #include "lot_math.h"
+#include "lot_log.h"
 
 #include <emscripten/html5.h>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 
 namespace {
 
@@ -67,8 +67,7 @@ bool KeyboardMovementController::handleBrowserKey(const char* code, bool down) {
 void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
-    std::cout << "KeyboardMovementController: WASD move, QE up/down, arrows look"
-              << std::endl;
+    LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

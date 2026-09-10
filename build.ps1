@@ -1,7 +1,20 @@
+param(
+    # "dist" 를 붙이면 배포 빌드 (로그/디버그 정보 제거).
+    # 평소 개발에는 붙이지 않는다 - 로그가 있어야 초기화 단계를 따라갈 수 있다.
+    [string]$Mode = ""
+)
+
 Write-Host "========================================"
 Write-Host "WebGPU Project Build Script"
 Write-Host "========================================"
 Write-Host ""
+
+$cmakeArgs = "-DLOT_DIST=OFF"
+if ($Mode -eq "dist") {
+    $cmakeArgs = "-DLOT_DIST=ON"
+    Write-Host "*** DIST BUILD - logging and debug info will be stripped ***" -ForegroundColor Yellow
+    Write-Host ""
+}
 
 # 1. emsdk 환경 활성화
 Write-Host "[1/4] Activating Emscripten environment..."
@@ -26,7 +39,7 @@ Set-Location $PSScriptRoot
 # 3. CMake 설정
 Write-Host ""
 Write-Host "[3/4] Configuring CMake with Emscripten..."
-& emcmake cmake -B build
+& emcmake cmake -B build $cmakeArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: CMake configuration failed!" -ForegroundColor Red
     pause

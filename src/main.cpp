@@ -6,11 +6,11 @@
 #include "lot_lighting.h"
 #include "lot_model.h"
 #include "lot_math.h"
+#include "lot_log.h"
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <cstdlib>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -102,7 +102,7 @@ void createGameObjects() {
         g_gameObjects.push_back(std::move(cube));
     }
 
-    std::cout << "Game objects created: " << g_gameObjects.size() << std::endl;
+    LOT_LOG("Game objects created: " << g_gameObjects.size());
 }
 
 // 받아온 OBJ 모델을 장면 가운데에 놓는다.
@@ -118,7 +118,7 @@ void placeObjModel() {
 
     g_objObjectIndex = g_gameObjects.size() - 1;
     g_objPlaced = true;
-    std::cout << "OBJ model placed at scene center" << std::endl;
+    LOT_LOG("OBJ model placed at scene center");
 }
 
 // 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
@@ -133,7 +133,7 @@ void lot_onObjFileLoaded(const char* data, int length) {
     std::free(const_cast<char*>(data));
 
     if (!g_renderer || !g_renderer->getSwapchain().isReady()) {
-        std::cerr << "OBJ open: renderer is not ready yet" << std::endl;
+        LOT_ERR("OBJ open: renderer is not ready yet");
         return;
     }
 
@@ -149,7 +149,7 @@ void lot_onObjFileLoaded(const char* data, int length) {
         auto& object = g_gameObjects[g_objObjectIndex];
         object.model = g_objModel;
         object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
-        std::cout << "OBJ open: replaced the model at scene center" << std::endl;
+        LOT_LOG("OBJ open: replaced the model at scene center");
     }
     // 아직 자리를 못 잡았으면 렌더 루프의 4-1 이 넣어준다
 }
@@ -261,9 +261,9 @@ void renderLoop() {
 
 // 메인 함수
 int main() {
-    std::cout << "==================================" << std::endl;
-    std::cout << "WebGPU 3D Engine - Perspective Cubes" << std::endl;
-    std::cout << "==================================" << std::endl;
+    LOT_LOG("==================================");
+    LOT_LOG("WebGPU 3D Engine - Perspective Cubes");
+    LOT_LOG("==================================");
 
     // Renderer 생성 (동적 크기 - 브라우저 창 크기에 맞춤)
     g_renderer = std::make_unique<LotWebRenderer>();
@@ -279,7 +279,7 @@ int main() {
     // OBJ 열기 버튼
     js_setupObjFileInput();
 
-    std::cout << "Renderer initialized (fullscreen canvas)." << std::endl;
+    LOT_LOG("Renderer initialized (fullscreen canvas).");
 
     // 렌더 루프 시작
     emscripten_set_main_loop(renderLoop, 0, 1);

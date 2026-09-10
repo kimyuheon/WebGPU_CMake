@@ -1,13 +1,13 @@
 #include "lot_web_device.h"
 #include "lot_web_common.h"
-#include <iostream>
+#include "lot_log.h"
 
 lot_web_device::lot_web_device() {
-    std::cout << "lot_web_device: Constructor" << std::endl;
+    LOT_LOG("lot_web_device: Constructor");
 }
 
 lot_web_device::~lot_web_device() {
-    std::cout << "lot_web_device: Destructor" << std::endl;
+    LOT_LOG("lot_web_device: Destructor");
     if (queue_) wgpuQueueRelease(queue_);
     if (device_) wgpuDeviceRelease(device_);
     if (adapter_) wgpuAdapterRelease(adapter_);
@@ -15,11 +15,11 @@ lot_web_device::~lot_web_device() {
 }
 
 bool lot_web_device::init() {
-    std::cout << "lot_web_device: Starting async init..." << std::endl;
+    LOT_LOG("lot_web_device: Starting async init...");
 
     instance_ = wgpuCreateInstance(nullptr);
     if (!instance_) {
-        std::cerr << "lot_web_device: Failed to create instance!" << std::endl;
+        LOT_ERR("lot_web_device: Failed to create instance!");
         return false;
     }
 
@@ -46,8 +46,8 @@ void lot_web_device::onAdapterReady(WGPURequestAdapterStatus status, WGPUAdapter
     auto* self = static_cast<lot_web_device*>(userdata1);
 
     if (status != WGPURequestAdapterStatus_Success || adapter == nullptr) {
-        std::cerr << "lot_web_device: requestAdapter failed: "
-                  << lotToString(message) << std::endl;
+        LOT_ERR("lot_web_device: requestAdapter failed: "
+              << lotToString(message));
         return;
     }
 
@@ -59,25 +59,25 @@ void lot_web_device::onAdapterReady(WGPURequestAdapterStatus status, WGPUAdapter
 void lot_web_device::logAdapterInfo() {
     WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
     if (wgpuAdapterGetInfo(adapter_, &info) != WGPUStatus_Success) {
-        std::cout << "lot_web_device: adapter info unavailable" << std::endl;
+        LOT_LOG("lot_web_device: adapter info unavailable");
         return;
     }
 
-    std::cout << "========================================" << std::endl;
-    std::cout << "GPU Information:" << std::endl;
-    std::cout << "  Vendor: " << lotToString(info.vendor) << std::endl;
-    std::cout << "  Architecture: " << lotToString(info.architecture) << std::endl;
-    std::cout << "  Device: " << lotToString(info.device) << std::endl;
-    std::cout << "  Description: " << lotToString(info.description) << std::endl;
+    LOT_LOG("========================================");
+    LOT_LOG("GPU Information:");
+    LOT_LOG("  Vendor: " << lotToString(info.vendor));
+    LOT_LOG("  Architecture: " << lotToString(info.architecture));
+    LOT_LOG("  Device: " << lotToString(info.device));
+    LOT_LOG("  Description: " << lotToString(info.description));
 
     WGPULimits limits = WGPU_LIMITS_INIT;
     if (wgpuAdapterGetLimits(adapter_, &limits) == WGPUStatus_Success) {
-        std::cout << "GPU Limits:" << std::endl;
-        std::cout << "  Max Texture Size: " << limits.maxTextureDimension2D << std::endl;
-        std::cout << "  Max Buffer Size: "
-                  << (limits.maxBufferSize / 1024 / 1024) << " MB" << std::endl;
+        LOT_LOG("GPU Limits:");
+        LOT_LOG("  Max Texture Size: " << limits.maxTextureDimension2D);
+        LOT_LOG("  Max Buffer Size: "
+              << (limits.maxBufferSize / 1024 / 1024) << " MB");
     }
-    std::cout << "========================================" << std::endl;
+    LOT_LOG("========================================");
 
     wgpuAdapterInfoFreeMembers(info);
 }
@@ -107,8 +107,8 @@ void lot_web_device::onDeviceReady(WGPURequestDeviceStatus status, WGPUDevice de
     auto* self = static_cast<lot_web_device*>(userdata1);
 
     if (status != WGPURequestDeviceStatus_Success || device == nullptr) {
-        std::cerr << "lot_web_device: requestDevice failed: "
-                  << lotToString(message) << std::endl;
+        LOT_ERR("lot_web_device: requestDevice failed: "
+              << lotToString(message));
         return;
     }
 
@@ -116,17 +116,17 @@ void lot_web_device::onDeviceReady(WGPURequestDeviceStatus status, WGPUDevice de
     self->queue_ = wgpuDeviceGetQueue(device);
     self->initialized_ = true;
 
-    std::cout << "lot_web_device: Initialized successfully!" << std::endl;
+    LOT_LOG("lot_web_device: Initialized successfully!");
 }
 
 void lot_web_device::onDeviceLost(WGPUDevice const* /*device*/, WGPUDeviceLostReason reason,
                                   WGPUStringView message, void* /*userdata1*/, void* /*userdata2*/) {
-    std::cerr << "lot_web_device: DEVICE LOST (reason " << static_cast<int>(reason) << "): "
-              << lotToString(message) << std::endl;
+    LOT_ERR("lot_web_device: DEVICE LOST (reason " << static_cast<int>(reason) << "): "
+              << lotToString(message));
 }
 
 void lot_web_device::onUncapturedError(WGPUDevice const* /*device*/, WGPUErrorType type,
                                        WGPUStringView message, void* /*userdata1*/, void* /*userdata2*/) {
-    std::cerr << "lot_web_device: UNCAPTURED ERROR (type " << static_cast<int>(type) << "): "
-              << lotToString(message) << std::endl;
+    LOT_ERR("lot_web_device: UNCAPTURED ERROR (type " << static_cast<int>(type) << "): "
+              << lotToString(message));
 }

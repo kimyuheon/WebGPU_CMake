@@ -2,17 +2,17 @@
 #include "lot_web_device.h"
 #include "lot_web_common.h"
 #include "lot_vertex.h"
+#include "lot_log.h"
 
 #include <emscripten/emscripten.h>
-#include <iostream>
 
 lot_web_pipeline::lot_web_pipeline(const std::string& shaderPath)
     : shaderPath_(shaderPath) {
-    std::cout << "lot_web_pipeline: Constructor (shader: " << shaderPath << ")" << std::endl;
+    LOT_LOG("lot_web_pipeline: Constructor (shader: " << shaderPath << ")");
 }
 
 lot_web_pipeline::~lot_web_pipeline() {
-    std::cout << "lot_web_pipeline: Destructor" << std::endl;
+    LOT_LOG("lot_web_pipeline: Destructor");
     if (pipeline_) {
         wgpuRenderPipelineRelease(pipeline_);
     }
@@ -25,7 +25,7 @@ void lot_web_pipeline::createPipeline(lot_web_device& device, WGPUTextureFormat 
     depthFormat_ = depthFormat;
     layout_ = layout;
 
-    std::cout << "lot_web_pipeline: Loading shader from " << shaderPath_ << std::endl;
+    LOT_LOG("lot_web_pipeline: Loading shader from " << shaderPath_);
 
     // 셰이더 파일을 비동기로 받아온다 (예전 JS 의 fetch 에 해당)
     emscripten_async_wget_data(shaderPath_.c_str(), this, onShaderLoaded, onShaderFailed);
@@ -39,7 +39,7 @@ void lot_web_pipeline::onShaderLoaded(void* arg, void* buffer, int size) {
 
 void lot_web_pipeline::onShaderFailed(void* arg) {
     auto* self = static_cast<lot_web_pipeline*>(arg);
-    std::cerr << "lot_web_pipeline: Failed to load shader: " << self->shaderPath_ << std::endl;
+    LOT_ERR("lot_web_pipeline: Failed to load shader: " << self->shaderPath_);
 }
 
 void lot_web_pipeline::build(const std::string& shaderCode) {
@@ -53,7 +53,7 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
 
     WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(device_, &moduleDesc);
     if (!shaderModule) {
-        std::cerr << "lot_web_pipeline: Failed to create shader module!" << std::endl;
+        LOT_ERR("lot_web_pipeline: Failed to create shader module!");
         return;
     }
 
@@ -126,11 +126,11 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     wgpuShaderModuleRelease(shaderModule);
 
     if (!pipeline_) {
-        std::cerr << "lot_web_pipeline: Failed to create pipeline!" << std::endl;
+        LOT_ERR("lot_web_pipeline: Failed to create pipeline!");
         return;
     }
 
-    std::cout << "lot_web_pipeline: Pipeline created successfully!" << std::endl;
+    LOT_LOG("lot_web_pipeline: Pipeline created successfully!");
 }
 
 void lot_web_pipeline::bind(WGPURenderPassEncoder pass) {
