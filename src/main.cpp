@@ -1,6 +1,7 @@
 #include "lot_web_renderer.h"
 #include "simple_render_system.h"
 #include "grid_render_system.h"
+#include "line_render_system.h"
 #include "lot_frame_info.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -27,6 +28,7 @@ extern "C" {
 std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
 std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
+std::unique_ptr<LineRenderSystem> g_lineSystem = nullptr;
 
 // 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
 LotGlobalUniform g_globalUniform;
@@ -204,11 +206,12 @@ void renderLoop() {
         g_pipelineCreated = true;
     }
 
-    // 3-1. 격자 렌더 시스템. 글로벌 레이아웃만 있으면 되므로 메시 쪽과 독립이다.
+    // 3-1. 격자/선 렌더 시스템. 글로벌 레이아웃만 있으면 되므로 메시 쪽과 독립이다.
     if (!g_gridCreated && g_uniformCreated) {
-        g_gridSystem->create(device, g_globalUniform.getLayout(),
-                             g_renderer->getSwapchain().getFormat(),
-                             g_renderer->getSwapchain().getDepthFormat());
+        const WGPUTextureFormat color = g_renderer->getSwapchain().getFormat();
+        const WGPUTextureFormat depth = g_renderer->getSwapchain().getDepthFormat();
+        g_gridSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gridCreated = true;
     }
 
@@ -280,9 +283,17 @@ void renderLoop() {
             g_gameObjects,
         };
 
+        // 이번 프레임의 보조선. 광원 위치를 십자로, 작업 영역을 상자로.
+        // 프레임마다 다시 채우므로 광원이 움직이면 십자도 따라간다.
+        g_lineSystem->clear();
+        g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
+        g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
+                             vec3(0.45f, 0.45f, 0.5f));
+
         // 뎁스 테스트가 앞뒤를 가려주므로 순서는 성능 외에는 상관없다.
         g_gridSystem->render(frame);
         g_renderSystem->render(frame);
+        g_lineSystem->render(frame);
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
@@ -305,6 +316,7 @@ int main() {
     // Render System 생성 (Pipeline + Uniform 관리)
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
     g_gridSystem = std::make_unique<GridRenderSystem>();
+    g_lineSystem = std::make_unique<LineRenderSystem>();
 
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;

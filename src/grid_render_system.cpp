@@ -73,7 +73,7 @@ void GridRenderSystem::create(lot_web_device& device, WGPUBindGroupLayout global
     config.topology = WGPUPrimitiveTopology_LineList;
     config.cullMode = WGPUCullMode_None;  // 선분에는 앞뒤가 없다
 
-    pipeline_ = std::make_unique<lot_web_pipeline>("shaders/grid.wgsl");
+    pipeline_ = std::make_unique<lot_web_pipeline>("shaders/unlit.wgsl");
     pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_, config);
     LOT_LOG("GridRenderSystem: created (" << (2 * kHalfLines + 1) * 2 << " lines)");
 }
