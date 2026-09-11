@@ -31,6 +31,19 @@ public:
     const mat4& getProjection() const { return projection_; }
     const mat4& getView() const { return view_; }
 
+    // 카메라의 월드 위치. 뷰 행렬을 거꾸로 푼다.
+    //
+    // view = [R | t] 이고 t = -R * p 이므로 p = -R^T * t.
+    // R 의 행이 u, v, w (열 우선이라 m[c][r] 의 r 고정이 행) 이고
+    // t 는 m[3][0..2] 다. 회전은 직교라 역행렬 = 전치, 일반 역행렬이 필요 없다.
+    vec3 getPosition() const {
+        const vec3 u{view_.m[0][0], view_.m[1][0], view_.m[2][0]};
+        const vec3 v{view_.m[0][1], view_.m[1][1], view_.m[2][1]};
+        const vec3 w{view_.m[0][2], view_.m[1][2], view_.m[2][2]};
+        const vec3 t{view_.m[3][0], view_.m[3][1], view_.m[3][2]};
+        return (u * t.x + v * t.y + w * t.z) * -1.0f;
+    }
+
     // 오브젝트마다 projection * view * model 을 계산하므로 앞의 둘은 미리 접어둔다.
     mat4 getProjectionView() const { return projection_ * view_; }
 

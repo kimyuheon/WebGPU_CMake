@@ -3,6 +3,7 @@
 #include "grid_render_system.h"
 #include "line_render_system.h"
 #include "polyline_render_system.h"
+#include "gizmo_render_system.h"
 #include "lot_frame_info.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -31,6 +32,7 @@ std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
 std::unique_ptr<LineRenderSystem> g_lineSystem = nullptr;
 std::unique_ptr<PolylineRenderSystem> g_polylineSystem = nullptr;
+std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
 
 // 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
 LotGlobalUniform g_globalUniform;
@@ -215,6 +217,7 @@ void renderLoop() {
         g_gridSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gridCreated = true;
     }
 
@@ -321,6 +324,13 @@ void renderLoop() {
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
 
+        // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다.
+        // 가운데 OBJ 오브젝트에 붙인다 (없으면 원점).
+        const vec3 gizmoAt = (g_objObjectIndex < g_gameObjects.size())
+            ? g_gameObjects[g_objObjectIndex].transform.translation
+            : vec3(0.0f, 0.0f, 0.0f);
+        g_gizmoSystem->render(frame, gizmoAt);
+
         // 렌더 패스 종료
         g_renderer->endRenderPass();
 
@@ -344,6 +354,7 @@ int main() {
     g_gridSystem = std::make_unique<GridRenderSystem>();
     g_lineSystem = std::make_unique<LineRenderSystem>();
     g_polylineSystem = std::make_unique<PolylineRenderSystem>();
+    g_gizmoSystem = std::make_unique<GizmoRenderSystem>();
 
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;

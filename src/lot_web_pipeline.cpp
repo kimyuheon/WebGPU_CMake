@@ -96,8 +96,15 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     //    Less: 더 가까운(z 가 작은) 조각만 통과. WebGPU 의 깊이 범위는 [0, 1] 이다.
     WGPUDepthStencilState depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
     depthStencil.format = depthFormat_;
-    depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
-    depthStencil.depthCompare = WGPUCompareFunction_Less;
+    if (config_.depthTest) {
+        depthStencil.depthWriteEnabled = WGPUOptionalBool_True;
+        depthStencil.depthCompare = WGPUCompareFunction_Less;
+    } else {
+        // 항상 통과 + 쓰지 않음. 기즈모가 메시 뒤에 있어도 보이고,
+        // 기즈모 때문에 뒤의 메시가 가려지는 일도 없다.
+        depthStencil.depthWriteEnabled = WGPUOptionalBool_False;
+        depthStencil.depthCompare = WGPUCompareFunction_Always;
+    }
 
     // 5. 파이프라인
     WGPURenderPipelineDescriptor desc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;

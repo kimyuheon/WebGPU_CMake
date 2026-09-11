@@ -11,6 +11,11 @@ class lot_web_device;
 struct PipelineConfig {
     WGPUPrimitiveTopology topology = WGPUPrimitiveTopology_TriangleList;
     WGPUCullMode cullMode = WGPUCullMode_Back;
+
+    // false 면 뎁스 비교를 Always 로 두고 쓰지도 않는다 - 항상 위에 그려진다.
+    // 기즈모처럼 가려지면 안 되는 것에 쓴다. 렌더 패스에 뎁스 어태치먼트가
+    // 있는 한 뎁스 상태 자체는 있어야 하므로 '끄는' 게 아니라 '통과시키는' 것이다.
+    bool depthTest = true;
 };
 
 class lot_web_pipeline {
