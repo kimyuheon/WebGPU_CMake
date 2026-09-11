@@ -2,6 +2,7 @@
 #include "simple_render_system.h"
 #include "grid_render_system.h"
 #include "line_render_system.h"
+#include "polyline_render_system.h"
 #include "lot_frame_info.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -29,6 +30,7 @@ std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
 std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
 std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
 std::unique_ptr<LineRenderSystem> g_lineSystem = nullptr;
+std::unique_ptr<PolylineRenderSystem> g_polylineSystem = nullptr;
 
 // 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
 LotGlobalUniform g_globalUniform;
@@ -212,6 +214,7 @@ void renderLoop() {
         const WGPUTextureFormat depth = g_renderer->getSwapchain().getDepthFormat();
         g_gridSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gridCreated = true;
     }
 
@@ -290,10 +293,33 @@ void renderLoop() {
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
                              vec3(0.45f, 0.45f, 0.5f));
 
+        // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).
+        // 둘을 draw 한 번에 그리므로 restart 인덱스가 실제로 동작하는지도 보인다.
+        g_polylineSystem->clear();
+        {
+            std::vector<vec3> orbit;
+            for (int i = 0; i < 64; ++i) {
+                const float a = 6.2831853f * i / 64.0f;
+                orbit.push_back(vec3(std::cos(a) * kLightSwingX, kLightHeight,
+                                     kLightBaseZ + std::sin(a) * kLightSwingZ));
+            }
+            g_polylineSystem->addPolyline(orbit, vec3(0.9f, 0.8f, 0.3f), /*closed=*/true);
+
+            std::vector<vec3> spiral;
+            for (int i = 0; i <= 120; ++i) {
+                const float t = i / 120.0f;
+                const float a = t * 6.2831853f * 3.0f;
+                const float r = 0.95f;
+                spiral.push_back(vec3(std::cos(a) * r, 0.55f - t * 1.1f, std::sin(a) * r));
+            }
+            g_polylineSystem->addPolyline(spiral, vec3(0.4f, 0.9f, 0.9f));
+        }
+
         // 뎁스 테스트가 앞뒤를 가려주므로 순서는 성능 외에는 상관없다.
         g_gridSystem->render(frame);
         g_renderSystem->render(frame);
         g_lineSystem->render(frame);
+        g_polylineSystem->render(frame);
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
@@ -317,6 +343,7 @@ int main() {
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
     g_gridSystem = std::make_unique<GridRenderSystem>();
     g_lineSystem = std::make_unique<LineRenderSystem>();
+    g_polylineSystem = std::make_unique<PolylineRenderSystem>();
 
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;

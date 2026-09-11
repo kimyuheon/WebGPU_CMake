@@ -108,6 +108,13 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     desc.vertex.bufferCount = 1;
     desc.vertex.buffers = &vertexLayout;
     desc.primitive.topology = config_.topology;
+    // 스트립(LineStrip/TriangleStrip)은 인덱스 버퍼로 그릴 때 인덱스 형식을
+    // 미리 알려줘야 한다. 그래야 0xFFFFFFFF 가 '여기서 끊고 새로 시작' 으로
+    // 해석된다 (primitive restart). 우리 인덱스는 전부 uint32 다.
+    if (config_.topology == WGPUPrimitiveTopology_LineStrip
+        || config_.topology == WGPUPrimitiveTopology_TriangleStrip) {
+        desc.primitive.stripIndexFormat = WGPUIndexFormat_Uint32;
+    }
     // 백페이스 컬링. 뒤통수를 보이는 면은 래스터라이즈 전에 버려진다.
     //
     // 규약: 메시의 삼각형은 오른손 법칙 법선이 바깥을 향하도록 감는다
