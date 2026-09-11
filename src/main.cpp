@@ -1,5 +1,8 @@
 #include "lot_web_renderer.h"
 #include "simple_render_system.h"
+#include "grid_render_system.h"
+#include "lot_frame_info.h"
+#include "lot_global_uniform.h"
 #include "lot_game_object.h"
 #include "lot_camera.h"
 #include "lot_keyboard_controller.h"
@@ -23,6 +26,10 @@ extern "C" {
 // 전역 객체들
 std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
 std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
+std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
+
+// 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
+LotGlobalUniform g_globalUniform;
 std::shared_ptr<LotModel> g_cubeModel = nullptr;
 std::shared_ptr<LotModel> g_objModel = nullptr;
 std::vector<LotGameObject> g_gameObjects;
@@ -50,6 +57,7 @@ static size_t g_objObjectIndex = SIZE_MAX;
 static const float kObjTargetSize = 1.4f;
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
+static bool g_gridCreated = false;
 static bool g_gameObjectsCreated = false;
 
 // 카메라 설정
@@ -179,8 +187,13 @@ void renderLoop() {
     // 2. Uniform 리소스 생성 (모델 준비 후).
     //    파이프라인보다 먼저다 - 여기서 나온 바인드 그룹 레이아웃으로 파이프라인을 만든다.
     if (!g_uniformCreated && g_modelCreated) {
-        g_renderSystem->createUniformBuffer(device);
-        g_uniformCreated = g_renderSystem->isUniformReady();
+        // 글로벌(카메라/조명)이 먼저다 - 렌더 시스템들이 이 레이아웃을 받아
+        // 자기 파이프라인 레이아웃의 slot 0 으로 쓴다.
+        g_globalUniform.create(device);
+        if (g_globalUniform.isReady()) {
+            g_renderSystem->createUniformBuffer(device, g_globalUniform.getLayout());
+            g_uniformCreated = g_renderSystem->isUniformReady();
+        }
     }
 
     // 3. 파이프라인 생성 (uniform 레이아웃 준비 후)
@@ -189,6 +202,14 @@ void renderLoop() {
                                        g_renderer->getSwapchain().getFormat(),
                                        g_renderer->getSwapchain().getDepthFormat());
         g_pipelineCreated = true;
+    }
+
+    // 3-1. 격자 렌더 시스템. 글로벌 레이아웃만 있으면 되므로 메시 쪽과 독립이다.
+    if (!g_gridCreated && g_uniformCreated) {
+        g_gridSystem->create(device, g_globalUniform.getLayout(),
+                             g_renderer->getSwapchain().getFormat(),
+                             g_renderer->getSwapchain().getDepthFormat());
+        g_gridCreated = true;
     }
 
     // 4. 게임 오브젝트 생성 (한 번만)
@@ -244,12 +265,24 @@ void renderLoop() {
                                               kLightHeight,
                                               kLightBaseZ + std::sin(lightAngle) * kLightSwingZ);
 
+        // 프레임당 유니폼 갱신. 렌더 시스템 전부가 같은 값을 본다.
+        g_globalUniform.update(g_camera, g_lighting);
+
         // 렌더 패스 시작
         g_renderer->beginRenderPass();
 
-        // 게임 오브젝트들 렌더링
-        g_renderSystem->renderGameObjects(g_renderer->getCurrentRenderPass(),
-                                          g_gameObjects, g_camera, g_lighting);
+        // 이번 프레임 묶음. 렌더 시스템은 이것 하나만 받는다.
+        FrameInfo frame{
+            static_cast<float>(deltaSec),
+            g_renderer->getCurrentRenderPass(),
+            g_camera,
+            g_globalUniform.getBindGroup(),
+            g_gameObjects,
+        };
+
+        // 뎁스 테스트가 앞뒤를 가려주므로 순서는 성능 외에는 상관없다.
+        g_gridSystem->render(frame);
+        g_renderSystem->render(frame);
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
@@ -271,6 +304,7 @@ int main() {
 
     // Render System 생성 (Pipeline + Uniform 관리)
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
+    g_gridSystem = std::make_unique<GridRenderSystem>();
 
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;

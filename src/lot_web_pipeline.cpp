@@ -19,11 +19,13 @@ lot_web_pipeline::~lot_web_pipeline() {
 }
 
 void lot_web_pipeline::createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
-                                      WGPUTextureFormat depthFormat, WGPUPipelineLayout layout) {
+                                      WGPUTextureFormat depthFormat, WGPUPipelineLayout layout,
+                                      const PipelineConfig& config) {
     device_ = device.getDevice();
     colorFormat_ = colorFormat;
     depthFormat_ = depthFormat;
     layout_ = layout;
+    config_ = config;
 
     LOT_LOG("lot_web_pipeline: Loading shader from " << shaderPath_);
 
@@ -105,7 +107,7 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     desc.vertex.entryPoint = lotStringView("vs_main");
     desc.vertex.bufferCount = 1;
     desc.vertex.buffers = &vertexLayout;
-    desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    desc.primitive.topology = config_.topology;
     // 백페이스 컬링. 뒤통수를 보이는 면은 래스터라이즈 전에 버려진다.
     //
     // 규약: 메시의 삼각형은 오른손 법칙 법선이 바깥을 향하도록 감는다
@@ -114,8 +116,9 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     //
     // 부호를 손으로 따라가면 틀리기 쉬운 자리다. 반대로 넣으면 정육면체의
     // '안쪽'이 보인다 - 정면 대신 뒷면 색이 화면을 채우면 이 값을 의심할 것.
+    // 선분에는 앞뒤가 없으므로 그리드/선 파이프라인은 cullMode 를 None 으로 준다.
     desc.primitive.frontFace = WGPUFrontFace_CCW;
-    desc.primitive.cullMode = WGPUCullMode_Back;
+    desc.primitive.cullMode = config_.cullMode;
     desc.fragment = &fragmentState;
     if (depthFormat_ != WGPUTextureFormat_Undefined) {
         desc.depthStencil = &depthStencil;

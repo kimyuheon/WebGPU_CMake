@@ -9,15 +9,18 @@ SimpleRenderSystem::SimpleRenderSystem(const std::string& shaderPath) {
 }
 
 SimpleRenderSystem::~SimpleRenderSystem() {
-    if (globalBindGroup_) wgpuBindGroupRelease(globalBindGroup_);
     if (bindGroup_) wgpuBindGroupRelease(bindGroup_);
     if (pipelineLayout_) wgpuPipelineLayoutRelease(pipelineLayout_);
-    if (globalBindGroupLayout_) wgpuBindGroupLayoutRelease(globalBindGroupLayout_);
     if (bindGroupLayout_) wgpuBindGroupLayoutRelease(bindGroupLayout_);
 }
 
-void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
+void SimpleRenderSystem::createUniformBuffer(lot_web_device& device,
+                                             WGPUBindGroupLayout globalLayout) {
     if (uniformCreated_) {
+        return;
+    }
+    if (globalLayout == nullptr) {
+        LOT_ERR("SimpleRenderSystem: global uniform layout is required!");
         return;
     }
 
@@ -42,15 +45,6 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
         return;
     }
 
-    // 2-1. 프레임당 유니폼 (카메라 + 조명). 슬롯이 하나뿐이라 dynamic offset 이 없다.
-    globalBuffer_ = std::make_unique<lot_web_buffer>(
-        BufferType::UNIFORM, sizeof(GlobalUniformData));
-    globalBuffer_->createBuffer(device, nullptr);
-    if (!globalBuffer_->isReady()) {
-        LOT_ERR("SimpleRenderSystem: Failed to create global uniform buffer!");
-        return;
-    }
-
     // 3. 바인드 그룹 레이아웃 - hasDynamicOffset 을 켜는 것이 이번 변경의 핵심.
     //    'auto' 레이아웃으로는 이 플래그를 켤 수 없어서 직접 만든다.
     WGPUBindGroupLayoutEntry layoutEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -71,29 +65,9 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
         return;
     }
 
-    // 3-1. 프레임당 유니폼 레이아웃.
-    //      정점 셰이더는 projection/view 를, 프래그먼트 셰이더는 조명을 읽으므로
-    //      두 스테이지 모두에서 보이게 해야 한다.
-    WGPUBindGroupLayoutEntry globalLayoutEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
-    globalLayoutEntry.binding = 0;
-    globalLayoutEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
-    globalLayoutEntry.buffer.type = WGPUBufferBindingType_Uniform;
-    globalLayoutEntry.buffer.minBindingSize = sizeof(GlobalUniformData);
-
-    WGPUBindGroupLayoutDescriptor globalLayoutDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
-    globalLayoutDesc.label = lotStringView("Global Uniform Layout");
-    globalLayoutDesc.entryCount = 1;
-    globalLayoutDesc.entries = &globalLayoutEntry;
-
-    globalBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device.getDevice(), &globalLayoutDesc);
-    if (!globalBindGroupLayout_) {
-        LOT_ERR("SimpleRenderSystem: Failed to create global bind group layout!");
-        return;
-    }
-
     // 4. 파이프라인 레이아웃 (Vulkan 쪽 pipelineLayout 과 같은 역할).
-    //    배열 순서가 곧 셰이더의 @group 번호다.
-    WGPUBindGroupLayout layouts[2] = {globalBindGroupLayout_, bindGroupLayout_};
+    //    배열 순서가 곧 셰이더의 @group 번호다. slot 0 은 바깥에서 받은 글로벌.
+    WGPUBindGroupLayout layouts[2] = {globalLayout, bindGroupLayout_};
 
     WGPUPipelineLayoutDescriptor pipelineLayoutDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDesc.label = lotStringView("Simple Render System Layout");
@@ -126,25 +100,6 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device) {
         return;
     }
 
-    // 5-1. 프레임당 바인드 그룹
-    WGPUBindGroupEntry globalEntry = WGPU_BIND_GROUP_ENTRY_INIT;
-    globalEntry.binding = 0;
-    globalEntry.buffer = globalBuffer_->getHandle();
-    globalEntry.offset = 0;
-    globalEntry.size = sizeof(GlobalUniformData);
-
-    WGPUBindGroupDescriptor globalDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
-    globalDesc.label = lotStringView("Global Uniform Bind Group");
-    globalDesc.layout = globalBindGroupLayout_;
-    globalDesc.entryCount = 1;
-    globalDesc.entries = &globalEntry;
-
-    globalBindGroup_ = wgpuDeviceCreateBindGroup(device.getDevice(), &globalDesc);
-    if (!globalBindGroup_) {
-        LOT_ERR("SimpleRenderSystem: Failed to create global bind group!");
-        return;
-    }
-
     uniformCreated_ = true;
     LOT_LOG("SimpleRenderSystem: Uniform ready (stride " << uniformStride_
               << " bytes, " << kMaxObjects << " slots)");
@@ -160,32 +115,19 @@ void SimpleRenderSystem::createPipeline(lot_web_device& device, WGPUTextureForma
     LOT_LOG("SimpleRenderSystem: Pipeline creation started");
 }
 
-void SimpleRenderSystem::renderGameObjects(WGPURenderPassEncoder pass,
-                                           std::vector<LotGameObject>& gameObjects,
-                                           const LotCamera& camera,
-                                           const SceneLighting& lighting) {
+void SimpleRenderSystem::render(FrameInfo& frame) {
+    WGPURenderPassEncoder pass = frame.pass;
     if (!isReady() || pass == nullptr) return;
 
     // 파이프라인 바인딩
     pipeline_->bind(pass);
 
-    // 1. 프레임당 유니폼 - 카메라와 조명. 오브젝트 수와 무관하게 한 번만 쓴다.
-    const GlobalUniformData global{
-        camera.getProjection(),
-        camera.getView(),
-        {lighting.ambientColor.x, lighting.ambientColor.y, lighting.ambientColor.z,
-         lighting.ambientIntensity},
-        {lighting.pointLight.position.x, lighting.pointLight.position.y,
-         lighting.pointLight.position.z, 0.0f},
-        {lighting.pointLight.color.x, lighting.pointLight.color.y,
-         lighting.pointLight.color.z, lighting.pointLight.intensity},
-    };
-    wgpuQueueWriteBuffer(queue_, globalBuffer_->getHandle(), 0, &global, sizeof(global));
-    wgpuRenderPassEncoderSetBindGroup(pass, 0, globalBindGroup_, 0, nullptr);
+    // 1. 프레임당 유니폼 - 카메라와 조명. 값은 LotGlobalUniform 이 이미 써뒀다.
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, frame.globalBindGroup, 0, nullptr);
 
     // 2. 오브젝트별 유니폼
     uint32_t slot = 0;
-    for (auto& obj : gameObjects) {
+    for (auto& obj : frame.gameObjects) {
         if (slot >= kMaxObjects) {
             if (!overflowWarned_) {
                 LOT_ERR("SimpleRenderSystem: more than " << kMaxObjects

@@ -5,6 +5,14 @@
 
 class lot_web_device;
 
+// 렌더 시스템마다 다르게 주는 파이프라인 설정.
+// 메시는 삼각형 + 백페이스 컬링, 그리드/선은 선분 + 컬링 없음 식이다.
+// Vulkan 쪽 PipelineConfigInfo 에 해당하지만 지금 필요한 것만 담았다.
+struct PipelineConfig {
+    WGPUPrimitiveTopology topology = WGPUPrimitiveTopology_TriangleList;
+    WGPUCullMode cullMode = WGPUCullMode_Back;
+};
+
 class lot_web_pipeline {
 public:
     lot_web_pipeline(const std::string& shaderPath);
@@ -22,7 +30,8 @@ public:
     //
     // depthFormat 이 Undefined 면 뎁스 테스트 없이 만든다.
     void createPipeline(lot_web_device& device, WGPUTextureFormat colorFormat,
-                        WGPUTextureFormat depthFormat, WGPUPipelineLayout layout);
+                        WGPUTextureFormat depthFormat, WGPUPipelineLayout layout,
+                        const PipelineConfig& config = PipelineConfig{});
 
     // 파이프라인 바인딩.
     // 실제 draw 는 정점 개수를 아는 LotModel 이 한다.
@@ -43,5 +52,6 @@ private:
     WGPUTextureFormat colorFormat_ = WGPUTextureFormat_Undefined;
     WGPUTextureFormat depthFormat_ = WGPUTextureFormat_Undefined;
     WGPUPipelineLayout layout_ = nullptr;
+    PipelineConfig config_{};
     WGPURenderPipeline pipeline_ = nullptr;
 };
