@@ -43,7 +43,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
@@ -80,6 +80,12 @@ while (i < args.length) {
     await mouse('mouseReleased', x2, y2, { clickCount: 1 });
     await sleep(400);
     console.log(`drag (${x1}, ${y1}) -> (${x2}, ${y2})`);
+  } else if (cmd === 'move') {
+    // 누르지 않고 커서만 옮긴다 (호버 스냅 확인용)
+    const x = Number(args[i++]), y = Number(args[i++]);
+    await mouse('mouseMoved', x, y);
+    await sleep(400);
+    console.log(`move (${x}, ${y})`);
   } else if (cmd === 'key') {
     // 키 한 번 누르기 (KeyP, ArrowLeft 같은 KeyboardEvent.code)
     const code = args[i++];

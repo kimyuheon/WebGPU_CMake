@@ -22,9 +22,10 @@ bool onMouseDown(int, const EmscriptenMouseEvent* e, void* userData) {
 }
 
 bool onMouseUp(int, const EmscriptenMouseEvent* e, void* userData) {
+    // window 리스너라 targetX/Y 가 페이지 기준이다. 캔버스 기준 위치로 쓰면
+    // 상태바 높이만큼 튄다. 그래서 위치는 넘기지 않는다.
     auto* self = static_cast<MouseInput*>(userData);
-    self->onButton(e->button, false, static_cast<float>(e->targetX),
-                   static_cast<float>(e->targetY));
+    self->onButtonReleasedAnywhere(e->button);
     return true;
 }
 
@@ -62,6 +63,12 @@ bool MouseInput::consumeLeftRelease() {
 void MouseInput::onMove(float x, float y) {
     x_ = x;
     y_ = y;
+}
+
+void MouseInput::onButtonReleasedAnywhere(int button) {
+    if (button != 0) return;
+    if (leftDown_) leftReleased_ = true;
+    leftDown_ = false;
 }
 
 void MouseInput::onButton(int button, bool down, float x, float y) {

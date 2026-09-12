@@ -2,6 +2,8 @@
 
 #include "lot_math.h"
 
+#include <cmath>
+
 // 카메라 - 투영 행렬과 뷰 행렬만 들고 있는 순수 계산 클래스.
 // GPU 리소스를 잡지 않으므로 헤더 하나로 끝난다.
 class LotCamera {
@@ -62,6 +64,41 @@ public:
 
     // 오브젝트마다 projection * view * model 을 계산하므로 앞의 둘은 미리 접어둔다.
     mat4 getProjectionView() const { return projection_ * view_; }
+
+    // 뷰 행렬의 세 행 = 카메라의 오른쪽 / 아래 / 앞 방향 (월드).
+    // (+Y 가 아래인 규약이라 두 번째가 '아래'다.)
+    vec3 getRight() const { return vec3{view_.m[0][0], view_.m[1][0], view_.m[2][0]}; }
+    vec3 getDown() const { return vec3{view_.m[0][1], view_.m[1][1], view_.m[2][1]}; }
+    vec3 getForward() const { return vec3{view_.m[0][2], view_.m[1][2], view_.m[2][2]}; }
+
+    // 월드 좌표를 캔버스 픽셀로. 카메라 뒤면 false.
+    bool projectToScreen(const vec3& world, float width, float height,
+                         float& px, float& py) const {
+        // clip = P * V * world. 두 행렬을 곱하지 않고 뷰 -> 클립을 차례로 푼다.
+        const vec3 v = transformPoint(view_, world);
+        const float cx = projection_.m[0][0] * v.x + projection_.m[3][0] * 1.0f;
+        const float cy = projection_.m[1][1] * v.y + projection_.m[3][1] * 1.0f;
+        const float cw = projection_.m[2][3] * v.z + projection_.m[3][3];  // 원근 vz, 직교 1
+        if (cw <= 1e-6f) return false;
+        const float ndcX = cx / cw;
+        const float ndcY = cy / cw;
+        px = (ndcX + 1.0f) * 0.5f * width;
+        py = (1.0f - ndcY) * 0.5f * height;  // NDC 는 위가 +1, 픽셀은 위가 0
+        return true;
+    }
+
+    // 그 위치에서 화면 1 픽셀이 월드 몇 단위인가. 스냅 마커처럼 화면 크기가
+    // 일정해야 하는 것에 쓴다. 기즈모의 거리 비례 스케일과 같은 원리다.
+    float worldPerPixel(const vec3& at, float viewportHeight) const {
+        if (orthographic_) {
+            return 2.0f * orthoHalfHeight_ / viewportHeight;
+        }
+        // 원근: 거리 d 에서 화면 세로에 담기는 월드 길이 = 2 d tan(fov/2),
+        // P11 = -1 / tan(fov/2) 이므로 tan(fov/2) = -1 / P11.
+        const float d = dot(at - getPosition(), getForward());
+        const float tanHalf = -1.0f / projection_.m[1][1];
+        return 2.0f * std::fmax(d, 0.01f) * tanHalf / viewportHeight;
+    }
 
 private:
     mat4 projection_ = mat4::identity();

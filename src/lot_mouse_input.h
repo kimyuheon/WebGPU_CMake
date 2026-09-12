@@ -25,6 +25,10 @@ public:
     void onMove(float x, float y);
     void onButton(int button, bool down, float x, float y);
 
+    // window 에서 받은 뗌. 좌표가 캔버스 기준이 아니라(페이지 기준) 위치는
+    // 건드리지 않고 버튼 상태만 바꾼다. 마지막 mousemove 위치가 그대로 남는다.
+    void onButtonReleasedAnywhere(int button);
+
 private:
     float x_ = 0.0f;
     float y_ = 0.0f;

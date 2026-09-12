@@ -8,6 +8,7 @@
 #include "lot_frame_info.h"
 #include "lot_render_target.h"
 #include "lot_mouse_input.h"
+#include "lot_osnap.h"
 #include "lot_picking.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -77,6 +78,12 @@ static GizmoDrag g_drag;
 
 // 마지막 클릭의 교점. 정밀 피킹이 실제로 표면을 맞추는지 십자로 표시한다.
 static lot_pick::Hit g_lastHit;
+
+// 커서 아래 스냅 후보. 매 프레임 갱신되고 마커로 그려진다.
+// 드래그 중이면 끌고 있는 오브젝트가 이 점에 붙는다.
+static lot_osnap::Snap g_snap;
+static const float kSnapRadiusPx = 14.0f;
+static const float kSnapMarkerPx = 7.0f;
 
 // 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
 // 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
@@ -319,6 +326,20 @@ void renderLoop() {
                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
             };
 
+            // 커서 아래 스냅 후보. 드래그 중이면 끌고 있는 오브젝트는 뺀다
+            // (제 정점에 붙으면 안 된다).
+            {
+                lot_osnap::Query query;
+                query.camera = &g_camera;
+                query.mouseX = g_mouse.x();
+                query.mouseY = g_mouse.y();
+                query.width = static_cast<float>(sc.getWidth());
+                query.height = static_cast<float>(sc.getHeight());
+                query.radiusPx = kSnapRadiusPx;
+                query.excludeId = g_drag.active ? g_selectedId : LotGameObject::kInvalidId;
+                g_snap = lot_osnap::find(query, mouseRay(), g_gameObjects);
+            }
+
             if (g_mouse.consumeLeftPress()) {
                 const lot_pick::Ray ray = mouseRay();
 
@@ -371,9 +392,29 @@ void renderLoop() {
                 if (!selected || !g_mouse.isLeftDown()) {
                     g_drag.active = false;
                     if (selected) {
+                        if (g_snap.valid()) {
+                            LOT_LOG("snap: " << (g_snap.kind == lot_osnap::Kind::Endpoint
+                                                 ? "endpoint" : "midpoint")
+                                    << " of object " << g_snap.id << " ("
+                                    << g_snap.screenDistance << "px)");
+                        }
                         LOT_LOG("drag: end at (" << selected->transform.translation.x << ", "
                                 << selected->transform.translation.y << ", "
                                 << selected->transform.translation.z << ")");
+                    }
+                } else if (g_snap.valid()) {
+                    // 스냅: 오브젝트 원점을 스냅 점에 맞춘다. 단, 축/평면 구속은 지킨다 -
+                    // 축 드래그면 스냅 점을 축에 투영하고, 평면이면 평면에 투영한다.
+                    const vec3 target = g_snap.point - g_drag.startTranslation;
+                    if (GizmoRenderSystem::isPlaneHandle(g_drag.handle)) {
+                        const vec3 n = GizmoRenderSystem::axisDirection(
+                            GizmoRenderSystem::planeNormalAxis(g_drag.handle));
+                        selected->transform.translation =
+                            g_drag.startTranslation + (target - n * dot(target, n));
+                    } else {
+                        const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.handle);
+                        selected->transform.translation =
+                            g_drag.startTranslation + axisDir * dot(target, axisDir);
                     }
                 } else if (GizmoRenderSystem::isPlaneHandle(g_drag.handle)) {
                     // 평면: 지금 교점과 시작 교점의 차이만큼. 둘 다 평면 위라 차이도 평면 위다.
@@ -479,10 +520,9 @@ void renderLoop() {
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
                              vec3(0.45f, 0.45f, 0.5f));
 
-        // 마지막 클릭 교점 (정밀 피킹이 표면을 맞추는지 눈으로 보는 용도)
-        if (g_lastHit.valid()) {
-            g_lineSystem->addCross(g_lastHit.point, 0.06f, vec3(1.0f, 0.3f, 0.9f));
-        }
+        // 스냅 마커 (끝점 = 사각형, 중점 = 삼각형). 화면 크기가 일정하다.
+        lot_osnap::addMarker(*g_lineSystem, g_snap, g_camera,
+                             static_cast<float>(sc.getHeight()), kSnapMarkerPx);
 
         // 선택된 오브젝트에는 경계 상자를 씌운다. 오브젝트 변환을 그대로 타므로
         // 회전하면 상자도 같이 돈다 - 피킹이 보는 것과 정확히 같은 상자다.

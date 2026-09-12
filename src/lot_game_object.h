@@ -22,6 +22,10 @@ public:
         auto it = map.find(id);
         return (it == map.end()) ? nullptr : &it->second;
     }
+    static const LotGameObject* find(const Map& map, id_t id) {
+        auto it = map.find(id);
+        return (it == map.end()) ? nullptr : &it->second;
+    }
 
     // 팩토리 메서드로 생성. id 는 0 부터 한 번씩만 나간다.
     static LotGameObject createGameObject() {
