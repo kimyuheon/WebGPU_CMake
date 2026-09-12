@@ -5,6 +5,8 @@
 #include "polyline_render_system.h"
 #include "gizmo_render_system.h"
 #include "lot_frame_info.h"
+#include "lot_mouse_input.h"
+#include "lot_picking.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
 #include "lot_camera.h"
@@ -41,6 +43,10 @@ std::shared_ptr<LotModel> g_objModel = nullptr;
 LotGameObject::Map g_gameObjects;
 LotCamera g_camera;
 KeyboardMovementController g_cameraController;
+MouseInput g_mouse;
+
+// 지금 선택된 오브젝트. 기즈모와 선택 상자가 여기에 붙는다.
+static LotGameObject::id_t g_selectedId = LotGameObject::kInvalidId;
 
 // 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
 // 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
@@ -179,6 +185,9 @@ void renderLoop() {
     if (!g_modelCreated && g_renderer->getSwapchain().isReady()) {
         g_cubeModel = LotModel::createCube(device);
         g_modelCreated = g_cubeModel && g_cubeModel->isReady();
+
+        // 캔버스는 스왑체인이 만들므로 이제야 셀렉터로 찾을 수 있다
+        g_mouse.init();
     }
 
     // 1-1. OBJ 모델은 네트워크로 받아오므로 요청만 보내두고 넘어간다.
@@ -249,6 +258,25 @@ void renderLoop() {
         g_lastFrameMs = nowMs;
         g_time += deltaSec;
 
+        // 클릭 -> 피킹. 카메라가 갱신된 뒤에 해야 레이가 이번 프레임 것과 맞지만,
+        // 한 프레임 차이는 눈에 띄지 않으므로 여기서 이전 프레임 카메라로 한다.
+        if (g_mouse.consumeLeftPress()) {
+            const auto& sc = g_renderer->getSwapchain();
+            const lot_pick::Ray ray = lot_pick::screenToRay(
+                g_camera, g_mouse.x(), g_mouse.y(),
+                static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
+            float t = 0.0f;
+            const auto hit = lot_pick::pickObject(ray, g_gameObjects, t);
+            if (hit != g_selectedId) {
+                g_selectedId = hit;
+                if (hit == LotGameObject::kInvalidId) {
+                    LOT_LOG("pick: nothing (deselected)");
+                } else {
+                    LOT_LOG("pick: object " << hit << " at t=" << t);
+                }
+            }
+        }
+
         // 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
         // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
         g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
@@ -298,6 +326,17 @@ void renderLoop() {
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
                              vec3(0.45f, 0.45f, 0.5f));
 
+        // 선택된 오브젝트에는 경계 상자를 씌운다. 오브젝트 변환을 그대로 타므로
+        // 회전하면 상자도 같이 돈다 - 피킹이 보는 것과 정확히 같은 상자다.
+        if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
+            if (selected->model) {
+                g_lineSystem->addTransformedBox(selected->model->boundsMin(),
+                                                selected->model->boundsMax(),
+                                                selected->transform.mat4Transform(),
+                                                vec3(1.0f, 0.85f, 0.2f));
+            }
+        }
+
         // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).
         // 둘을 draw 한 번에 그리므로 restart 인덱스가 실제로 동작하는지도 보인다.
         g_polylineSystem->clear();
@@ -326,12 +365,10 @@ void renderLoop() {
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
 
-        // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다.
-        // 가운데 OBJ 오브젝트에 붙인다 (없으면 원점).
-        const LotGameObject* gizmoTarget = LotGameObject::find(g_gameObjects, g_objObjectId);
-        const vec3 gizmoAt = gizmoTarget ? gizmoTarget->transform.translation
-                                         : vec3(0.0f, 0.0f, 0.0f);
-        g_gizmoSystem->render(frame, gizmoAt);
+        // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다. 선택된 오브젝트에만 붙는다.
+        if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
+            g_gizmoSystem->render(frame, selected->transform.translation);
+        }
 
         // 렌더 패스 종료
         g_renderer->endRenderPass();
@@ -361,6 +398,7 @@ int main() {
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;
     g_cameraController.init();
+    // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다
 
     // OBJ 열기 버튼
     js_setupObjFileInput();

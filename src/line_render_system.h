@@ -41,6 +41,11 @@ public:
     // 축에 정렬된 상자 테두리 (경계 상자 표시용).
     void addBox(const vec3& min, const vec3& max, const vec3& color);
 
+    // 상자를 행렬로 돌린 뒤 테두리. 회전한 오브젝트의 경계 상자(OBB)를
+    // 그릴 때 - 여덟 꼭짓점을 변환하므로 상자도 같이 기운다.
+    void addTransformedBox(const vec3& min, const vec3& max, const mat4& transform,
+                           const vec3& color);
+
     void render(FrameInfo& frame);
 
     bool isReady() const;

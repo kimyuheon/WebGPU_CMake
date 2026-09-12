@@ -156,6 +156,15 @@ struct mat4 {
     }
 };
 
+// 점 변환 (w = 1). 이동이 적용된다.
+inline vec3 transformPoint(const mat4& m, const vec3& p) {
+    return vec3{
+        m.m[0][0] * p.x + m.m[1][0] * p.y + m.m[2][0] * p.z + m.m[3][0],
+        m.m[0][1] * p.x + m.m[1][1] * p.y + m.m[2][1] * p.z + m.m[3][1],
+        m.m[0][2] * p.x + m.m[1][2] * p.y + m.m[2][2] * p.z + m.m[3][2],
+    };
+}
+
 // 3D 변환 컴포넌트
 //
 // 회전은 Tait-Bryan 각(Y -> X -> Z 순서)을 쓴다.
@@ -232,5 +241,28 @@ struct TransformComponent {
 
         result.m[3][3] = 1.0f;
         return result;
+    }
+
+    // 월드 -> 로컬 (방향). 피킹에서 레이를 모델 공간으로 가져올 때 쓴다.
+    //
+    // model = T * R * S 이므로 역은 S^-1 * R^T * T^-1 이다. 일반 역행렬을
+    // 구하지 않아도 된다: model 의 열 c_i = R 의 열 * s_i 이고 R 은 직교라
+    //   (R^T v)_i = dot(R열_i, v) = dot(c_i, v) / s_i
+    // 여기에 S^-1 로 한 번 더 나누면 dot(c_i, v) / s_i^2 이 된다.
+    vec3 worldToLocalDirection(const vec3& d) const {
+        const mat4 m = mat4Transform();
+        const vec3 c0{m.m[0][0], m.m[0][1], m.m[0][2]};
+        const vec3 c1{m.m[1][0], m.m[1][1], m.m[1][2]};
+        const vec3 c2{m.m[2][0], m.m[2][1], m.m[2][2]};
+        return vec3{
+            dot(c0, d) / (scale.x * scale.x),
+            dot(c1, d) / (scale.y * scale.y),
+            dot(c2, d) / (scale.z * scale.z),
+        };
+    }
+
+    // 월드 -> 로컬 (점). 이동을 먼저 벗긴다.
+    vec3 worldToLocalPoint(const vec3& p) const {
+        return worldToLocalDirection(p - translation);
     }
 };

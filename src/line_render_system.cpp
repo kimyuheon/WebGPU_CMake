@@ -58,11 +58,17 @@ void LineRenderSystem::addCross(const vec3& c, float h, const vec3& color) {
 }
 
 void LineRenderSystem::addBox(const vec3& lo, const vec3& hi, const vec3& color) {
+    addTransformedBox(lo, hi, mat4::identity(), color);
+}
+
+void LineRenderSystem::addTransformedBox(const vec3& lo, const vec3& hi,
+                                         const mat4& transform, const vec3& color) {
     // 여덟 꼭짓점을 비트로 고른다: bit0 = x, bit1 = y, bit2 = z (0 이면 lo, 1 이면 hi)
     auto corner = [&](int bits) {
-        return vec3{(bits & 1) ? hi.x : lo.x,
-                    (bits & 2) ? hi.y : lo.y,
-                    (bits & 4) ? hi.z : lo.z};
+        return transformPoint(transform,
+                              vec3{(bits & 1) ? hi.x : lo.x,
+                                   (bits & 2) ? hi.y : lo.y,
+                                   (bits & 4) ? hi.z : lo.z});
     };
     // 모서리 12 개 = 비트 하나만 다른 꼭짓점 쌍
     for (int i = 0; i < 8; ++i) {

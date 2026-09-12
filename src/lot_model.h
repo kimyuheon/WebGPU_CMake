@@ -39,8 +39,11 @@ public:
 
     bool isReady() const;
 
-    // 경계 상자. 남이 만든 OBJ 는 크기가 제각각이라
-    // (몇 백 단위짜리도 흔하다) 화면에 맞추려면 이게 필요하다.
+    // 경계 상자 (모델 로컬 공간). 남이 만든 OBJ 는 크기가 제각각이라
+    // (몇 백 단위짜리도 흔하다) 화면에 맞추려면 이게 필요하고,
+    // 피킹도 이 상자로 한다.
+    const vec3& boundsMin() const { return boundsMin_; }
+    const vec3& boundsMax() const { return boundsMax_; }
     vec3 boundsCenter() const;
 
     // 가장 긴 변이 targetSize 가 되도록 하는 스케일.
