@@ -1,5 +1,6 @@
 #include "simple_render_system.h"
 #include "lot_model.h"
+#include "lot_texture.h"
 #include "lot_web_device.h"
 #include "lot_web_common.h"
 #include "lot_log.h"
@@ -9,8 +10,10 @@ SimpleRenderSystem::SimpleRenderSystem(const std::string& shaderPath) {
 }
 
 SimpleRenderSystem::~SimpleRenderSystem() {
+    defaultMaterial_.reset();  // 레이아웃보다 먼저
     if (bindGroup_) wgpuBindGroupRelease(bindGroup_);
     if (pipelineLayout_) wgpuPipelineLayoutRelease(pipelineLayout_);
+    if (materialLayout_) wgpuBindGroupLayoutRelease(materialLayout_);
     if (bindGroupLayout_) wgpuBindGroupLayoutRelease(bindGroupLayout_);
 }
 
@@ -65,13 +68,24 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device,
         return;
     }
 
+    // 3-2. 재질 레이아웃 (@group(2)) + 기본 재질
+    materialLayout_ = LotMaterial::createBindGroupLayout(device);
+    if (!materialLayout_) return;
+
+    std::shared_ptr<LotTexture> white = LotTexture::createSolid(device, 255, 255, 255);
+    defaultMaterial_ = std::make_unique<LotMaterial>(device, materialLayout_, white);
+    if (!defaultMaterial_->isReady()) {
+        LOT_ERR("SimpleRenderSystem: Failed to create default material!");
+        return;
+    }
+
     // 4. 파이프라인 레이아웃 (Vulkan 쪽 pipelineLayout 과 같은 역할).
     //    배열 순서가 곧 셰이더의 @group 번호다. slot 0 은 바깥에서 받은 글로벌.
-    WGPUBindGroupLayout layouts[2] = {globalLayout, bindGroupLayout_};
+    WGPUBindGroupLayout layouts[3] = {globalLayout, bindGroupLayout_, materialLayout_};
 
     WGPUPipelineLayoutDescriptor pipelineLayoutDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDesc.label = lotStringView("Simple Render System Layout");
-    pipelineLayoutDesc.bindGroupLayoutCount = 2;
+    pipelineLayoutDesc.bindGroupLayoutCount = 3;
     pipelineLayoutDesc.bindGroupLayouts = layouts;
 
     pipelineLayout_ = wgpuDeviceCreatePipelineLayout(device.getDevice(), &pipelineLayoutDesc);
@@ -158,6 +172,11 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
 
         // dynamic offset 으로 이 오브젝트의 슬롯을 가리킨다
         wgpuRenderPassEncoderSetBindGroup(pass, 1, bindGroup_, 1, &byteOffset);
+
+        // 재질. 없으면 흰색 - 정점 색과 조명만 남는다.
+        const LotMaterial* material = (obj.material && obj.material->isReady())
+            ? obj.material.get() : defaultMaterial_.get();
+        wgpuRenderPassEncoderSetBindGroup(pass, 2, material->getBindGroup(), 0, nullptr);
 
         // 정점/인덱스 버퍼 바인딩과 draw 는 모델이 알아서 한다
         if (obj.model) {

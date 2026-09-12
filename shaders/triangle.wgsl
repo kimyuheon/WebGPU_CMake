@@ -23,11 +23,16 @@ struct ObjectUniforms {
 @group(0) @binding(0) var<uniform> global: GlobalUniforms;
 @group(1) @binding(0) var<uniform> object: ObjectUniforms;
 
+// 재질. 텍스처가 없는 오브젝트에는 1x1 흰색이 묶여서 곱해도 색이 안 변한다.
+@group(2) @binding(0) var materialTexture: texture_2d<f32>;
+@group(2) @binding(1) var materialSampler: sampler;
+
 // Vertex Input (버퍼에서 받음)
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) color: vec4<f32>,
     @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
 };
 
 // Vertex Output.
@@ -40,6 +45,7 @@ struct VertexOutput {
     @location(0) color: vec3<f32>,
     @location(1) positionWorld: vec3<f32>,
     @location(2) normalWorld: vec3<f32>,
+    @location(3) uv: vec2<f32>,
 };
 
 @vertex
@@ -53,6 +59,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // w = 0 을 곱해 이동 성분을 죽인다 (노멀은 위치가 아니라 방향이므로).
     output.normalWorld = normalize((object.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
     output.color = input.color.rgb;  // 메시 알파는 재질 쪽에서 다룬다
+    output.uv = input.uv;
     return output;
 }
 
@@ -75,5 +82,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // 등지는 면은 dot 이 음수가 되므로 0 으로 잘라낸다.
     let diffuse = lightColor * max(dot(normal, normalize(toLight)), 0.0);
 
-    return vec4<f32>((diffuse + ambientLight) * input.color, 1.0);
+    // 텍스처 색 * 정점 색 * 조명. 정점 색이 흰색이면 텍스처 그대로,
+    // 텍스처가 없으면(1x1 흰색) 정점 색 그대로다.
+    let texel = textureSample(materialTexture, materialSampler, input.uv);
+    return vec4<f32>((diffuse + ambientLight) * input.color * texel.rgb, 1.0);
 }

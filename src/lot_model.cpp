@@ -128,13 +128,17 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
     for (uint32_t face = 0; face < 6; ++face) {
         const vec3& color = kFaceColors[face];
         const vec3& normal = kFaceNormals[face];
+        // 꼭짓점 순서가 (a, b, c, d) 로 한 바퀴 도는 사각형이므로
+        // UV 도 (0,0) (0,1) (1,1) (1,0) 으로 한 바퀴 돌리면 면마다 텍스처 한 장이다.
+        const float kFaceUV[4][2] = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}};
         for (int corner = 0; corner < 4; ++corner) {
             const float* p = kFaceCorners[face][corner];
             // 면의 네 꼭짓점이 같은 법선을 쓴다 - 그래서 면이 평평하게 보인다
             // (부드럽게 하려면 꼭짓점을 공유하고 법선을 평균내야 한다).
             builder.vertices.push_back(Vertex::make(p[0], p[1], p[2],
                                                     color.x, color.y, color.z,
-                                                    normal.x, normal.y, normal.z));
+                                                    normal.x, normal.y, normal.z,
+                                                    kFaceUV[corner][0], kFaceUV[corner][1]));
         }
 
         // 사각형 하나를 삼각형 둘로: (a, b, c) 와 (a, c, d)

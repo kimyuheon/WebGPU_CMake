@@ -3,6 +3,7 @@
 #include "lot_web_pipeline.h"
 #include "lot_web_buffer.h"
 #include "lot_frame_info.h"
+#include "lot_material.h"
 #include "lot_math.h"
 #include <webgpu/webgpu.h>
 #include <cstdint>
@@ -14,7 +15,7 @@ class lot_web_device;
 // 게임 오브젝트(메시)를 그리는 렌더 시스템.
 //
 // 카메라/조명(@group(0)) 은 LotGlobalUniform 이 바깥에서 관리하고,
-// 여기서는 오브젝트별 변환(@group(1)) 만 다룬다.
+// 여기서는 오브젝트별 변환(@group(1)) 과 재질(@group(2)) 을 다룬다.
 class SimpleRenderSystem {
 public:
     // 한 프레임에 그릴 수 있는 최대 오브젝트 수.
@@ -41,6 +42,9 @@ public:
     // 게임 오브젝트들 렌더링
     void render(FrameInfo& frame);
 
+    // 재질을 만들 때 필요한 @group(2) 레이아웃. createUniformBuffer 뒤에 유효하다.
+    WGPUBindGroupLayout getMaterialLayout() const { return materialLayout_; }
+
     // 상태 확인
     bool isReady() const { return pipeline_->isReady() && uniformCreated_; }
     bool isPipelineReady() const { return pipeline_->isReady(); }
@@ -64,8 +68,12 @@ private:
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<lot_web_buffer> uniformBuffer_;
 
+    // 텍스처가 없는 오브젝트용 1x1 흰색. 셰이더가 분기 없이 항상 곱한다.
+    std::unique_ptr<LotMaterial> defaultMaterial_;
+
     WGPUQueue queue_ = nullptr;
     WGPUBindGroupLayout bindGroupLayout_ = nullptr;
+    WGPUBindGroupLayout materialLayout_ = nullptr;
     WGPUPipelineLayout pipelineLayout_ = nullptr;
     WGPUBindGroup bindGroup_ = nullptr;
 

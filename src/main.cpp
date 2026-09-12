@@ -13,6 +13,8 @@
 #include "lot_keyboard_controller.h"
 #include "lot_lighting.h"
 #include "lot_model.h"
+#include "lot_material.h"
+#include "lot_texture.h"
 #include "lot_math.h"
 #include "lot_log.h"
 
@@ -40,6 +42,10 @@ std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
 LotGlobalUniform g_globalUniform;
 std::shared_ptr<LotModel> g_cubeModel = nullptr;
 std::shared_ptr<LotModel> g_objModel = nullptr;
+
+// 시험용 체커보드 재질. 텍스처 파이프라인과 UV 가 맞는지 눈으로 보는 용도.
+// 큐브와 OBJ 가 같은 재질을 공유한다 (shared_ptr).
+std::shared_ptr<LotMaterial> g_checkerMaterial = nullptr;
 LotGameObject::Map g_gameObjects;
 LotCamera g_camera;
 KeyboardMovementController g_cameraController;
@@ -138,6 +144,7 @@ void createGameObjects() {
         auto cube = LotGameObject::createGameObject();
 
         cube.model = g_cubeModel;
+        cube.material = g_checkerMaterial;
         cube.transform.translation = translation;
         cube.transform.scale = vec3(0.6f);
         cube.transform.rotation = vec3(0.0f, 0.0f, 0.0f);
@@ -156,6 +163,7 @@ void createGameObjects() {
 void placeObjModel() {
     auto object = LotGameObject::createGameObject();
     object.model = g_objModel;
+    object.material = g_checkerMaterial;
     object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
     g_objObjectId = object.getId();
@@ -231,6 +239,16 @@ void renderLoop() {
         if (g_globalUniform.isReady()) {
             g_renderSystem->createUniformBuffer(device, g_globalUniform.getLayout());
             g_uniformCreated = g_renderSystem->isUniformReady();
+        }
+
+        // 재질 레이아웃이 이제 있으므로 시험용 텍스처를 만든다
+        if (g_uniformCreated) {
+            const uint8_t light[3] = {235, 235, 235};
+            const uint8_t dark[3] = {60, 60, 70};
+            std::shared_ptr<LotTexture> checker =
+                LotTexture::createChecker(device, 64, 8, light, dark);
+            g_checkerMaterial = std::make_shared<LotMaterial>(
+                device, g_renderSystem->getMaterialLayout(), checker);
         }
     }
 

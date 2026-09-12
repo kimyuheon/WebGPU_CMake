@@ -79,6 +79,7 @@ LoadResult parse(const std::string& text) {
     std::vector<vec3> positions;
     std::vector<vec3> colors;
     std::vector<vec3> normals;
+    std::vector<vec2> texcoords;
 
     // 정점 인덱스 조합 -> 우리 정점 배열에서의 위치
     std::unordered_map<IndexKey, uint32_t, IndexKeyHash> uniqueVertices;
@@ -123,6 +124,14 @@ LoadResult parse(const std::string& text) {
             } else {
                 colors.push_back(vec3{1.0f, 1.0f, 1.0f});
             }
+        } else if (tag == "vt") {
+            // u v [w]. w 는 3D 텍스처용이라 버린다.
+            // OBJ 의 v 는 아래에서 위로 올라가고 우리(그리고 WebGPU) 텍스처는
+            // 위에서 아래로 내려가므로 뒤집는다. 안 뒤집으면 이미지가 상하 반전된다.
+            const std::string us = nextToken(line, pos);
+            const std::string vs = nextToken(line, pos);
+            texcoords.push_back(vec2{std::strtof(us.c_str(), nullptr),
+                                     1.0f - std::strtof(vs.c_str(), nullptr)});
         } else if (tag == "vn") {
             const std::string xs = nextToken(line, pos);
             const std::string ys = nextToken(line, pos);
@@ -137,7 +146,7 @@ LoadResult parse(const std::string& text) {
                 const std::string token = nextToken(line, pos);
                 if (token.empty()) break;
                 corners.push_back(parseCorner(token, positions.size(),
-                                              normals.size(), normals.size()));
+                                              texcoords.size(), normals.size()));
             }
             if (corners.size() < 3) continue;  // 점이나 선은 건너뛴다
 
@@ -172,6 +181,12 @@ LoadResult parse(const std::string& text) {
                     vertex.normal[0] = n.x;
                     vertex.normal[1] = n.y;
                     vertex.normal[2] = n.z;
+                }
+                if (key.texcoord >= 0
+                    && static_cast<size_t>(key.texcoord) < texcoords.size()) {
+                    const vec2& t = texcoords[static_cast<size_t>(key.texcoord)];
+                    vertex.uv[0] = t.x;
+                    vertex.uv[1] = t.y;
                 }
 
                 const auto index = static_cast<uint32_t>(result.builder.vertices.size());

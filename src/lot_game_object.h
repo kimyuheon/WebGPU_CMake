@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 class LotModel;
+class LotMaterial;
 
 // 게임 오브젝트 클래스
 class LotGameObject {
@@ -47,6 +48,9 @@ public:
     // 여러 오브젝트가 같은 메시(예: 큐브 하나)를 공유하므로 shared_ptr 이다.
     // 정점 개수는 모델이 알고 있으니 여기서 다시 세지 않는다.
     std::shared_ptr<LotModel> model;
+
+    // 재질 (텍스처). 없으면 렌더 시스템의 기본 재질(흰색)을 쓴다.
+    std::shared_ptr<LotMaterial> material;
 
 private:
     explicit LotGameObject(id_t objId) : id_(objId) {}
