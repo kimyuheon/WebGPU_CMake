@@ -45,6 +45,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"KeyE", MoveUp},       {"KeyQ", MoveDown},
         {"ArrowLeft", LookLeft},{"ArrowRight", LookRight},
         {"ArrowUp", LookUp},    {"ArrowDown", LookDown},
+        {"KeyP", ToggleProjection},
+        {"Equal", ZoomIn},      {"Minus", ZoomOut},
     };
 
     for (const auto& entry : kTable) {
@@ -60,14 +62,28 @@ bool KeyboardMovementController::handleBrowserKey(const char* code, bool down) {
     if (id == KeyCount) {
         return false;  // 우리 키가 아니면 브라우저에 그대로 넘긴다
     }
+    // 키를 누르고 있으면 브라우저가 keydown 을 반복해서 보낸다.
+    // '누른 순간'은 떼어져 있던 상태에서 눌릴 때만이다.
+    if (down && !pressed_[id]) justPressed_[id] = true;
     pressed_[id] = down;
     return true;  // 화살표로 페이지가 스크롤되지 않도록 이벤트를 소비한다
+}
+
+bool KeyboardMovementController::consumeProjectionToggle() {
+    const bool was = justPressed_[ToggleProjection];
+    justPressed_[ToggleProjection] = false;
+    return was;
+}
+
+int KeyboardMovementController::zoomDirection() const {
+    return (pressed_[ZoomIn] ? 1 : 0) - (pressed_[ZoomOut] ? 1 : 0);
 }
 
 void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
-    LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look");
+    LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look, "
+            "P projection, -/= ortho zoom");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

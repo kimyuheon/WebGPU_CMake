@@ -11,22 +11,30 @@ Ray screenToRay(const LotCamera& camera, float px, float py, float width, float 
     const float ndcX = (px / width) * 2.0f - 1.0f;
     const float ndcY = 1.0f - (py / height) * 2.0f;
 
-    // 2. NDC -> 뷰 공간 방향.
-    //    clip.x = P00 * vx, clip.w = vz 이므로 ndc.x = P00 * vx / vz.
-    //    vz = 1 로 두면 vx = ndc.x / P00. y 도 같다 (P11 이 음수라 뒤집힘도 처리된다).
+    // 뷰 -> 월드. 뷰 행렬의 회전은 직교라 전치가 역이다.
+    // 행 u, v, w 가 각각 월드의 x/y/z 뷰 축이다.
     const mat4& proj = camera.getProjection();
-    const vec3 viewDir{ndcX / proj.m[0][0], ndcY / proj.m[1][1], 1.0f};
-
-    // 3. 뷰 -> 월드. 뷰 행렬의 회전은 직교라 전치가 역이다.
-    //    행 u, v, w 가 각각 월드의 x/y/z 뷰 축이므로 world = u*vx + v*vy + w*vz.
     const mat4& view = camera.getView();
     const vec3 u{view.m[0][0], view.m[1][0], view.m[2][0]};
     const vec3 v{view.m[0][1], view.m[1][1], view.m[2][1]};
     const vec3 w{view.m[0][2], view.m[1][2], view.m[2][2]};
 
     Ray ray;
-    ray.origin = camera.getPosition();
-    ray.direction = normalize(u * viewDir.x + v * viewDir.y + w * viewDir.z);
+    if (camera.isOrthographic()) {
+        // 직교: 레이는 전부 카메라 정면(w)과 평행이고, 시작점이 화면 위치에 따라 다르다.
+        // ndc.x = P00 * vx + P30 이므로 vx = (ndc.x - P30) / P00. y 도 같다.
+        const float vx = (ndcX - proj.m[3][0]) / proj.m[0][0];
+        const float vy = (ndcY - proj.m[3][1]) / proj.m[1][1];
+        ray.origin = camera.getPosition() + u * vx + v * vy;
+        ray.direction = normalize(w);
+    } else {
+        // 원근: 레이는 전부 카메라 위치에서 나가고, 방향이 화면 위치에 따라 다르다.
+        // clip.x = P00 * vx, clip.w = vz 이므로 ndc.x = P00 * vx / vz.
+        // vz = 1 로 두면 vx = ndc.x / P00. y 도 같다 (P11 이 음수라 뒤집힘도 처리된다).
+        const vec3 viewDir{ndcX / proj.m[0][0], ndcY / proj.m[1][1], 1.0f};
+        ray.origin = camera.getPosition();
+        ray.direction = normalize(u * viewDir.x + v * viewDir.y + w * viewDir.z);
+    }
     return ray;
 }
 

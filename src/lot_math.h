@@ -103,6 +103,24 @@ struct mat4 {
         return result;
     }
 
+    // 직교 투영 행렬. CAD 도면 뷰처럼 거리에 따라 크기가 변하지 않는다.
+    //
+    // 인자는 '뷰 공간' 값이다. +Y 가 아래인 규약이라 화면 위쪽에 보일 y 값이
+    // 음수다 - 그래서 top < bottom 으로 넘어온다 (예: top = -h, bottom = +h).
+    // 원근과 마찬가지로 WebGPU 클립 공간(+Y 위, 깊이 [0, 1])에 맞춘다.
+    static mat4 orthographic(float left, float right, float top, float bottom,
+                             float nearZ, float farZ) {
+        mat4 result;
+        result.m[0][0] = 2.0f / (right - left);
+        result.m[1][1] = 2.0f / (top - bottom);   // top 이 음수라 결과적으로 Y 가 뒤집힌다
+        result.m[2][2] = 1.0f / (farZ - nearZ);
+        result.m[3][0] = -(right + left) / (right - left);
+        result.m[3][1] = -(top + bottom) / (top - bottom);
+        result.m[3][2] = -nearZ / (farZ - nearZ);
+        result.m[3][3] = 1.0f;                     // w = 1: 원근 나눗셈이 없다
+        return result;
+    }
+
     // 뷰 행렬 (카메라를 원점으로 옮기는 변환).
     //
     // up 기본값이 {0, -1, 0} 인 이유는 이 엔진에서 +Y 가 아래이기 때문이다.

@@ -9,7 +9,23 @@ public:
     // fovY 는 라디안. aspect 는 창 크기가 바뀔 때마다 다시 넣어줘야 한다.
     void setPerspectiveProjection(float fovY, float aspect, float nearZ, float farZ) {
         projection_ = mat4::perspective(fovY, aspect, nearZ, farZ);
+        orthographic_ = false;
+        orthoHalfHeight_ = 0.0f;
     }
+
+    // 직교 투영. halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
+    // 원근에서는 앞으로 가면 커지지만 직교에서는 이 값을 줄여야 커진다.
+    void setOrthographicProjection(float halfHeight, float aspect, float nearZ, float farZ) {
+        const float halfWidth = halfHeight * aspect;
+        // +Y 가 아래라 화면 위쪽이 -halfHeight 다
+        projection_ = mat4::orthographic(-halfWidth, halfWidth, -halfHeight, halfHeight,
+                                         nearZ, farZ);
+        orthographic_ = true;
+        orthoHalfHeight_ = halfHeight;
+    }
+
+    bool isOrthographic() const { return orthographic_; }
+    float getOrthoHalfHeight() const { return orthoHalfHeight_; }
 
     // 카메라 위치와 '바라보는 방향'
     void setViewDirection(const vec3& position, const vec3& direction,
@@ -50,4 +66,6 @@ public:
 private:
     mat4 projection_ = mat4::identity();
     mat4 view_ = mat4::identity();
+    bool orthographic_ = false;
+    float orthoHalfHeight_ = 0.0f;
 };

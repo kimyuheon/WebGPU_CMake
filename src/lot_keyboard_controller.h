@@ -20,6 +20,13 @@ public:
     // 우리가 쓰는 키였으면 true - 그 경우 이벤트를 소비한다.
     bool handleBrowserKey(const char* code, bool down);
 
+    // 투영 토글 (P). 이번 프레임에 눌렸으면 true - 한 번만 소비된다.
+    // 이동 키와 달리 '누르고 있는 동안'이 아니라 '누른 순간'이 의미 있다.
+    bool consumeProjectionToggle();
+
+    // 직교 줌 (= 확대, - 축소). 누르고 있는 동안 +1 / -1, 아니면 0.
+    int zoomDirection() const;
+
     float moveSpeed = 3.0f;
     float lookSpeed = 1.5f;
 
@@ -36,6 +43,9 @@ private:
         LookRight,
         LookUp,
         LookDown,
+        ToggleProjection,
+        ZoomIn,
+        ZoomOut,
         KeyCount,
     };
 
@@ -44,4 +54,5 @@ private:
     static KeyId lookupKey(const char* code);
 
     bool pressed_[KeyCount] = {};
+    bool justPressed_[KeyCount] = {};  // 떼었다 누른 순간만 true (키 반복은 무시)
 };

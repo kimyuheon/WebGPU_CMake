@@ -43,7 +43,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|MouseInput/.test(text)) logs.push(text);
+    if (/pick:|drag:|projection:|MouseInput/.test(text)) logs.push(text);
   }
 });
 
@@ -80,6 +80,23 @@ while (i < args.length) {
     await mouse('mouseReleased', x2, y2, { clickCount: 1 });
     await sleep(400);
     console.log(`drag (${x1}, ${y1}) -> (${x2}, ${y2})`);
+  } else if (cmd === 'key') {
+    // 키 한 번 누르기 (KeyP, ArrowLeft 같은 KeyboardEvent.code)
+    const code = args[i++];
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', code, key: code });
+    await sleep(60);
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code });
+    await sleep(300);
+    console.log(`key ${code}`);
+  } else if (cmd === 'hold') {
+    // 키를 ms 동안 누르고 있기 (이동/줌)
+    const code = args[i++];
+    const ms = Number(args[i++]);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', code, key: code });
+    await sleep(ms);
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code });
+    await sleep(300);
+    console.log(`hold ${code} ${ms}ms`);
   } else if (cmd === 'wait') {
     await sleep(500);
   }

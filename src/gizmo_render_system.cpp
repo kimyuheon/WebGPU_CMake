@@ -116,7 +116,12 @@ vec3 GizmoRenderSystem::axisDirection(int axis) {
 }
 
 float GizmoRenderSystem::arrowLength(const LotCamera& camera, const vec3& position) const {
-    // 카메라 거리에 비례해 키운다. 원근 나눗셈이 1/거리로 줄이는 것을 상쇄한다.
+    if (camera.isOrthographic()) {
+        // 직교에서는 거리와 무관하게 화면 세로의 일정 비율로 보이게 한다.
+        // halfHeight 가 화면 절반에 담기는 월드 길이이므로 그 비율로 잡으면 된다.
+        return std::fmax(camera.getOrthoHalfHeight() * screenScale * 2.0f, 0.05f);
+    }
+    // 원근: 카메라 거리에 비례해 키운다. 원근 나눗셈이 1/거리로 줄이는 것을 상쇄한다.
     const vec3 toCamera = camera.getPosition() - position;
     const float distance = std::sqrt(dot(toCamera, toCamera));
     return std::fmax(distance * screenScale, 0.05f);

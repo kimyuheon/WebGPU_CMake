@@ -92,6 +92,14 @@ static const float kNearZ = 0.1f;
 static const float kFarZ = 10.0f;
 static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // +Z 가 화면 안쪽이라 카메라는 -Z 쪽
 
+// 투영 모드. P 키로 전환한다.
+// 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
+static bool g_orthographic = false;
+static float g_orthoHalfHeight = 1.6f;
+static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
+static const float kOrthoMinHalfHeight = 0.2f;
+static const float kOrthoMaxHalfHeight = 20.0f;
+
 // 조명. 광원은 큐브들 위쪽 앞에 두고 천천히 돌린다.
 // 감쇠가 거리 제곱에 반비례하므로 세기는 거리의 제곱 규모로 잡아야 한다
 // (거리 1.5 면 감쇠가 1/2.25 이라, 세기 4 정도는 되어야 눈에 찬다).
@@ -344,9 +352,30 @@ void renderLoop() {
         // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
         g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
 
+        // 투영 전환 / 직교 줌
+        if (g_cameraController.consumeProjectionToggle()) {
+            g_orthographic = !g_orthographic;
+            LOT_LOG("projection: " << (g_orthographic ? "orthographic" : "perspective"));
+        }
+        if (g_orthographic) {
+            // 지수적으로 줄이고 키워야 어느 배율에서든 같은 '느낌'으로 줌된다
+            const int zoom = g_cameraController.zoomDirection();
+            if (zoom != 0) {
+                const float factor = std::exp(-zoom * kOrthoZoomSpeed * static_cast<float>(deltaSec));
+                g_orthoHalfHeight *= factor;
+                if (g_orthoHalfHeight < kOrthoMinHalfHeight) g_orthoHalfHeight = kOrthoMinHalfHeight;
+                if (g_orthoHalfHeight > kOrthoMaxHalfHeight) g_orthoHalfHeight = kOrthoMaxHalfHeight;
+            }
+        }
+
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.
-        g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
+        if (g_orthographic) {
+            g_camera.setOrthographicProjection(g_orthoHalfHeight, g_renderer->getAspectRatio(),
+                                               kNearZ, kFarZ);
+        } else {
+            g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
+        }
         g_camera.setViewYXZ(g_viewerObject.transform.translation,
                             g_viewerObject.transform.rotation);
 
