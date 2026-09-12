@@ -21,7 +21,7 @@ constexpr float kTwoPi = 6.28318530718f;
 // 반환값 true 는 '이벤트를 소비했다'는 뜻이다 (em_key_callback_func 규약).
 bool handleKey(const EmscriptenKeyboardEvent* e, void* userData, bool down) {
     auto* self = static_cast<KeyboardMovementController*>(userData);
-    return self->handleBrowserKey(e->code, down);
+    return self->handleBrowserKey(e->code, down, e->ctrlKey || e->metaKey);
 }
 
 bool onKeyDown(int, const EmscriptenKeyboardEvent* e, void* userData) {
@@ -48,6 +48,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"KeyP", ToggleProjection},
         {"Equal", ZoomIn},      {"Minus", ZoomOut},
         {"KeyO", ToggleOutline},
+        {"KeyC", Duplicate},
+        {"Delete", DeleteSelection}, {"Backspace", DeleteSelection},
     };
 
     for (const auto& entry : kTable) {
@@ -58,10 +60,10 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
     return KeyCount;
 }
 
-bool KeyboardMovementController::handleBrowserKey(const char* code, bool down) {
+bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, bool ctrlOrMeta) {
     const KeyId id = lookupKey(code);
-    if (id == KeyCount) {
-        return false;  // 우리 키가 아니면 브라우저에 그대로 넘긴다
+    if (id == KeyCount || ctrlOrMeta) {
+        return false;  // 우리 키가 아니거나 브라우저 단축키(Ctrl+C 등)면 그대로 넘긴다
     }
     // 키를 누르고 있으면 브라우저가 keydown 을 반복해서 보낸다.
     // '누른 순간'은 떼어져 있던 상태에서 눌릴 때만이다.
@@ -82,6 +84,18 @@ bool KeyboardMovementController::consumeOutlineToggle() {
     return was;
 }
 
+bool KeyboardMovementController::consumeDuplicate() {
+    const bool was = justPressed_[Duplicate];
+    justPressed_[Duplicate] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeDelete() {
+    const bool was = justPressed_[DeleteSelection];
+    justPressed_[DeleteSelection] = false;
+    return was;
+}
+
 int KeyboardMovementController::zoomDirection() const {
     return (pressed_[ZoomIn] ? 1 : 0) - (pressed_[ZoomOut] ? 1 : 0);
 }
@@ -90,7 +104,7 @@ void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
     LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look, "
-            "P projection, -/= ortho zoom, O outline");
+            "P projection, -/= ortho zoom, O outline, C duplicate, Del delete");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

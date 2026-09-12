@@ -231,6 +231,39 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
             << selection_.size() << " selected");
 }
 
+void EditController::duplicateSelection(LotGameObject::Map& objects) {
+    if (selection_.empty()) return;
+
+    std::set<id_t> copies;
+    for (id_t id : selection_) {
+        const auto* src = LotGameObject::find(objects, id);
+        if (!src) continue;
+
+        auto copy = LotGameObject::createGameObject();
+        copy.transform = src->transform;
+        copy.color = src->color;
+        copy.model = src->model;        // 공유 - GPU 버퍼 복사 없음
+        copy.material = src->material;  // 공유
+        const id_t newId = copy.getId();
+        objects.emplace(newId, std::move(copy));
+        copies.insert(newId);
+    }
+    LOT_LOG("copy: " << copies.size() << " objects duplicated");
+    selection_ = std::move(copies);
+}
+
+void EditController::deleteSelection(LotGameObject::Map& objects) {
+    if (selection_.empty()) return;
+    drag_.active = false;
+
+    size_t removed = 0;
+    for (id_t id : selection_) {
+        removed += objects.erase(id);
+    }
+    LOT_LOG("delete: " << removed << " objects removed");
+    selection_.clear();
+}
+
 void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {
     // 선택 상자 (OBB). 오브젝트 변환을 그대로 타서 회전하면 같이 돈다.
     for (id_t id : selection_) {

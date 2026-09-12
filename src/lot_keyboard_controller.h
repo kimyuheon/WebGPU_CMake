@@ -18,7 +18,8 @@ public:
 
     // 브라우저 이벤트 콜백에서만 부른다.
     // 우리가 쓰는 키였으면 true - 그 경우 이벤트를 소비한다.
-    bool handleBrowserKey(const char* code, bool down);
+    // ctrlOrMeta 가 참이면(Ctrl+C 같은 브라우저 단축키) 우리 키로 보지 않는다.
+    bool handleBrowserKey(const char* code, bool down, bool ctrlOrMeta = false);
 
     // 투영 토글 (P). 이번 프레임에 눌렸으면 true - 한 번만 소비된다.
     // 이동 키와 달리 '누르고 있는 동안'이 아니라 '누른 순간'이 의미 있다.
@@ -29,6 +30,10 @@ public:
 
     // 외곽선 토글 (O). 누른 순간만.
     bool consumeOutlineToggle();
+
+    // 선택 복제 (C) / 삭제 (Delete, Backspace). 누른 순간만.
+    bool consumeDuplicate();
+    bool consumeDelete();
 
     float moveSpeed = 3.0f;
     float lookSpeed = 1.5f;
@@ -50,6 +55,8 @@ private:
         ZoomIn,
         ZoomOut,
         ToggleOutline,
+        Duplicate,
+        DeleteSelection,
         KeyCount,
     };
 

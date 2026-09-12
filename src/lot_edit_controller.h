@@ -54,9 +54,17 @@ public:
     // 선택 집합의 중심 (translation 의 평균). 기즈모 위치 = 편집 기준점.
     vec3 pivot(const LotGameObject::Map& objects) const;
 
-    // 선택을 바깥에서 바꿀 때 (복사 뒤 사본을 선택하는 등)
+    // 선택을 바깥에서 바꿀 때
     void setSelection(std::set<id_t> ids) { selection_ = std::move(ids); }
     void clearSelection() { selection_.clear(); }
+
+    // 선택된 오브젝트들을 제자리에 복제하고 사본을 선택한다 (CAD 의 COPY).
+    // 모델/재질은 shared_ptr 이라 GPU 버퍼가 복사되지 않는다.
+    // 복제 직후 기즈모를 끌면 사본만 움직이므로 '집어서 옮기기' 흐름이 된다.
+    void duplicateSelection(LotGameObject::Map& objects);
+
+    // 선택된 오브젝트들을 지운다. 드래그 중이면 먼저 끝낸다.
+    void deleteSelection(LotGameObject::Map& objects);
 
     const lot_osnap::Snap& snap() const { return snap_; }
 

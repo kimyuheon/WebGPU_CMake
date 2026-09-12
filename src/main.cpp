@@ -194,6 +194,9 @@ void lot_onObjFileLoaded(const char* data, int length) {
         object->model = g_objModel;
         object->transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
         LOT_LOG("OBJ open: replaced the model at scene center");
+    } else if (g_objPlaced) {
+        // 자리에 있던 오브젝트가 지워졌다 - 새로 놓는다
+        placeObjModel();
     }
     // 아직 자리를 못 잡았으면 렌더 루프의 4-1 이 넣어준다
 }
@@ -307,6 +310,12 @@ void renderLoop() {
         g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
 
         // 투영 전환 / 직교 줌
+        if (g_cameraController.consumeDuplicate()) {
+            g_edit.duplicateSelection(g_gameObjects);
+        }
+        if (g_cameraController.consumeDelete()) {
+            g_edit.deleteSelection(g_gameObjects);
+        }
         if (g_cameraController.consumeOutlineToggle()) {
             g_postSystem->mode = (g_postSystem->mode == PostProcessSystem::Mode::Outline)
                 ? PostProcessSystem::Mode::Passthrough : PostProcessSystem::Mode::Outline;

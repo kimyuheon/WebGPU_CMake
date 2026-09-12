@@ -43,7 +43,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|snap:|marquee:|copy:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|marquee:|copy:|delete:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
