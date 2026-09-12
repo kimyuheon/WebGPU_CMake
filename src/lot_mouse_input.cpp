@@ -17,7 +17,7 @@ bool onMouseMove(int, const EmscriptenMouseEvent* e, void* userData) {
 bool onMouseDown(int, const EmscriptenMouseEvent* e, void* userData) {
     auto* self = static_cast<MouseInput*>(userData);
     self->onButton(e->button, true, static_cast<float>(e->targetX),
-                   static_cast<float>(e->targetY));
+                   static_cast<float>(e->targetY), e->shiftKey);
     return true;  // 캔버스 위에서는 텍스트 선택 같은 기본 동작을 막는다
 }
 
@@ -71,11 +71,14 @@ void MouseInput::onButtonReleasedAnywhere(int button) {
     leftDown_ = false;
 }
 
-void MouseInput::onButton(int button, bool down, float x, float y) {
+void MouseInput::onButton(int button, bool down, float x, float y, bool shift) {
     if (button != 0) return;  // 왼쪽만 본다
     x_ = x;
     y_ = y;
-    if (down && !leftDown_) leftPressed_ = true;
+    if (down && !leftDown_) {
+        leftPressed_ = true;
+        shiftAtPress_ = shift;
+    }
     if (!down && leftDown_) leftReleased_ = true;
     leftDown_ = down;
 }

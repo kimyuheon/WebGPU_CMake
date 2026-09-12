@@ -43,7 +43,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|snap:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|marquee:|copy:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
@@ -80,6 +80,15 @@ while (i < args.length) {
     await mouse('mouseReleased', x2, y2, { clickCount: 1 });
     await sleep(400);
     console.log(`drag (${x1}, ${y1}) -> (${x2}, ${y2})`);
+  } else if (cmd === 'shiftclick') {
+    // Shift + 클릭 (선택 추가/토글). CDP modifiers: 8 = Shift
+    const x = Number(args[i++]), y = Number(args[i++]);
+    await mouse('mouseMoved', x, y);
+    await mouse('mousePressed', x, y, { clickCount: 1, modifiers: 8 });
+    await sleep(100);
+    await mouse('mouseReleased', x, y, { clickCount: 1, modifiers: 8 });
+    await sleep(400);
+    console.log(`shift+click (${x}, ${y})`);
   } else if (cmd === 'move') {
     // 누르지 않고 커서만 옮긴다 (호버 스냅 확인용)
     const x = Number(args[i++]), y = Number(args[i++]);

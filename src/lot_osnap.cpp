@@ -45,7 +45,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     lot_pick::Hit hit;
     float bestT = std::numeric_limits<float>::max();
     for (const auto& entry : objects) {
-        if (entry.first == q.excludeId) continue;
+        if (q.isExcluded(entry.first)) continue;
         lot_pick::Hit h;
         if (lot_pick::intersectObjectPrecise(ray, entry.second, h) && h.t < bestT) {
             bestT = h.t;
@@ -75,7 +75,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     //    실루엣 바로 옆에서 꼭짓점을 집을 때 필요하다. 정점 수천 개를 프레임마다
     //    투영해도 마이크로초 단위다.
     for (const auto& entry : objects) {
-        if (entry.first == q.excludeId) continue;
+        if (q.isExcluded(entry.first)) continue;
         const LotGameObject& obj = entry.second;
         if (!obj.model) continue;
         const mat4 m = obj.transform.mat4Transform();

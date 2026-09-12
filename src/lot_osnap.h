@@ -5,6 +5,8 @@
 #include "lot_math.h"
 #include "lot_picking.h"
 
+#include <set>
+
 class LineRenderSystem;
 
 // 오브젝트 스냅 (CAD 의 osnap). 커서 근처의 '의미 있는 점'을 찾는다.
@@ -42,8 +44,13 @@ struct Query {
     float width = 0.0f;
     float height = 0.0f;
     float radiusPx = 14.0f;
-    // 이 오브젝트는 후보에서 뺀다 - 끌고 있는 오브젝트가 제 정점에 붙지 않도록
-    LotGameObject::id_t excludeId = LotGameObject::kInvalidId;
+    // 이 오브젝트들은 후보에서 뺀다 - 끌고 있는 것들이 제 정점에 붙지 않도록.
+    // nullptr 이면 아무것도 빼지 않는다.
+    const std::set<LotGameObject::id_t>* exclude = nullptr;
+
+    bool isExcluded(LotGameObject::id_t id) const {
+        return exclude != nullptr && exclude->count(id) != 0;
+    }
 };
 
 // 커서 아래를 정밀 피킹한 뒤 스냅 후보를 찾는다. 없으면 kind == None.

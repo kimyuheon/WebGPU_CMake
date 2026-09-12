@@ -7,9 +7,8 @@
 #include "post_process_system.h"
 #include "lot_frame_info.h"
 #include "lot_render_target.h"
+#include "lot_edit_controller.h"
 #include "lot_mouse_input.h"
-#include "lot_osnap.h"
-#include "lot_picking.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
 #include "lot_camera.h"
@@ -59,31 +58,8 @@ LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
 
-// 지금 선택된 오브젝트. 기즈모와 선택 상자가 여기에 붙는다.
-static LotGameObject::id_t g_selectedId = LotGameObject::kInvalidId;
-
-// 기즈모 드래그 상태.
-//
-// 누른 순간의 오브젝트 위치를 기준점으로 잡고, 매 프레임 마우스 레이가
-// 축 위의 어디를 가리키는지(s)를 구해 그 차이만큼 옮긴다. 기준점을 매
-// 프레임 갱신하면 오차가 누적되므로 시작값을 들고 있는다.
-struct GizmoDrag {
-    bool active = false;
-    int handle = -1;           // 0~2 축, 3~5 평면
-    float startS = 0.0f;       // (축) 누른 순간 축 위의 파라미터
-    vec3 startHit{};           // (평면) 누른 순간 평면 위의 교점
-    vec3 startTranslation{};   // 누른 순간 오브젝트 위치 = 축/평면의 기준점
-};
-static GizmoDrag g_drag;
-
-// 마지막 클릭의 교점. 정밀 피킹이 실제로 표면을 맞추는지 십자로 표시한다.
-static lot_pick::Hit g_lastHit;
-
-// 커서 아래 스냅 후보. 매 프레임 갱신되고 마커로 그려진다.
-// 드래그 중이면 끌고 있는 오브젝트가 이 점에 붙는다.
-static lot_osnap::Snap g_snap;
-static const float kSnapRadiusPx = 14.0f;
-static const float kSnapMarkerPx = 7.0f;
+// 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
+EditController g_edit;
 
 // 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
 // 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
@@ -316,127 +292,14 @@ void renderLoop() {
         g_lastFrameMs = nowMs;
         g_time += deltaSec;
 
-        // 클릭 -> 피킹. 카메라가 갱신된 뒤에 해야 레이가 이번 프레임 것과 맞지만,
-        // 한 프레임 차이는 눈에 띄지 않으므로 여기서 이전 프레임 카메라로 한다.
+        // 선택 / 기즈모 드래그 / 스냅. 카메라가 갱신된 뒤에 해야 레이가 이번 프레임
+        // 것과 맞지만, 한 프레임 차이는 눈에 띄지 않으므로 이전 프레임 카메라로 한다.
         {
             const auto& sc = g_renderer->getSwapchain();
-            auto mouseRay = [&]() {
-                return lot_pick::screenToRay(
-                    g_camera, g_mouse.x(), g_mouse.y(),
-                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
-            };
-
-            // 커서 아래 스냅 후보. 드래그 중이면 끌고 있는 오브젝트는 뺀다
-            // (제 정점에 붙으면 안 된다).
-            {
-                lot_osnap::Query query;
-                query.camera = &g_camera;
-                query.mouseX = g_mouse.x();
-                query.mouseY = g_mouse.y();
-                query.width = static_cast<float>(sc.getWidth());
-                query.height = static_cast<float>(sc.getHeight());
-                query.radiusPx = kSnapRadiusPx;
-                query.excludeId = g_drag.active ? g_selectedId : LotGameObject::kInvalidId;
-                g_snap = lot_osnap::find(query, mouseRay(), g_gameObjects);
-            }
-
-            if (g_mouse.consumeLeftPress()) {
-                const lot_pick::Ray ray = mouseRay();
-
-                // 1. 선택된 오브젝트의 기즈모 축을 집었나? 그러면 드래그 시작.
-                //    오브젝트 피킹보다 먼저 봐야 한다 - 기즈모는 오브젝트 위에 겹쳐 있다.
-                auto* selected = LotGameObject::find(g_gameObjects, g_selectedId);
-                const int handle = selected
-                    ? g_gizmoSystem->hitTest(ray, g_camera, selected->transform.translation)
-                    : -1;
-                if (handle >= 0) {
-                    const vec3& origin = selected->transform.translation;
-                    bool ok = false;
-                    if (GizmoRenderSystem::isPlaneHandle(handle)) {
-                        ok = GizmoRenderSystem::intersectPlane(
-                            ray, origin, GizmoRenderSystem::planeNormalAxis(handle), g_drag.startHit);
-                    } else {
-                        ok = lot_pick::closestPointOnLine(
-                            ray, origin, GizmoRenderSystem::axisDirection(handle), g_drag.startS);
-                    }
-                    if (ok) {
-                        g_drag.active = true;
-                        g_drag.handle = handle;
-                        g_drag.startTranslation = origin;
-                        LOT_LOG("drag: start on " << (GizmoRenderSystem::isPlaneHandle(handle)
-                                                      ? "plane " : "axis ") << handle);
-                    }
-                } else {
-                    // 2. 아니면 오브젝트 피킹 - 삼각형 단위. 경계 상자만 보던 예전에는
-                    //    토러스의 구멍을 클릭해도 잡혔다.
-                    g_lastHit = lot_pick::pickObjectPrecise(ray, g_gameObjects);
-                    const auto hit = g_lastHit.id;
-                    if (hit != g_selectedId) {
-                        g_selectedId = hit;
-                    }
-                    if (hit == LotGameObject::kInvalidId) {
-                        LOT_LOG("pick: nothing (deselected)");
-                    } else {
-                        LOT_LOG("pick: object " << hit << " tri " << g_lastHit.triangle
-                                << " t=" << g_lastHit.t << " at (" << g_lastHit.point.x << ", "
-                                << g_lastHit.point.y << ", " << g_lastHit.point.z << ")");
-                    }
-                }
-            }
-
-            // 드래그 중: 마우스 레이가 축 위의 어디를 가리키는지로 위치를 정한다.
-            // 축의 기준점은 누른 순간의 위치다 - 움직이는 오브젝트를 기준으로 하면
-            // 매 프레임 기준이 밀려 오차가 쌓인다.
-            if (g_drag.active) {
-                auto* selected = LotGameObject::find(g_gameObjects, g_selectedId);
-                if (!selected || !g_mouse.isLeftDown()) {
-                    g_drag.active = false;
-                    if (selected) {
-                        if (g_snap.valid()) {
-                            LOT_LOG("snap: " << (g_snap.kind == lot_osnap::Kind::Endpoint
-                                                 ? "endpoint" : "midpoint")
-                                    << " of object " << g_snap.id << " ("
-                                    << g_snap.screenDistance << "px)");
-                        }
-                        LOT_LOG("drag: end at (" << selected->transform.translation.x << ", "
-                                << selected->transform.translation.y << ", "
-                                << selected->transform.translation.z << ")");
-                    }
-                } else if (g_snap.valid()) {
-                    // 스냅: 오브젝트 원점을 스냅 점에 맞춘다. 단, 축/평면 구속은 지킨다 -
-                    // 축 드래그면 스냅 점을 축에 투영하고, 평면이면 평면에 투영한다.
-                    const vec3 target = g_snap.point - g_drag.startTranslation;
-                    if (GizmoRenderSystem::isPlaneHandle(g_drag.handle)) {
-                        const vec3 n = GizmoRenderSystem::axisDirection(
-                            GizmoRenderSystem::planeNormalAxis(g_drag.handle));
-                        selected->transform.translation =
-                            g_drag.startTranslation + (target - n * dot(target, n));
-                    } else {
-                        const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.handle);
-                        selected->transform.translation =
-                            g_drag.startTranslation + axisDir * dot(target, axisDir);
-                    }
-                } else if (GizmoRenderSystem::isPlaneHandle(g_drag.handle)) {
-                    // 평면: 지금 교점과 시작 교점의 차이만큼. 둘 다 평면 위라 차이도 평면 위다.
-                    vec3 hit;
-                    if (GizmoRenderSystem::intersectPlane(
-                            mouseRay(), g_drag.startTranslation,
-                            GizmoRenderSystem::planeNormalAxis(g_drag.handle), hit)) {
-                        selected->transform.translation =
-                            g_drag.startTranslation + (hit - g_drag.startHit);
-                    }
-                } else {
-                    // 축: 마우스 레이가 축 위의 어디를 가리키는지로
-                    const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.handle);
-                    float s = 0.0f;
-                    if (lot_pick::closestPointOnLine(mouseRay(), g_drag.startTranslation,
-                                                     axisDir, s)) {
-                        selected->transform.translation =
-                            g_drag.startTranslation + axisDir * (s - g_drag.startS);
-                    }
-                }
-            }
-            g_mouse.consumeLeftRelease();  // 위에서 isLeftDown 으로 봤으므로 플래그만 비운다
+            EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
+                                        static_cast<float>(sc.getWidth()),
+                                        static_cast<float>(sc.getHeight())};
+            g_edit.update(ctx);
         }
 
         // 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
@@ -520,19 +383,12 @@ void renderLoop() {
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
                              vec3(0.45f, 0.45f, 0.5f));
 
-        // 스냅 마커 (끝점 = 사각형, 중점 = 삼각형). 화면 크기가 일정하다.
-        lot_osnap::addMarker(*g_lineSystem, g_snap, g_camera,
-                             static_cast<float>(sc.getHeight()), kSnapMarkerPx);
-
-        // 선택된 오브젝트에는 경계 상자를 씌운다. 오브젝트 변환을 그대로 타므로
-        // 회전하면 상자도 같이 돈다 - 피킹이 보는 것과 정확히 같은 상자다.
-        if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
-            if (selected->model) {
-                g_lineSystem->addTransformedBox(selected->model->boundsMin(),
-                                                selected->model->boundsMax(),
-                                                selected->transform.mat4Transform(),
-                                                vec3(1.0f, 0.85f, 0.2f));
-            }
+        // 선택 상자 / 박스 선택 사각형 / 스냅 마커
+        {
+            EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
+                                        static_cast<float>(sc.getWidth()),
+                                        static_cast<float>(sc.getHeight())};
+            g_edit.drawOverlay(*g_lineSystem, ctx);
         }
 
         // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).
@@ -579,11 +435,8 @@ void renderLoop() {
         g_gridSystem->render(frame);
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
-        // 기즈모는 뎁스를 무시하므로 맨 마지막. 선택된 오브젝트에만 붙는다.
-        if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
-            g_gizmoSystem->render(frame, selected->transform.translation,
-                                  g_drag.active ? g_drag.handle : -1);
-        }
+        // 기즈모는 뎁스를 무시하므로 맨 마지막. 선택이 있을 때만.
+        g_edit.drawGizmo(frame, *g_gizmoSystem);
         g_renderer->endRenderPass();
 
         // 프레임 종료
