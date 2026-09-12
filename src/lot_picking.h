@@ -26,9 +26,34 @@ Ray screenToRay(const LotCamera& camera, float px, float py, float width, float 
 // 모델이 없는 오브젝트(카메라 뷰어 등)는 항상 false.
 bool intersectObject(const Ray& ray, const LotGameObject& object, float& tOut);
 
-// 레이가 처음 맞는 오브젝트. 없으면 kInvalidId.
+// 레이가 처음 맞는 오브젝트 (경계 상자 기준). 없으면 kInvalidId.
+// 빠르지만 거칠다 - 토러스의 구멍을 클릭해도 잡힌다. 후보를 거르는 데 쓴다.
 LotGameObject::id_t pickObject(const Ray& ray, const LotGameObject::Map& objects,
                                float& tOut);
+
+// 삼각형 단위 피킹 결과.
+struct Hit {
+    LotGameObject::id_t id = LotGameObject::kInvalidId;
+    float t = 0.0f;         // origin + t * direction
+    vec3 point{};           // 교점 (월드)
+    vec3 localPoint{};      // 교점 (오브젝트 로컬) - 스냅이 로컬 정점과 비교할 때
+    size_t triangle = 0;    // 모델 안에서의 삼각형 번호
+
+    bool valid() const { return id != LotGameObject::kInvalidId; }
+};
+
+// 레이 vs 삼각형 (Möller-Trumbore). 맞으면 t 와 무게중심 좌표 (u, v).
+// 방향이 단위 벡터가 아니어도 된다 - 그래야 로컬 공간에서 그대로 쓴다.
+// 앞뒤를 가리지 않는다 (닫힌 메시라면 가장 가까운 교점이 어차피 앞면이다).
+bool intersectTriangle(const vec3& origin, const vec3& direction,
+                       const vec3& a, const vec3& b, const vec3& c,
+                       float& tOut, float& uOut, float& vOut);
+
+// 오브젝트의 삼각형을 전부 돌아 가장 가까운 교점. 경계 상자를 먼저 거른다.
+bool intersectObjectPrecise(const Ray& ray, const LotGameObject& object, Hit& hitOut);
+
+// 삼각형 단위로 가장 가까운 오브젝트. 경계 상자를 통과한 것만 삼각형을 돈다.
+Hit pickObjectPrecise(const Ray& ray, const LotGameObject::Map& objects);
 
 // 레이와 선분(a -> b) 사이의 가장 가까운 거리.
 // 기즈모 축을 집을 때 쓴다. sOut 은 선분 위의 파라미터 (0 = a, 1 = b).

@@ -44,6 +44,18 @@ public:
     // 피킹도 이 상자로 한다.
     const vec3& boundsMin() const { return boundsMin_; }
     const vec3& boundsMax() const { return boundsMax_; }
+
+    // CPU 쪽 지오메트리 (모델 로컬 공간). 삼각형 단위 피킹과 스냅이 쓴다.
+    // GPU 에 올린 것과 별개로 위치만 따로 들고 있다 - 메모리는 정점당 12 바이트.
+    const std::vector<vec3>& getPositions() const { return positions_; }
+    const std::vector<uint32_t>& getIndices() const { return indices_; }
+
+    // 삼각형 개수. 인덱스가 없으면 정점 셋씩 이어진 것으로 본다.
+    // (선분 모델에는 의미 없다 - 피킹은 게임 오브젝트의 메시에만 한다.)
+    size_t getTriangleCount() const;
+
+    // 삼각형 i 의 세 꼭짓점 (로컬). i 가 범위 밖이면 false.
+    bool getTriangle(size_t i, vec3& a, vec3& b, vec3& c) const;
     vec3 boundsCenter() const;
 
     // 가장 긴 변이 targetSize 가 되도록 하는 스케일.
@@ -77,4 +89,7 @@ private:
 
     vec3 boundsMin_{0.0f, 0.0f, 0.0f};
     vec3 boundsMax_{0.0f, 0.0f, 0.0f};
+
+    std::vector<vec3> positions_;
+    std::vector<uint32_t> indices_;
 };

@@ -26,6 +26,13 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
         indexBuffer_->createBuffer(device, builder.indices.data());
     }
 
+    // CPU 사본 - 피킹/스냅용. 위치만.
+    positions_.reserve(builder.vertices.size());
+    for (const auto& v : builder.vertices) {
+        positions_.push_back(vec3{v.position[0], v.position[1], v.position[2]});
+    }
+    indices_ = builder.indices;
+
     // 경계 상자
     boundsMin_ = vec3{builder.vertices[0].position[0],
                       builder.vertices[0].position[1],
@@ -42,6 +49,28 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
 
     LOT_LOG("LotModel: " << vertexCount_ << " vertices, "
               << indexCount_ << " indices");
+}
+
+size_t LotModel::getTriangleCount() const {
+    return (indices_.empty() ? positions_.size() : indices_.size()) / 3;
+}
+
+bool LotModel::getTriangle(size_t i, vec3& a, vec3& b, vec3& c) const {
+    const size_t base = i * 3;
+    if (indices_.empty()) {
+        if (base + 2 >= positions_.size()) return false;
+        a = positions_[base];
+        b = positions_[base + 1];
+        c = positions_[base + 2];
+        return true;
+    }
+    if (base + 2 >= indices_.size()) return false;
+    const uint32_t ia = indices_[base], ib = indices_[base + 1], ic = indices_[base + 2];
+    if (ia >= positions_.size() || ib >= positions_.size() || ic >= positions_.size()) return false;
+    a = positions_[ia];
+    b = positions_[ib];
+    c = positions_[ic];
+    return true;
 }
 
 vec3 LotModel::boundsCenter() const {

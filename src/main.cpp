@@ -75,6 +75,9 @@ struct GizmoDrag {
 };
 static GizmoDrag g_drag;
 
+// 마지막 클릭의 교점. 정밀 피킹이 실제로 표면을 맞추는지 십자로 표시한다.
+static lot_pick::Hit g_lastHit;
+
 // 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
 // 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
 LotGameObject g_viewerObject = LotGameObject::createGameObject();
@@ -343,16 +346,19 @@ void renderLoop() {
                                                       ? "plane " : "axis ") << handle);
                     }
                 } else {
-                    // 2. 아니면 오브젝트 피킹
-                    float t = 0.0f;
-                    const auto hit = lot_pick::pickObject(ray, g_gameObjects, t);
+                    // 2. 아니면 오브젝트 피킹 - 삼각형 단위. 경계 상자만 보던 예전에는
+                    //    토러스의 구멍을 클릭해도 잡혔다.
+                    g_lastHit = lot_pick::pickObjectPrecise(ray, g_gameObjects);
+                    const auto hit = g_lastHit.id;
                     if (hit != g_selectedId) {
                         g_selectedId = hit;
-                        if (hit == LotGameObject::kInvalidId) {
-                            LOT_LOG("pick: nothing (deselected)");
-                        } else {
-                            LOT_LOG("pick: object " << hit << " at t=" << t);
-                        }
+                    }
+                    if (hit == LotGameObject::kInvalidId) {
+                        LOT_LOG("pick: nothing (deselected)");
+                    } else {
+                        LOT_LOG("pick: object " << hit << " tri " << g_lastHit.triangle
+                                << " t=" << g_lastHit.t << " at (" << g_lastHit.point.x << ", "
+                                << g_lastHit.point.y << ", " << g_lastHit.point.z << ")");
                     }
                 }
             }
@@ -472,6 +478,11 @@ void renderLoop() {
         g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
                              vec3(0.45f, 0.45f, 0.5f));
+
+        // 마지막 클릭 교점 (정밀 피킹이 표면을 맞추는지 눈으로 보는 용도)
+        if (g_lastHit.valid()) {
+            g_lineSystem->addCross(g_lastHit.point, 0.06f, vec3(1.0f, 0.3f, 0.9f));
+        }
 
         // 선택된 오브젝트에는 경계 상자를 씌운다. 오브젝트 변환을 그대로 타므로
         // 회전하면 상자도 같이 돈다 - 피킹이 보는 것과 정확히 같은 상자다.
