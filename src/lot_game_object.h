@@ -2,6 +2,7 @@
 
 #include "lot_math.h"
 #include <memory>
+#include <unordered_map>
 
 class LotModel;
 
@@ -10,11 +11,25 @@ class LotGameObject {
 public:
     using id_t = unsigned int;
 
-    // 팩토리 메서드로 생성
+    // 장면의 오브젝트 목록. vector 가 아니라 맵인 이유:
+    // 피킹/선택은 "무엇을 골랐는지"를 들고 있어야 하는데, vector 인덱스는
+    // 중간에 하나가 지워지면 밀려서 엉뚱한 것을 가리킨다. id 는 안 바뀐다.
+    using Map = std::unordered_map<id_t, LotGameObject>;
+
+    // 없는 id 면 nullptr. 선택된 오브젝트가 지워졌을 때를 위한 안전한 조회.
+    static LotGameObject* find(Map& map, id_t id) {
+        auto it = map.find(id);
+        return (it == map.end()) ? nullptr : &it->second;
+    }
+
+    // 팩토리 메서드로 생성. id 는 0 부터 한 번씩만 나간다.
     static LotGameObject createGameObject() {
         static id_t currentId = 0;
         return LotGameObject{currentId++};
     }
+
+    // "선택 없음" 을 나타내는 값. 실제 id 로는 절대 나오지 않는다.
+    static constexpr id_t kInvalidId = ~static_cast<id_t>(0);
 
     // 복사 금지, 이동 허용
     LotGameObject(const LotGameObject&) = delete;

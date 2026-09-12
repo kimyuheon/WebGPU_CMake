@@ -38,7 +38,7 @@ std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
 LotGlobalUniform g_globalUniform;
 std::shared_ptr<LotModel> g_cubeModel = nullptr;
 std::shared_ptr<LotModel> g_objModel = nullptr;
-std::vector<LotGameObject> g_gameObjects;
+LotGameObject::Map g_gameObjects;
 LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 
@@ -55,8 +55,9 @@ static bool g_modelCreated = false;
 static bool g_objRequested = false;   // fetch 를 시작했는지 (한 번만 보낸다)
 static bool g_objPlaced = false;      // 받아온 모델을 장면에 넣었는지
 
-// OBJ 모델이 들어가 있는 오브젝트의 자리. 파일을 새로 열면 이 자리를 갈아끼운다.
-static size_t g_objObjectIndex = SIZE_MAX;
+// OBJ 모델이 들어가 있는 오브젝트. 파일을 새로 열면 이 오브젝트의 모델을 갈아끼운다.
+// 인덱스가 아니라 id 라서 다른 오브젝트가 지워져도 어긋나지 않는다.
+static LotGameObject::id_t g_objObjectId = LotGameObject::kInvalidId;
 
 // 불러온 모델이 화면에 차는 크기. 남이 만든 OBJ 는 단위가 제각각이라
 // (몇 백 단위짜리도 흔하다) 파일 값을 그대로 쓰면 안 보이거나 화면을 덮는다.
@@ -113,7 +114,8 @@ void createGameObjects() {
         cube.transform.scale = vec3(0.6f);
         cube.transform.rotation = vec3(0.0f, 0.0f, 0.0f);
 
-        g_gameObjects.push_back(std::move(cube));
+        const auto id = cube.getId();
+        g_gameObjects.emplace(id, std::move(cube));
     }
 
     LOT_LOG("Game objects created: " << g_gameObjects.size());
@@ -128,9 +130,9 @@ void placeObjModel() {
     object.model = g_objModel;
     object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
-    g_gameObjects.push_back(std::move(object));
+    g_objObjectId = object.getId();
+    g_gameObjects.emplace(g_objObjectId, std::move(object));
 
-    g_objObjectIndex = g_gameObjects.size() - 1;
     g_objPlaced = true;
     LOT_LOG("OBJ model placed at scene center");
 }
@@ -159,10 +161,9 @@ void lot_onObjFileLoaded(const char* data, int length) {
     // 이전 모델은 shared_ptr 이 마지막으로 놓을 때 정리된다
     g_objModel = std::move(model);
 
-    if (g_objObjectIndex < g_gameObjects.size()) {
-        auto& object = g_gameObjects[g_objObjectIndex];
-        object.model = g_objModel;
-        object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
+    if (auto* object = LotGameObject::find(g_gameObjects, g_objObjectId)) {
+        object->model = g_objModel;
+        object->transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
         LOT_LOG("OBJ open: replaced the model at scene center");
     }
     // 아직 자리를 못 잡았으면 렌더 루프의 4-1 이 넣어준다
@@ -260,11 +261,12 @@ void renderLoop() {
 
         // 게임 오브젝트 업데이트 (각자 다른 속도로 돈다).
         // 두 축을 같이 돌려야 정육면체의 여섯 면이 다 보인다.
-        for (size_t i = 0; i < g_gameObjects.size(); ++i) {
-            const float speed = kSpinSpeeds[i % (sizeof(kSpinSpeeds) / sizeof(kSpinSpeeds[0]))];
+        for (auto& entry : g_gameObjects) {
+            LotGameObject& obj = entry.second;
+            const float speed = kSpinSpeeds[obj.getId() % (sizeof(kSpinSpeeds) / sizeof(kSpinSpeeds[0]))];
             const float angle = static_cast<float>(g_time) * speed;
-            g_gameObjects[i].transform.rotation.y = angle;
-            g_gameObjects[i].transform.rotation.x = angle * 0.5f;
+            obj.transform.rotation.y = angle;
+            obj.transform.rotation.x = angle * 0.5f;
         }
 
         // 광원을 큐브들 주위로 돌린다. 점 광원이라 가까운 면일수록 밝아지는 게
@@ -326,9 +328,9 @@ void renderLoop() {
 
         // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다.
         // 가운데 OBJ 오브젝트에 붙인다 (없으면 원점).
-        const vec3 gizmoAt = (g_objObjectIndex < g_gameObjects.size())
-            ? g_gameObjects[g_objObjectIndex].transform.translation
-            : vec3(0.0f, 0.0f, 0.0f);
+        const LotGameObject* gizmoTarget = LotGameObject::find(g_gameObjects, g_objObjectId);
+        const vec3 gizmoAt = gizmoTarget ? gizmoTarget->transform.translation
+                                         : vec3(0.0f, 0.0f, 0.0f);
         g_gizmoSystem->render(frame, gizmoAt);
 
         // 렌더 패스 종료

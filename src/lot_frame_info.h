@@ -4,7 +4,6 @@
 #include "lot_game_object.h"
 
 #include <webgpu/webgpu.h>
-#include <vector>
 
 // 한 프레임을 그리는 데 필요한 것들을 한 묶음으로.
 //
@@ -19,5 +18,5 @@ struct FrameInfo {
     // @group(0). 카메라 + 조명. LotGlobalUniform 이 만든다.
     WGPUBindGroup globalBindGroup;
 
-    std::vector<LotGameObject>& gameObjects;
+    LotGameObject::Map& gameObjects;
 };

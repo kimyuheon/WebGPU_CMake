@@ -127,7 +127,8 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
 
     // 2. 오브젝트별 유니폼
     uint32_t slot = 0;
-    for (auto& obj : frame.gameObjects) {
+    for (auto& entry : frame.gameObjects) {
+        LotGameObject& obj = entry.second;
         if (slot >= kMaxObjects) {
             if (!overflowWarned_) {
                 LOT_ERR("SimpleRenderSystem: more than " << kMaxObjects
