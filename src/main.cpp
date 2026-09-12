@@ -48,6 +48,19 @@ MouseInput g_mouse;
 // 지금 선택된 오브젝트. 기즈모와 선택 상자가 여기에 붙는다.
 static LotGameObject::id_t g_selectedId = LotGameObject::kInvalidId;
 
+// 기즈모 드래그 상태.
+//
+// 누른 순간의 오브젝트 위치를 기준점으로 잡고, 매 프레임 마우스 레이가
+// 축 위의 어디를 가리키는지(s)를 구해 그 차이만큼 옮긴다. 기준점을 매
+// 프레임 갱신하면 오차가 누적되므로 시작값을 들고 있는다.
+struct GizmoDrag {
+    bool active = false;
+    int axis = -1;
+    float startS = 0.0f;       // 누른 순간 축 위의 파라미터
+    vec3 startTranslation{};   // 누른 순간 오브젝트 위치 = 축의 기준점
+};
+static GizmoDrag g_drag;
+
 // 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
 // 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
 LotGameObject g_viewerObject = LotGameObject::createGameObject();
@@ -260,21 +273,71 @@ void renderLoop() {
 
         // 클릭 -> 피킹. 카메라가 갱신된 뒤에 해야 레이가 이번 프레임 것과 맞지만,
         // 한 프레임 차이는 눈에 띄지 않으므로 여기서 이전 프레임 카메라로 한다.
-        if (g_mouse.consumeLeftPress()) {
+        {
             const auto& sc = g_renderer->getSwapchain();
-            const lot_pick::Ray ray = lot_pick::screenToRay(
-                g_camera, g_mouse.x(), g_mouse.y(),
-                static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
-            float t = 0.0f;
-            const auto hit = lot_pick::pickObject(ray, g_gameObjects, t);
-            if (hit != g_selectedId) {
-                g_selectedId = hit;
-                if (hit == LotGameObject::kInvalidId) {
-                    LOT_LOG("pick: nothing (deselected)");
+            auto mouseRay = [&]() {
+                return lot_pick::screenToRay(
+                    g_camera, g_mouse.x(), g_mouse.y(),
+                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
+            };
+
+            if (g_mouse.consumeLeftPress()) {
+                const lot_pick::Ray ray = mouseRay();
+
+                // 1. 선택된 오브젝트의 기즈모 축을 집었나? 그러면 드래그 시작.
+                //    오브젝트 피킹보다 먼저 봐야 한다 - 기즈모는 오브젝트 위에 겹쳐 있다.
+                auto* selected = LotGameObject::find(g_gameObjects, g_selectedId);
+                const int axis = selected
+                    ? g_gizmoSystem->hitTestAxis(ray, g_camera, selected->transform.translation)
+                    : -1;
+                if (axis >= 0) {
+                    float s = 0.0f;
+                    if (lot_pick::closestPointOnLine(ray, selected->transform.translation,
+                                                     GizmoRenderSystem::axisDirection(axis), s)) {
+                        g_drag.active = true;
+                        g_drag.axis = axis;
+                        g_drag.startS = s;
+                        g_drag.startTranslation = selected->transform.translation;
+                        LOT_LOG("drag: start on axis " << axis);
+                    }
                 } else {
-                    LOT_LOG("pick: object " << hit << " at t=" << t);
+                    // 2. 아니면 오브젝트 피킹
+                    float t = 0.0f;
+                    const auto hit = lot_pick::pickObject(ray, g_gameObjects, t);
+                    if (hit != g_selectedId) {
+                        g_selectedId = hit;
+                        if (hit == LotGameObject::kInvalidId) {
+                            LOT_LOG("pick: nothing (deselected)");
+                        } else {
+                            LOT_LOG("pick: object " << hit << " at t=" << t);
+                        }
+                    }
                 }
             }
+
+            // 드래그 중: 마우스 레이가 축 위의 어디를 가리키는지로 위치를 정한다.
+            // 축의 기준점은 누른 순간의 위치다 - 움직이는 오브젝트를 기준으로 하면
+            // 매 프레임 기준이 밀려 오차가 쌓인다.
+            if (g_drag.active) {
+                auto* selected = LotGameObject::find(g_gameObjects, g_selectedId);
+                if (!selected || !g_mouse.isLeftDown()) {
+                    g_drag.active = false;
+                    if (selected) {
+                        LOT_LOG("drag: end at (" << selected->transform.translation.x << ", "
+                                << selected->transform.translation.y << ", "
+                                << selected->transform.translation.z << ")");
+                    }
+                } else {
+                    const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.axis);
+                    float s = 0.0f;
+                    if (lot_pick::closestPointOnLine(mouseRay(), g_drag.startTranslation,
+                                                     axisDir, s)) {
+                        selected->transform.translation =
+                            g_drag.startTranslation + axisDir * (s - g_drag.startS);
+                    }
+                }
+            }
+            g_mouse.consumeLeftRelease();  // 위에서 isLeftDown 으로 봤으므로 플래그만 비운다
         }
 
         // 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
@@ -367,7 +430,8 @@ void renderLoop() {
 
         // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다. 선택된 오브젝트에만 붙는다.
         if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
-            g_gizmoSystem->render(frame, selected->transform.translation);
+            g_gizmoSystem->render(frame, selected->transform.translation,
+                                  g_drag.active ? g_drag.axis : -1);
         }
 
         // 렌더 패스 종료

@@ -107,18 +107,55 @@ void GizmoRenderSystem::buildArrow(const vec3& origin, const vec3& axis, float l
     }
 }
 
-void GizmoRenderSystem::render(FrameInfo& frame, const vec3& position) {
+vec3 GizmoRenderSystem::axisDirection(int axis) {
+    switch (axis) {
+        case 0: return vec3{1.0f, 0.0f, 0.0f};
+        case 1: return vec3{0.0f, 1.0f, 0.0f};  // +Y 는 아래쪽이다
+        default: return vec3{0.0f, 0.0f, 1.0f};
+    }
+}
+
+float GizmoRenderSystem::arrowLength(const LotCamera& camera, const vec3& position) const {
+    // 카메라 거리에 비례해 키운다. 원근 나눗셈이 1/거리로 줄이는 것을 상쇄한다.
+    const vec3 toCamera = camera.getPosition() - position;
+    const float distance = std::sqrt(dot(toCamera, toCamera));
+    return std::fmax(distance * screenScale, 0.05f);
+}
+
+int GizmoRenderSystem::hitTestAxis(const lot_pick::Ray& ray, const LotCamera& camera,
+                                   const vec3& position) const {
+    const float length = arrowLength(camera, position);
+    const float tolerance = length * pickTolerance;
+
+    int best = -1;
+    float bestDistance = tolerance;
+    for (int axis = 0; axis < 3; ++axis) {
+        float s = 0.0f;
+        const vec3 tip = position + axisDirection(axis) * length;
+        const float d = lot_pick::distanceRayToSegment(ray, position, tip, s);
+        if (d < bestDistance) {
+            bestDistance = d;
+            best = axis;
+        }
+    }
+    return best;
+}
+
+void GizmoRenderSystem::render(FrameInfo& frame, const vec3& position, int highlightAxis) {
     if (!isReady() || frame.pass == nullptr || device_ == nullptr) return;
 
-    // 카메라 거리에 비례해 키운다. 원근 나눗셈이 1/거리로 줄이는 것을 상쇄한다.
-    const vec3 toCamera = frame.camera.getPosition() - position;
-    const float distance = std::sqrt(dot(toCamera, toCamera));
-    const float length = std::fmax(distance * screenScale, 0.05f);
+    const float length = arrowLength(frame.camera, position);
+
+    // 끌고 있는 축은 흰색에 가깝게 밝힌다
+    auto colorFor = [&](int axis, const vec3& base) {
+        if (axis != highlightAxis) return base;
+        return vec3{base.x * 0.4f + 0.6f, base.y * 0.4f + 0.6f, base.z * 0.4f + 0.6f};
+    };
 
     vertices_.clear();
-    buildArrow(position, vec3{1.0f, 0.0f, 0.0f}, length, kColorX);
-    buildArrow(position, vec3{0.0f, 1.0f, 0.0f}, length, kColorY);  // +Y 는 아래쪽이다
-    buildArrow(position, vec3{0.0f, 0.0f, 1.0f}, length, kColorZ);
+    buildArrow(position, axisDirection(0), length, colorFor(0, kColorX));
+    buildArrow(position, axisDirection(1), length, colorFor(1, kColorY));
+    buildArrow(position, axisDirection(2), length, colorFor(2, kColorZ));
 
     buffer_->upload(*device_, vertices_.data(), vertices_.size() * sizeof(Vertex));
 
