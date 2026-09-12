@@ -16,6 +16,11 @@ struct PipelineConfig {
     // 기즈모처럼 가려지면 안 되는 것에 쓴다. 렌더 패스에 뎁스 어태치먼트가
     // 있는 한 뎁스 상태 자체는 있어야 하므로 '끄는' 게 아니라 '통과시키는' 것이다.
     bool depthTest = true;
+
+    // 알파 블렌딩 (src alpha, 1 - src alpha). 반투명한 것 - 기즈모 평면 핸들,
+    // 고스트 미리보기 - 에 쓴다. 반투명은 불투명한 것을 다 그린 뒤에 그려야
+    // 하고, 뎁스를 쓰지 않는 편이 안전하다 (뒤의 반투명이 앞의 것에 가려지므로).
+    bool alphaBlend = false;
 };
 
 class lot_web_pipeline {

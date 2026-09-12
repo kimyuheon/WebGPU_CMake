@@ -14,16 +14,16 @@ struct GlobalUniforms {
 
 @group(0) @binding(0) var<uniform> global: GlobalUniforms;
 
-// 정점 버퍼 레이아웃은 메시와 같다 (position / color / normal).
-// 셰이더는 쓰는 것만 선언하면 된다 - normal 은 안 받는다.
+// 정점 버퍼 레이아웃은 메시와 같다 (position / color / normal / uv).
+// 셰이더는 쓰는 것만 선언하면 된다 - normal 과 uv 는 안 받는다.
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) color: vec3<f32>,
+    @location(1) color: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,  // 알파 포함 - 블렌드 파이프라인이면 반투명이 된다
 };
 
 @vertex
@@ -37,5 +37,5 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(input.color, 1.0);
+    return input.color;
 }

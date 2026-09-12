@@ -23,9 +23,9 @@ LotModel::Builder buildGrid() {
 
     auto pushLine = [&](vec3 a, vec3 b, const vec3& color) {
         for (const vec3& p : {a, b}) {
-            builder.vertices.push_back(Vertex{{p.x, p.y, p.z},
-                                              {color.x, color.y, color.z},
-                                              {0.0f, -1.0f, 0.0f}});  // 조명은 안 쓰지만 레이아웃은 같다
+            builder.vertices.push_back(Vertex::make(p.x, p.y, p.z,
+                                                    color.x, color.y, color.z,
+                                                    0.0f, -1.0f, 0.0f));  // 조명은 안 쓰지만 레이아웃은 같다
         }
     };
 

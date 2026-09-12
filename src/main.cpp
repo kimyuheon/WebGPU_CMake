@@ -55,9 +55,10 @@ static LotGameObject::id_t g_selectedId = LotGameObject::kInvalidId;
 // 프레임 갱신하면 오차가 누적되므로 시작값을 들고 있는다.
 struct GizmoDrag {
     bool active = false;
-    int axis = -1;
-    float startS = 0.0f;       // 누른 순간 축 위의 파라미터
-    vec3 startTranslation{};   // 누른 순간 오브젝트 위치 = 축의 기준점
+    int handle = -1;           // 0~2 축, 3~5 평면
+    float startS = 0.0f;       // (축) 누른 순간 축 위의 파라미터
+    vec3 startHit{};           // (평면) 누른 순간 평면 위의 교점
+    vec3 startTranslation{};   // 누른 순간 오브젝트 위치 = 축/평면의 기준점
 };
 static GizmoDrag g_drag;
 
@@ -295,18 +296,25 @@ void renderLoop() {
                 // 1. 선택된 오브젝트의 기즈모 축을 집었나? 그러면 드래그 시작.
                 //    오브젝트 피킹보다 먼저 봐야 한다 - 기즈모는 오브젝트 위에 겹쳐 있다.
                 auto* selected = LotGameObject::find(g_gameObjects, g_selectedId);
-                const int axis = selected
-                    ? g_gizmoSystem->hitTestAxis(ray, g_camera, selected->transform.translation)
+                const int handle = selected
+                    ? g_gizmoSystem->hitTest(ray, g_camera, selected->transform.translation)
                     : -1;
-                if (axis >= 0) {
-                    float s = 0.0f;
-                    if (lot_pick::closestPointOnLine(ray, selected->transform.translation,
-                                                     GizmoRenderSystem::axisDirection(axis), s)) {
+                if (handle >= 0) {
+                    const vec3& origin = selected->transform.translation;
+                    bool ok = false;
+                    if (GizmoRenderSystem::isPlaneHandle(handle)) {
+                        ok = GizmoRenderSystem::intersectPlane(
+                            ray, origin, GizmoRenderSystem::planeNormalAxis(handle), g_drag.startHit);
+                    } else {
+                        ok = lot_pick::closestPointOnLine(
+                            ray, origin, GizmoRenderSystem::axisDirection(handle), g_drag.startS);
+                    }
+                    if (ok) {
                         g_drag.active = true;
-                        g_drag.axis = axis;
-                        g_drag.startS = s;
-                        g_drag.startTranslation = selected->transform.translation;
-                        LOT_LOG("drag: start on axis " << axis);
+                        g_drag.handle = handle;
+                        g_drag.startTranslation = origin;
+                        LOT_LOG("drag: start on " << (GizmoRenderSystem::isPlaneHandle(handle)
+                                                      ? "plane " : "axis ") << handle);
                     }
                 } else {
                     // 2. 아니면 오브젝트 피킹
@@ -335,8 +343,18 @@ void renderLoop() {
                                 << selected->transform.translation.y << ", "
                                 << selected->transform.translation.z << ")");
                     }
+                } else if (GizmoRenderSystem::isPlaneHandle(g_drag.handle)) {
+                    // 평면: 지금 교점과 시작 교점의 차이만큼. 둘 다 평면 위라 차이도 평면 위다.
+                    vec3 hit;
+                    if (GizmoRenderSystem::intersectPlane(
+                            mouseRay(), g_drag.startTranslation,
+                            GizmoRenderSystem::planeNormalAxis(g_drag.handle), hit)) {
+                        selected->transform.translation =
+                            g_drag.startTranslation + (hit - g_drag.startHit);
+                    }
                 } else {
-                    const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.axis);
+                    // 축: 마우스 레이가 축 위의 어디를 가리키는지로
+                    const vec3 axisDir = GizmoRenderSystem::axisDirection(g_drag.handle);
                     float s = 0.0f;
                     if (lot_pick::closestPointOnLine(mouseRay(), g_drag.startTranslation,
                                                      axisDir, s)) {
@@ -460,7 +478,7 @@ void renderLoop() {
         // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다. 선택된 오브젝트에만 붙는다.
         if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
             g_gizmoSystem->render(frame, selected->transform.translation,
-                                  g_drag.active ? g_drag.axis : -1);
+                                  g_drag.active ? g_drag.handle : -1);
         }
 
         // 렌더 패스 종료

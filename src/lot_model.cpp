@@ -132,9 +132,9 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
             const float* p = kFaceCorners[face][corner];
             // 면의 네 꼭짓점이 같은 법선을 쓴다 - 그래서 면이 평평하게 보인다
             // (부드럽게 하려면 꼭짓점을 공유하고 법선을 평균내야 한다).
-            builder.vertices.push_back(Vertex{{p[0], p[1], p[2]},
-                                              {color.x, color.y, color.z},
-                                              {normal.x, normal.y, normal.z}});
+            builder.vertices.push_back(Vertex::make(p[0], p[1], p[2],
+                                                    color.x, color.y, color.z,
+                                                    normal.x, normal.y, normal.z));
         }
 
         // 사각형 하나를 삼각형 둘로: (a, b, c) 와 (a, c, d)

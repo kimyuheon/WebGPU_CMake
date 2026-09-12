@@ -26,7 +26,7 @@ struct ObjectUniforms {
 // Vertex Input (버퍼에서 받음)
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) color: vec3<f32>,
+    @location(1) color: vec4<f32>,
     @location(2) normal: vec3<f32>,
 };
 
@@ -52,7 +52,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
     // w = 0 을 곱해 이동 성분을 죽인다 (노멀은 위치가 아니라 방향이므로).
     output.normalWorld = normalize((object.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
-    output.color = input.color;
+    output.color = input.color.rgb;  // 메시 알파는 재질 쪽에서 다룬다
     return output;
 }
 

@@ -164,6 +164,7 @@ LoadResult parse(const std::string& text) {
                 vertex.color[0] = c.x;
                 vertex.color[1] = c.y;
                 vertex.color[2] = c.z;
+                vertex.color[3] = 1.0f;
 
                 if (key.normal >= 0
                     && static_cast<size_t>(key.normal) < normals.size()) {

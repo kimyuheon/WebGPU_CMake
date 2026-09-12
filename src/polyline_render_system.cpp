@@ -61,9 +61,9 @@ void PolylineRenderSystem::addPolyline(const std::vector<vec3>& points, const ve
 
     const auto base = static_cast<uint32_t>(vertices_.size());
     for (const vec3& p : points) {
-        vertices_.push_back(Vertex{{p.x, p.y, p.z},
-                                   {color.x, color.y, color.z},
-                                   {0.0f, -1.0f, 0.0f}});
+        vertices_.push_back(Vertex::make(p.x, p.y, p.z,
+                                         color.x, color.y, color.z,
+                                         0.0f, -1.0f, 0.0f));
     }
     for (uint32_t i = 0; i < points.size(); ++i) {
         indices_.push_back(base + i);

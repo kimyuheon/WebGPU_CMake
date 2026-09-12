@@ -4,6 +4,7 @@
 #include "lot_log.h"
 
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -58,6 +59,7 @@ void GizmoRenderSystem::create(lot_web_device& device, WGPUBindGroupLayout globa
     config.topology = WGPUPrimitiveTopology_TriangleList;
     config.cullMode = WGPUCullMode_None;  // 원뿔 안쪽이 보이는 각도가 있다
     config.depthTest = false;             // 항상 위에
+    config.alphaBlend = true;             // 평면 핸들이 반투명
 
     pipeline_ = std::make_unique<lot_web_pipeline>("shaders/unlit.wgsl");
     pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_, config);
@@ -74,9 +76,9 @@ void GizmoRenderSystem::buildArrow(const vec3& origin, const vec3& axis, float l
     perpendicular(axis, p1, p2);
 
     auto push = [&](const vec3& p) {
-        vertices_.push_back(Vertex{{p.x, p.y, p.z},
-                                   {color.x, color.y, color.z},
-                                   {0.0f, -1.0f, 0.0f}});
+        vertices_.push_back(Vertex::make(p.x, p.y, p.z,
+                                         color.x, color.y, color.z,
+                                         0.0f, -1.0f, 0.0f));
     };
     auto ring = [&](float along, float radius, int i) {
         const float a = 6.2831853f * i / kSegments;
@@ -107,6 +109,41 @@ void GizmoRenderSystem::buildArrow(const vec3& origin, const vec3& axis, float l
     }
 }
 
+void GizmoRenderSystem::buildPlane(const vec3& origin, int normalAxis, float length,
+                                   const vec3& color, float alpha) {
+    // 법선이 n 축이면 평면은 나머지 두 축이 펼친다
+    const vec3 a = axisDirection((normalAxis + 1) % 3);
+    const vec3 b = axisDirection((normalAxis + 2) % 3);
+    const float lo = length * planeInner;
+    const float hi = length * planeOuter;
+
+    const vec3 p00 = origin + a * lo + b * lo;
+    const vec3 p10 = origin + a * hi + b * lo;
+    const vec3 p11 = origin + a * hi + b * hi;
+    const vec3 p01 = origin + a * lo + b * hi;
+
+    auto push = [&](const vec3& p) {
+        Vertex v = Vertex::make(p.x, p.y, p.z, color.x, color.y, color.z, 0.0f, -1.0f, 0.0f);
+        v.color[3] = alpha;
+        vertices_.push_back(v);
+    };
+    // 컬링이 꺼져 있으므로 감는 방향은 상관없다
+    push(p00); push(p10); push(p11);
+    push(p00); push(p11); push(p01);
+}
+
+bool GizmoRenderSystem::intersectPlane(const lot_pick::Ray& ray, const vec3& position,
+                                       int normalAxis, vec3& hitOut) {
+    const vec3 n = axisDirection(normalAxis);
+    const float denom = dot(ray.direction, n);
+    if (std::fabs(denom) < 1e-6f) return false;  // 평행 - 평면을 옆에서 보고 있다
+
+    const float t = dot(position - ray.origin, n) / denom;
+    if (t < 0.0f) return false;  // 카메라 뒤
+    hitOut = ray.origin + ray.direction * t;
+    return true;
+}
+
 vec3 GizmoRenderSystem::axisDirection(int axis) {
     switch (axis) {
         case 0: return vec3{1.0f, 0.0f, 0.0f};
@@ -127,11 +164,43 @@ float GizmoRenderSystem::arrowLength(const LotCamera& camera, const vec3& positi
     return std::fmax(distance * screenScale, 0.05f);
 }
 
-int GizmoRenderSystem::hitTestAxis(const lot_pick::Ray& ray, const LotCamera& camera,
-                                   const vec3& position) const {
+int GizmoRenderSystem::hitTest(const lot_pick::Ray& ray, const LotCamera& camera,
+                               const vec3& position) const {
     const float length = arrowLength(camera, position);
-    const float tolerance = length * pickTolerance;
 
+    // 1. 평면 핸들부터. 레이-평면 교점이 사각형 안이면 집은 것이다.
+    //    교점을 두 축에 투영한 값이 [inner, outer] 안이어야 한다.
+    //
+    //    두 가지를 더 본다:
+    //    - 거의 옆에서 보는 평면은 뺀다. 화면에서 선 하나로 보여 집을 수 없고,
+    //      집혔다 해도 화면의 1px 이 월드에서 한참이라 드래그가 튄다.
+    //    - 여럿이 맞으면 레이에서 가장 가까운 것. 앞에 보이는 게 클릭한 것이다.
+    constexpr float kMinFacing = 0.25f;  // |cos| 이 이보다 작으면 옆에서 보는 것
+    int bestPlane = -1;
+    float bestT = std::numeric_limits<float>::max();
+    for (int n = 0; n < 3; ++n) {
+        const vec3 normal = axisDirection(n);
+        if (std::fabs(dot(ray.direction, normal)) < kMinFacing) continue;
+
+        vec3 hit;
+        if (!intersectPlane(ray, position, n, hit)) continue;
+        const vec3 rel = hit - position;
+        const float u = dot(rel, axisDirection((n + 1) % 3));
+        const float v = dot(rel, axisDirection((n + 2) % 3));
+        const float lo = length * planeInner;
+        const float hi = length * planeOuter;
+        if (u < lo || u > hi || v < lo || v > hi) continue;
+
+        const float t = dot(hit - ray.origin, ray.direction);
+        if (t < bestT) {
+            bestT = t;
+            bestPlane = 3 + n;
+        }
+    }
+    if (bestPlane >= 0) return bestPlane;
+
+    // 2. 축 화살표. 레이와 선분 사이 거리로.
+    const float tolerance = length * pickTolerance;
     int best = -1;
     float bestDistance = tolerance;
     for (int axis = 0; axis < 3; ++axis) {
@@ -146,21 +215,27 @@ int GizmoRenderSystem::hitTestAxis(const lot_pick::Ray& ray, const LotCamera& ca
     return best;
 }
 
-void GizmoRenderSystem::render(FrameInfo& frame, const vec3& position, int highlightAxis) {
+void GizmoRenderSystem::render(FrameInfo& frame, const vec3& position, int highlight) {
     if (!isReady() || frame.pass == nullptr || device_ == nullptr) return;
 
     const float length = arrowLength(frame.camera, position);
 
-    // 끌고 있는 축은 흰색에 가깝게 밝힌다
-    auto colorFor = [&](int axis, const vec3& base) {
-        if (axis != highlightAxis) return base;
+    // 끌고 있는 핸들은 흰색에 가깝게 밝힌다
+    auto colorFor = [&](int handle, const vec3& base) {
+        if (handle != highlight) return base;
         return vec3{base.x * 0.4f + 0.6f, base.y * 0.4f + 0.6f, base.z * 0.4f + 0.6f};
     };
+    const vec3 axisColors[3] = {kColorX, kColorY, kColorZ};
 
     vertices_.clear();
-    buildArrow(position, axisDirection(0), length, colorFor(0, kColorX));
-    buildArrow(position, axisDirection(1), length, colorFor(1, kColorY));
-    buildArrow(position, axisDirection(2), length, colorFor(2, kColorZ));
+    // 평면 핸들은 법선 축의 색을 쓴다 (XY 평면 = Z 색). 끌고 있으면 더 진하게.
+    for (int n = 0; n < 3; ++n) {
+        const float alpha = (3 + n == highlight) ? 0.75f : 0.35f;
+        buildPlane(position, n, length, colorFor(3 + n, axisColors[n]), alpha);
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        buildArrow(position, axisDirection(axis), length, colorFor(axis, axisColors[axis]));
+    }
 
     buffer_->upload(*device_, vertices_.data(), vertices_.size() * sizeof(Vertex));
 

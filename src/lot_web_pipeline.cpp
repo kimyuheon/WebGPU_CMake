@@ -61,7 +61,8 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
 
     // 2. 정점 레이아웃 - lot_vertex.h 의 Vertex 구조체가 유일한 정의처다.
     //    (예전에는 C++ 72바이트 / JS arrayStride 24 / WGSL 이 따로 놀았다)
-    WGPUVertexAttribute attributes[3] = {
+    WGPUVertexAttribute attributes[4] = {
+        WGPU_VERTEX_ATTRIBUTE_INIT,
         WGPU_VERTEX_ATTRIBUTE_INIT,
         WGPU_VERTEX_ATTRIBUTE_INIT,
         WGPU_VERTEX_ATTRIBUTE_INIT,
@@ -69,22 +70,39 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     attributes[0].format = WGPUVertexFormat_Float32x3;
     attributes[0].offset = offsetof(Vertex, position);
     attributes[0].shaderLocation = 0;
-    attributes[1].format = WGPUVertexFormat_Float32x3;
+    attributes[1].format = WGPUVertexFormat_Float32x4;
     attributes[1].offset = offsetof(Vertex, color);
     attributes[1].shaderLocation = 1;
     attributes[2].format = WGPUVertexFormat_Float32x3;
     attributes[2].offset = offsetof(Vertex, normal);
     attributes[2].shaderLocation = 2;
+    attributes[3].format = WGPUVertexFormat_Float32x2;
+    attributes[3].offset = offsetof(Vertex, uv);
+    attributes[3].shaderLocation = 3;
 
     WGPUVertexBufferLayout vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
     vertexLayout.arrayStride = sizeof(Vertex);
-    vertexLayout.attributeCount = 3;
+    vertexLayout.attributeCount = 4;
     vertexLayout.attributes = attributes;
 
     // 3. 프래그먼트 스테이지
     WGPUColorTargetState colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
     colorTarget.format = colorFormat_;
+
+    // 알파 블렌딩: out = src.rgb * src.a + dst.rgb * (1 - src.a).
+    // 알파 채널은 src.a + dst.a * (1 - src.a) - 캔버스가 불투명이라 크게 의미는
+    // 없지만 표준 'over' 합성과 같게 둔다.
+    WGPUBlendState blend = WGPU_BLEND_STATE_INIT;
+    blend.color.operation = WGPUBlendOperation_Add;
+    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend.alpha.operation = WGPUBlendOperation_Add;
+    blend.alpha.srcFactor = WGPUBlendFactor_One;
+    blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+    if (config_.alphaBlend) {
+        colorTarget.blend = &blend;
+    }
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
