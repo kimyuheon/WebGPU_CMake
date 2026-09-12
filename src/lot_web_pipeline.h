@@ -21,6 +21,10 @@ struct PipelineConfig {
     // 고스트 미리보기 - 에 쓴다. 반투명은 불투명한 것을 다 그린 뒤에 그려야
     // 하고, 뎁스를 쓰지 않는 편이 안전하다 (뒤의 반투명이 앞의 것에 가려지므로).
     bool alphaBlend = false;
+
+    // false 면 정점 버퍼 없이 그린다. 후처리처럼 @builtin(vertex_index) 로
+    // 전체 화면 삼각형을 셰이더 안에서 만드는 파이프라인용.
+    bool useVertexBuffer = true;
 };
 
 class lot_web_pipeline {

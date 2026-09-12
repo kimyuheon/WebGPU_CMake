@@ -4,7 +4,9 @@
 #include "line_render_system.h"
 #include "polyline_render_system.h"
 #include "gizmo_render_system.h"
+#include "post_process_system.h"
 #include "lot_frame_info.h"
+#include "lot_render_target.h"
 #include "lot_mouse_input.h"
 #include "lot_picking.h"
 #include "lot_global_uniform.h"
@@ -37,6 +39,11 @@ std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
 std::unique_ptr<LineRenderSystem> g_lineSystem = nullptr;
 std::unique_ptr<PolylineRenderSystem> g_polylineSystem = nullptr;
 std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
+
+// 장면은 먼저 오프스크린 타깃에 그려지고, 후처리 패스가 그걸 화면에 옮긴다.
+// 두 패스 구조라서 색/뎁스를 다음 패스가 읽을 수 있다 (외곽선, 그림자, GPU 피킹).
+LotRenderTarget g_sceneTarget;
+std::unique_ptr<PostProcessSystem> g_postSystem = nullptr;
 
 // 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
 LotGlobalUniform g_globalUniform;
@@ -268,6 +275,7 @@ void renderLoop() {
         g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        g_postSystem->create(device, color);  // 화면에 그리므로 스왑체인 포맷, 뎁스 없음
         g_gridCreated = true;
     }
 
@@ -389,6 +397,12 @@ void renderLoop() {
         g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
 
         // 투영 전환 / 직교 줌
+        if (g_cameraController.consumeOutlineToggle()) {
+            g_postSystem->mode = (g_postSystem->mode == PostProcessSystem::Mode::Outline)
+                ? PostProcessSystem::Mode::Passthrough : PostProcessSystem::Mode::Outline;
+            LOT_LOG("post: " << (g_postSystem->mode == PostProcessSystem::Mode::Outline
+                                 ? "outline" : "passthrough"));
+        }
         if (g_cameraController.consumeProjectionToggle()) {
             g_orthographic = !g_orthographic;
             LOT_LOG("projection: " << (g_orthographic ? "orthographic" : "perspective"));
@@ -435,13 +449,18 @@ void renderLoop() {
         // 프레임당 유니폼 갱신. 렌더 시스템 전부가 같은 값을 본다.
         g_globalUniform.update(g_camera, g_lighting);
 
-        // 렌더 패스 시작
-        g_renderer->beginRenderPass();
+        // 패스 1: 장면을 오프스크린 타깃에. 스왑체인과 같은 크기/포맷으로 맞춘다.
+        const auto& sc = g_renderer->getSwapchain();
+        g_sceneTarget.ensureSize(device, static_cast<uint32_t>(sc.getWidth()),
+                                 static_cast<uint32_t>(sc.getHeight()),
+                                 sc.getFormat(), sc.getDepthFormat());
+        WGPURenderPassEncoder scenePass = g_sceneTarget.beginRenderPass(
+            g_renderer->getCurrentEncoder(), WGPUColor{0.1, 0.1, 0.1, 1.0});
 
         // 이번 프레임 묶음. 렌더 시스템은 이것 하나만 받는다.
         FrameInfo frame{
             static_cast<float>(deltaSec),
-            g_renderer->getCurrentRenderPass(),
+            scenePass,
             g_camera,
             g_globalUniform.getBindGroup(),
             g_gameObjects,
@@ -487,19 +506,33 @@ void renderLoop() {
             g_polylineSystem->addPolyline(spiral, vec3(0.4f, 0.9f, 0.9f));
         }
 
-        // 뎁스 테스트가 앞뒤를 가려주므로 순서는 성능 외에는 상관없다.
-        g_gridSystem->render(frame);
+        // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로
+        // (선 하나하나가 뎁스 불연속이라 전부 외곽선으로 잡힌다) 패스 3 으로 미룬다.
         g_renderSystem->render(frame);
+
+        if (scenePass) {
+            wgpuRenderPassEncoderEnd(scenePass);
+            wgpuRenderPassEncoderRelease(scenePass);
+        }
+
+        // 패스 2: 오프스크린 결과를 화면으로. 후처리가 색/뎁스를 읽어 효과를 얹는다.
+        // 화면을 통째로 덮어쓰므로 뎁스 어태치먼트가 필요 없다.
+        g_renderer->beginRenderPass(/*withDepth=*/false);
+        g_postSystem->render(g_renderer->getCurrentRenderPass(), g_sceneTarget);
+        g_renderer->endRenderPass();
+
+        // 패스 3: 오버레이. 후처리 결과 위에 도구 지오메트리를 덧그린다.
+        // 뎁스는 장면 것을 그대로 쓰므로 격자가 메시 뒤로 제대로 가려진다.
+        g_renderer->beginOverlayPass(g_sceneTarget.getDepthView());
+        frame.pass = g_renderer->getCurrentRenderPass();
+        g_gridSystem->render(frame);
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
-
-        // 기즈모는 뎁스를 무시하므로 맨 마지막에 그린다. 선택된 오브젝트에만 붙는다.
+        // 기즈모는 뎁스를 무시하므로 맨 마지막. 선택된 오브젝트에만 붙는다.
         if (auto* selected = LotGameObject::find(g_gameObjects, g_selectedId)) {
             g_gizmoSystem->render(frame, selected->transform.translation,
                                   g_drag.active ? g_drag.handle : -1);
         }
-
-        // 렌더 패스 종료
         g_renderer->endRenderPass();
 
         // 프레임 종료
@@ -523,6 +556,7 @@ int main() {
     g_lineSystem = std::make_unique<LineRenderSystem>();
     g_polylineSystem = std::make_unique<PolylineRenderSystem>();
     g_gizmoSystem = std::make_unique<GizmoRenderSystem>();
+    g_postSystem = std::make_unique<PostProcessSystem>();
 
     // 카메라 시작 위치 + 키보드 리스너 등록
     g_viewerObject.transform.translation = kCameraStartPosition;

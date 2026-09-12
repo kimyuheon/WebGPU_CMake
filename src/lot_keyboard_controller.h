@@ -27,6 +27,9 @@ public:
     // 직교 줌 (= 확대, - 축소). 누르고 있는 동안 +1 / -1, 아니면 0.
     int zoomDirection() const;
 
+    // 외곽선 토글 (O). 누른 순간만.
+    bool consumeOutlineToggle();
+
     float moveSpeed = 3.0f;
     float lookSpeed = 1.5f;
 
@@ -46,6 +49,7 @@ private:
         ToggleProjection,
         ZoomIn,
         ZoomOut,
+        ToggleOutline,
         KeyCount,
     };
 

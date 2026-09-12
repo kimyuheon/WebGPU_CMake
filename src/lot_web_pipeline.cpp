@@ -130,8 +130,8 @@ void lot_web_pipeline::build(const std::string& shaderCode) {
     desc.layout = layout_;  // 렌더 시스템이 만든 레이아웃 (dynamic offset 포함)
     desc.vertex.module = shaderModule;
     desc.vertex.entryPoint = lotStringView("vs_main");
-    desc.vertex.bufferCount = 1;
-    desc.vertex.buffers = &vertexLayout;
+    desc.vertex.bufferCount = config_.useVertexBuffer ? 1 : 0;
+    desc.vertex.buffers = config_.useVertexBuffer ? &vertexLayout : nullptr;
     desc.primitive.topology = config_.topology;
     // 스트립(LineStrip/TriangleStrip)은 인덱스 버퍼로 그릴 때 인덱스 형식을
     // 미리 알려줘야 한다. 그래야 0xFFFFFFFF 가 '여기서 끊고 새로 시작' 으로

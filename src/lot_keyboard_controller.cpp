@@ -47,6 +47,7 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"ArrowUp", LookUp},    {"ArrowDown", LookDown},
         {"KeyP", ToggleProjection},
         {"Equal", ZoomIn},      {"Minus", ZoomOut},
+        {"KeyO", ToggleOutline},
     };
 
     for (const auto& entry : kTable) {
@@ -75,6 +76,12 @@ bool KeyboardMovementController::consumeProjectionToggle() {
     return was;
 }
 
+bool KeyboardMovementController::consumeOutlineToggle() {
+    const bool was = justPressed_[ToggleOutline];
+    justPressed_[ToggleOutline] = false;
+    return was;
+}
+
 int KeyboardMovementController::zoomDirection() const {
     return (pressed_[ZoomIn] ? 1 : 0) - (pressed_[ZoomOut] ? 1 : 0);
 }
@@ -83,7 +90,7 @@ void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
     LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look, "
-            "P projection, -/= ortho zoom");
+            "P projection, -/= ortho zoom, O outline");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

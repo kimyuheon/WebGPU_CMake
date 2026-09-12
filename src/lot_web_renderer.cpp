@@ -53,7 +53,7 @@ bool LotWebRenderer::beginFrame() {
     return true;
 }
 
-void LotWebRenderer::beginRenderPass() {
+void LotWebRenderer::beginRenderPass(bool withDepth) {
     assert(isFrameStarted_ && "Cannot begin render pass if frame not started");
 
     WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
@@ -74,7 +74,35 @@ void LotWebRenderer::beginRenderPass() {
     passDesc.label = lotStringView("Main Render Pass");
     passDesc.colorAttachmentCount = 1;
     passDesc.colorAttachments = &colorAttachment;
-    if (depthAttachment.view != nullptr) {
+    if (withDepth && depthAttachment.view != nullptr) {
+        passDesc.depthStencilAttachment = &depthAttachment;
+    }
+
+    currentPass_ = wgpuCommandEncoderBeginRenderPass(currentEncoder_, &passDesc);
+}
+
+void LotWebRenderer::beginOverlayPass(WGPUTextureView depthView) {
+    assert(isFrameStarted_ && "Cannot begin overlay pass if frame not started");
+
+    WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    colorAttachment.view = currentView_;
+    colorAttachment.loadOp = WGPULoadOp_Load;   // 후처리 결과 위에 덧그린다
+    colorAttachment.storeOp = WGPUStoreOp_Store;
+
+    WGPURenderPassDepthStencilAttachment depthAttachment =
+        WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+    depthAttachment.view = depthView;
+    depthAttachment.depthLoadOp = WGPULoadOp_Load;   // 장면의 뎁스를 그대로
+    depthAttachment.depthStoreOp = WGPUStoreOp_Store;
+    // Load 라서 쓰이지 않는 값이지만 반드시 넣어야 한다. INIT 매크로의 기본값이
+    // NaN 이고, JS 바인딩이 그걸 "non-finite" 로 거부해 패스 생성이 통째로 실패한다.
+    depthAttachment.depthClearValue = 1.0f;
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.label = lotStringView("Overlay Pass");
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &colorAttachment;
+    if (depthView != nullptr) {
         passDesc.depthStencilAttachment = &depthAttachment;
     }
 
