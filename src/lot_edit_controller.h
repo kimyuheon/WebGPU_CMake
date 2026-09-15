@@ -78,10 +78,13 @@ private:
     // 매 프레임 '시작값 + 현재 오프셋'으로 계산해야 오차가 쌓이지 않는다.
     struct Drag {
         bool active = false;
-        int handle = -1;              // 0~2 축, 3~5 평면
+        int mode = 0;                 // GizmoRenderSystem::Mode (누른 순간 값을 고정)
+        int handle = -1;              // 0~2 축, 3~5 평면, 6 균등
         vec3 pivotStart{};            // 누른 순간 선택 중심
-        float startS = 0.0f;          // (축) 축 위 파라미터
-        vec3 startHit{};              // (평면) 평면 위 교점
+        float startS = 0.0f;          // (이동/축척 축) 축 위 파라미터
+        vec3 startHit{};              // (이동 평면) 평면 위 교점
+        float startAngle = 0.0f;      // (회전) 화면에서 기준점 둘레 각
+        float startScreenDist = 0.0f; // (균등 축척) 화면에서 기준점까지 거리
         std::vector<std::pair<id_t, TransformComponent>> startTransforms;
     };
 
@@ -96,6 +99,11 @@ private:
     void updateGizmoDrag(const Context& ctx, const lot_pick::Ray& ray);
     void endGizmoDrag(const Context& ctx);
     void applyTranslation(const Context& ctx, const vec3& delta);
+    void applyRotation(const Context& ctx, int axis, float angle);
+    void applyScale(const Context& ctx, const vec3& factor);
+
+    // 화면에서 기준점 둘레의 각 / 거리 (회전, 균등 축척용)
+    bool screenAngleAroundPivot(const Context& ctx, float& angleOut, float& distOut) const;
 
     void finishMarquee(const Context& ctx, float x1, float y1, bool additive);
 

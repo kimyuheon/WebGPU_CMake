@@ -35,6 +35,10 @@ public:
     bool consumeDuplicate();
     bool consumeDelete();
 
+    // 기즈모 모드 (1 이동, 2 회전, 3 축척). 눌린 순간의 모드,
+    // 없으면 -1. 값은 GizmoRenderSystem::Mode 순서 (0 이동, 1 회전, 2 축척).
+    int consumeGizmoMode();
+
     float moveSpeed = 3.0f;
     float lookSpeed = 1.5f;
 
@@ -57,6 +61,9 @@ private:
         ToggleOutline,
         Duplicate,
         DeleteSelection,
+        GizmoTranslate,
+        GizmoRotate,
+        GizmoScale,
         KeyCount,
     };
 

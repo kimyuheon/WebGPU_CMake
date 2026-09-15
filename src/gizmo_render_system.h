@@ -28,6 +28,18 @@ class lot_web_device;
 // Vulkan 쪽 gizmo_render_system 과 같은 자리다.
 class GizmoRenderSystem {
 public:
+    // 이동: 화살표 + 평면 핸들 / 회전: 축마다 링 / 축척: 축 끝 정육면체 + 중심 정육면체
+    enum class Mode { Translate, Rotate, Scale };
+
+    // 핸들 번호. 모드와 무관하게 같은 번호 체계를 쓴다.
+    static constexpr int kHandleAxisX = 0;
+    static constexpr int kHandleAxisY = 1;
+    static constexpr int kHandleAxisZ = 2;
+    static constexpr int kHandlePlaneYZ = 3;   // 법선 X
+    static constexpr int kHandlePlaneXZ = 4;   // 법선 Y
+    static constexpr int kHandlePlaneXY = 5;   // 법선 Z
+    static constexpr int kHandleUniform = 6;   // 축척 전용 - 중심 정육면체
+
     GizmoRenderSystem() = default;
     ~GizmoRenderSystem();
 
@@ -54,8 +66,11 @@ public:
     int hitTest(const lot_pick::Ray& ray, const LotCamera& camera,
                 const vec3& position) const;
 
+    static bool isAxisHandle(int handle) { return handle >= 0 && handle <= 2; }
     static bool isPlaneHandle(int handle) { return handle >= 3 && handle <= 5; }
     static int planeNormalAxis(int handle) { return handle - 3; }
+
+    Mode mode = Mode::Translate;
 
     // 레이와 평면 핸들의 평면(position 을 지나고 법선이 axis 인)의 교점.
     // 평면 드래그 중에 마우스가 평면 위 어디를 가리키는지 알아낸다.
@@ -79,6 +94,13 @@ private:
     void buildArrow(const vec3& origin, const vec3& axis, float length, const vec3& color);
     void buildPlane(const vec3& origin, int normalAxis, float length, const vec3& color,
                     float alpha);
+    void buildRing(const vec3& origin, int normalAxis, float radius, const vec3& color);
+    void buildCube(const vec3& center, float halfSize, const vec3& color);
+    void buildScaleAxis(const vec3& origin, const vec3& axis, float length, const vec3& color);
+
+    int hitTestTranslate(const lot_pick::Ray& ray, const vec3& position, float length) const;
+    int hitTestRotate(const lot_pick::Ray& ray, const vec3& position, float length) const;
+    int hitTestScale(const lot_pick::Ray& ray, const vec3& position, float length) const;
 
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<LotDynamicBuffer> buffer_;

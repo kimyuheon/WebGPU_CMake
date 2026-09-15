@@ -120,9 +120,6 @@ static const float kLightBaseZ = -1.2f;
 static const float kLightSwingZ = 0.8f;
 static const float kLightOrbitSpeed = 0.8f;
 
-// 오브젝트별 회전 속도 (per-object uniform 이 실제로 도는지 눈으로 확인하려고 다르게 준다)
-static const float kSpinSpeeds[] = {1.0f, -1.6f, 0.7f};
-
 // 게임 오브젝트 생성
 void createGameObjects() {
     // 큐브 하나를 여러 오브젝트가 공유한다 (모델이 shared_ptr 인 이유).
@@ -140,7 +137,7 @@ void createGameObjects() {
         cube.material = g_checkerMaterial;
         cube.transform.translation = translation;
         cube.transform.scale = vec3(0.6f);
-        cube.transform.rotation = vec3(0.0f, 0.0f, 0.0f);
+        cube.transform.rotation = vec3(0.35f, 0.6f, 0.0f);  // 세 면이 다 보이게 살짝 기울인다
 
         const auto id = cube.getId();
         g_gameObjects.emplace(id, std::move(cube));
@@ -158,6 +155,7 @@ void placeObjModel() {
     object.model = g_objModel;
     object.material = g_checkerMaterial;
     object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
+    object.transform.rotation = vec3(1.1f, 0.3f, 0.0f);  // 토러스 구멍이 보이도록 눕힌다
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
     g_objObjectId = object.getId();
     g_gameObjects.emplace(g_objObjectId, std::move(object));
@@ -310,6 +308,11 @@ void renderLoop() {
         g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
 
         // 투영 전환 / 직교 줌
+        if (const int mode = g_cameraController.consumeGizmoMode(); mode >= 0) {
+            g_gizmoSystem->mode = static_cast<GizmoRenderSystem::Mode>(mode);
+            static const char* kModeNames[] = {"move", "rotate", "scale"};
+            LOT_LOG("gizmo: " << kModeNames[mode]);
+        }
         if (g_cameraController.consumeDuplicate()) {
             g_edit.duplicateSelection(g_gameObjects);
         }
@@ -348,15 +351,8 @@ void renderLoop() {
         g_camera.setViewYXZ(g_viewerObject.transform.translation,
                             g_viewerObject.transform.rotation);
 
-        // 게임 오브젝트 업데이트 (각자 다른 속도로 돈다).
-        // 두 축을 같이 돌려야 정육면체의 여섯 면이 다 보인다.
-        for (auto& entry : g_gameObjects) {
-            LotGameObject& obj = entry.second;
-            const float speed = kSpinSpeeds[obj.getId() % (sizeof(kSpinSpeeds) / sizeof(kSpinSpeeds[0]))];
-            const float angle = static_cast<float>(g_time) * speed;
-            obj.transform.rotation.y = angle;
-            obj.transform.rotation.x = angle * 0.5f;
-        }
+        // (예전의 자동 회전은 뺐다 - 회전/축척 기즈모로 편집한 값을 매 프레임
+        //  덮어쓰기 때문이다. 초기 자세는 createGameObjects / placeObjModel 에서 준다.)
 
         // 광원을 큐브들 주위로 돌린다. 점 광원이라 가까운 면일수록 밝아지는 게
         // 눈에 보인다 (방향 광원이었다면 어디에 두든 결과가 같다).

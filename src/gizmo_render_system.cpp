@@ -132,6 +132,74 @@ void GizmoRenderSystem::buildPlane(const vec3& origin, int normalAxis, float len
     push(p00); push(p11); push(p01);
 }
 
+void GizmoRenderSystem::buildRing(const vec3& origin, int normalAxis, float radius,
+                                  const vec3& color) {
+    // 축에 수직인 평면 위의 원. 삼각형 파이프라인이라 얇은 띠(안쪽/바깥쪽 반지름)로 그린다.
+    const vec3 a = axisDirection((normalAxis + 1) % 3);
+    const vec3 b = axisDirection((normalAxis + 2) % 3);
+    const float half = radius * 0.035f;  // 띠 두께의 절반
+    constexpr int kRingSegments = 48;
+
+    auto push = [&](const vec3& p) {
+        vertices_.push_back(Vertex::make(p.x, p.y, p.z, color.x, color.y, color.z,
+                                         0.0f, -1.0f, 0.0f));
+    };
+    for (int i = 0; i < kRingSegments; ++i) {
+        const float t0 = 6.2831853f * i / kRingSegments;
+        const float t1 = 6.2831853f * (i + 1) / kRingSegments;
+        const vec3 d0 = a * std::cos(t0) + b * std::sin(t0);
+        const vec3 d1 = a * std::cos(t1) + b * std::sin(t1);
+        const vec3 i0 = origin + d0 * (radius - half), o0 = origin + d0 * (radius + half);
+        const vec3 i1 = origin + d1 * (radius - half), o1 = origin + d1 * (radius + half);
+        push(i0); push(o0); push(o1);
+        push(i0); push(o1); push(i1);
+    }
+}
+
+void GizmoRenderSystem::buildCube(const vec3& c, float h, const vec3& color) {
+    auto push = [&](const vec3& p) {
+        vertices_.push_back(Vertex::make(p.x, p.y, p.z, color.x, color.y, color.z,
+                                         0.0f, -1.0f, 0.0f));
+    };
+    // 여덟 꼭짓점을 비트로 (bit0 = x, bit1 = y, bit2 = z)
+    auto corner = [&](int bits) {
+        return vec3{c.x + ((bits & 1) ? h : -h), c.y + ((bits & 2) ? h : -h),
+                    c.z + ((bits & 4) ? h : -h)};
+    };
+    // 면 6 개, 각각 삼각형 둘. 컬링이 꺼져 있어 감는 방향은 상관없다.
+    const int faces[6][4] = {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1},
+                             {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}};
+    for (const auto& f : faces) {
+        push(corner(f[0])); push(corner(f[1])); push(corner(f[2]));
+        push(corner(f[0])); push(corner(f[2])); push(corner(f[3]));
+    }
+}
+
+void GizmoRenderSystem::buildScaleAxis(const vec3& origin, const vec3& axis, float length,
+                                       const vec3& color) {
+    // 몸통은 이동 화살표와 같은 가는 기둥, 끝은 원뿔 대신 정육면체
+    vec3 p1, p2;
+    perpendicular(axis, p1, p2);
+    auto push = [&](const vec3& p) {
+        vertices_.push_back(Vertex::make(p.x, p.y, p.z, color.x, color.y, color.z,
+                                         0.0f, -1.0f, 0.0f));
+    };
+    auto ring = [&](float along, float radius, int i) {
+        const float a = 6.2831853f * i / kSegments;
+        return origin + axis * along + (p1 * std::cos(a) + p2 * std::sin(a)) * radius;
+    };
+    const float shaftEnd = length * 0.85f;
+    const float shaftR = length * kShaftRadius;
+    for (int i = 0; i < kSegments; ++i) {
+        const int j = (i + 1) % kSegments;
+        const vec3 a0 = ring(0.0f, shaftR, i), a1 = ring(0.0f, shaftR, j);
+        const vec3 b0 = ring(shaftEnd, shaftR, i), b1 = ring(shaftEnd, shaftR, j);
+        push(a0); push(b0); push(b1);
+        push(a0); push(b1); push(a1);
+    }
+    buildCube(origin + axis * (length * 0.92f), length * 0.07f, color);
+}
+
 bool GizmoRenderSystem::intersectPlane(const lot_pick::Ray& ray, const vec3& position,
                                        int normalAxis, vec3& hitOut) {
     const vec3 n = axisDirection(normalAxis);
@@ -167,7 +235,66 @@ float GizmoRenderSystem::arrowLength(const LotCamera& camera, const vec3& positi
 int GizmoRenderSystem::hitTest(const lot_pick::Ray& ray, const LotCamera& camera,
                                const vec3& position) const {
     const float length = arrowLength(camera, position);
+    switch (mode) {
+        case Mode::Rotate: return hitTestRotate(ray, position, length);
+        case Mode::Scale:  return hitTestScale(ray, position, length);
+        default:           return hitTestTranslate(ray, position, length);
+    }
+}
 
+int GizmoRenderSystem::hitTestRotate(const lot_pick::Ray& ray, const vec3& position,
+                                     float length) const {
+    // 링을 선분 32 개로 근사해 레이와의 거리를 본다. 평면 교차로 풀면 링을
+    // 옆에서 볼 때 조건이 나빠지는데, 선분 거리는 어느 각도에서나 안정적이다.
+    const float tolerance = length * pickTolerance;
+    constexpr int kSamples = 32;
+    int best = -1;
+    float bestDistance = tolerance;
+    for (int n = 0; n < 3; ++n) {
+        const vec3 a = axisDirection((n + 1) % 3);
+        const vec3 b = axisDirection((n + 2) % 3);
+        for (int i = 0; i < kSamples; ++i) {
+            const float t0 = 6.2831853f * i / kSamples;
+            const float t1 = 6.2831853f * (i + 1) / kSamples;
+            const vec3 p0 = position + (a * std::cos(t0) + b * std::sin(t0)) * length;
+            const vec3 p1 = position + (a * std::cos(t1) + b * std::sin(t1)) * length;
+            float s = 0.0f;
+            const float d = lot_pick::distanceRayToSegment(ray, p0, p1, s);
+            if (d < bestDistance) {
+                bestDistance = d;
+                best = n;
+            }
+        }
+    }
+    return best;
+}
+
+int GizmoRenderSystem::hitTestScale(const lot_pick::Ray& ray, const vec3& position,
+                                    float length) const {
+    // 중심 정육면체(균등)가 축보다 우선 - 축 셋이 전부 여기서 만난다
+    const float centerHalf = length * 0.1f;
+    {
+        float s = 0.0f;
+        const float d = lot_pick::distanceRayToSegment(ray, position, position, s);
+        if (d < centerHalf * 1.5f) return kHandleUniform;
+    }
+    const float tolerance = length * pickTolerance;
+    int best = -1;
+    float bestDistance = tolerance;
+    for (int axis = 0; axis < 3; ++axis) {
+        float s = 0.0f;
+        const vec3 tip = position + axisDirection(axis) * length;
+        const float d = lot_pick::distanceRayToSegment(ray, position, tip, s);
+        if (d < bestDistance) {
+            bestDistance = d;
+            best = axis;
+        }
+    }
+    return best;
+}
+
+int GizmoRenderSystem::hitTestTranslate(const lot_pick::Ray& ray, const vec3& position,
+                                        float length) const {
     // 1. 평면 핸들부터. 레이-평면 교점이 사각형 안이면 집은 것이다.
     //    교점을 두 축에 투영한 값이 [inner, outer] 안이어야 한다.
     //
@@ -228,13 +355,31 @@ void GizmoRenderSystem::render(FrameInfo& frame, const vec3& position, int highl
     const vec3 axisColors[3] = {kColorX, kColorY, kColorZ};
 
     vertices_.clear();
-    // 평면 핸들은 법선 축의 색을 쓴다 (XY 평면 = Z 색). 끌고 있으면 더 진하게.
-    for (int n = 0; n < 3; ++n) {
-        const float alpha = (3 + n == highlight) ? 0.75f : 0.35f;
-        buildPlane(position, n, length, colorFor(3 + n, axisColors[n]), alpha);
-    }
-    for (int axis = 0; axis < 3; ++axis) {
-        buildArrow(position, axisDirection(axis), length, colorFor(axis, axisColors[axis]));
+    switch (mode) {
+        case Mode::Rotate:
+            for (int n = 0; n < 3; ++n) {
+                buildRing(position, n, length, colorFor(n, axisColors[n]));
+            }
+            break;
+        case Mode::Scale:
+            for (int axis = 0; axis < 3; ++axis) {
+                buildScaleAxis(position, axisDirection(axis), length,
+                               colorFor(axis, axisColors[axis]));
+            }
+            buildCube(position, length * 0.1f,
+                      colorFor(kHandleUniform, vec3{0.85f, 0.85f, 0.85f}));
+            break;
+        default:
+            // 평면 핸들은 법선 축의 색을 쓴다 (XY 평면 = Z 색). 끌고 있으면 더 진하게.
+            for (int n = 0; n < 3; ++n) {
+                const float alpha = (3 + n == highlight) ? 0.75f : 0.35f;
+                buildPlane(position, n, length, colorFor(3 + n, axisColors[n]), alpha);
+            }
+            for (int axis = 0; axis < 3; ++axis) {
+                buildArrow(position, axisDirection(axis), length,
+                           colorFor(axis, axisColors[axis]));
+            }
+            break;
     }
 
     buffer_->upload(*device_, vertices_.data(), vertices_.size() * sizeof(Vertex));

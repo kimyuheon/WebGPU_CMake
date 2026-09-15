@@ -49,6 +49,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"Equal", ZoomIn},      {"Minus", ZoomOut},
         {"KeyO", ToggleOutline},
         {"KeyC", Duplicate},
+        // G/R/S 는 WASD 의 S 와 겹친다 (S = 후진). 숫자 키로 - 충돌이 없다.
+        {"Digit1", GizmoTranslate}, {"Digit2", GizmoRotate}, {"Digit3", GizmoScale},
         {"Delete", DeleteSelection}, {"Backspace", DeleteSelection},
     };
 
@@ -96,6 +98,17 @@ bool KeyboardMovementController::consumeDelete() {
     return was;
 }
 
+int KeyboardMovementController::consumeGizmoMode() {
+    const KeyId keys[3] = {GizmoTranslate, GizmoRotate, GizmoScale};
+    for (int i = 0; i < 3; ++i) {
+        if (justPressed_[keys[i]]) {
+            justPressed_[keys[i]] = false;
+            return i;
+        }
+    }
+    return -1;
+}
+
 int KeyboardMovementController::zoomDirection() const {
     return (pressed_[ZoomIn] ? 1 : 0) - (pressed_[ZoomOut] ? 1 : 0);
 }
@@ -104,7 +117,8 @@ void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
     LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look, "
-            "P projection, -/= ortho zoom, O outline, C duplicate, Del delete");
+            "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
+            "1/2/3 gizmo move/rotate/scale");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

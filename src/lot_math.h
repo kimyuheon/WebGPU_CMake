@@ -85,6 +85,22 @@ struct mat4 {
         return result;
     }
 
+    // 임의 축 둘레 회전 (Rodrigues). axis 는 단위 벡터, angle 은 라디안.
+    // 회전 기즈모가 월드 축 둘레로 돌릴 때 쓴다.
+    static mat4 rotationAxis(const vec3& axis, float angle) {
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        const float t = 1.0f - c;
+        const float x = axis.x, y = axis.y, z = axis.z;
+
+        mat4 r = identity();
+        // 열 우선: m[col][row]. 아래는 표준 Rodrigues 행렬을 열 단위로 적은 것.
+        r.m[0][0] = t * x * x + c;      r.m[0][1] = t * x * y + s * z;  r.m[0][2] = t * x * z - s * y;
+        r.m[1][0] = t * x * y - s * z;  r.m[1][1] = t * y * y + c;      r.m[1][2] = t * y * z + s * x;
+        r.m[2][0] = t * x * z + s * y;  r.m[2][1] = t * y * z - s * x;  r.m[2][2] = t * z * z + c;
+        return r;
+    }
+
     // 원근 투영 행렬.
     //
     // 좌표 규약은 Vulkan 쪽 원본과 같다: +X 오른쪽, +Y 아래, +Z 화면 안쪽.
@@ -259,6 +275,36 @@ struct TransformComponent {
 
         result.m[3][3] = 1.0f;
         return result;
+    }
+
+    // 회전만 (스케일/이동 없는 Ry * Rx * Rz). 회전 기즈모가 여기에 월드 축
+    // 회전을 곱한 뒤 다시 오일러로 풀어 넣는다.
+    mat4 rotationMatrix() const {
+        TransformComponent unit;
+        unit.rotation = rotation;
+        return unit.mat4Transform();  // scale = 1, translation = 0
+    }
+
+    // 회전 행렬 -> 오일러 (Y -> X -> Z 순서, mat4Transform 의 역).
+    //
+    // mat4Transform 에서 m[2][1] = -sin(x) 이므로 x 가 바로 나오고,
+    // cos(x) != 0 이면 m[2][0] / m[2][2] = tan(y), m[0][1] / m[1][1] = tan(z).
+    // cos(x) = 0 (짐벌락, 위/아래를 정면으로 봄) 이면 y 와 z 가 한 자유도로
+    // 겹치므로 z = 0 으로 두고 y 를 첫 열에서 읽는다.
+    void setRotationFromMatrix(const mat4& r) {
+        float sx = -r.m[2][1];
+        if (sx > 1.0f) sx = 1.0f;
+        if (sx < -1.0f) sx = -1.0f;
+        rotation.x = std::asin(sx);
+
+        const float cx = std::cos(rotation.x);
+        if (std::fabs(cx) > 1e-4f) {
+            rotation.y = std::atan2(r.m[2][0], r.m[2][2]);
+            rotation.z = std::atan2(r.m[0][1], r.m[1][1]);
+        } else {
+            rotation.z = 0.0f;
+            rotation.y = std::atan2(-r.m[0][2], r.m[0][0]);
+        }
     }
 
     // 월드 -> 로컬 (방향). 피킹에서 레이를 모델 공간으로 가져올 때 쓴다.

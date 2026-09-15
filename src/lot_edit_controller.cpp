@@ -110,10 +110,41 @@ void EditController::update(const Context& ctx) {
     ctx.mouse.consumeLeftRelease();  // 위에서 isLeftDown 으로 봤으므로 플래그만 비운다
 }
 
+bool EditController::screenAngleAroundPivot(const Context& ctx, float& angleOut,
+                                            float& distOut) const {
+    float px, py;
+    if (!ctx.camera.projectToScreen(drag_.pivotStart, ctx.width, ctx.height, px, py)) {
+        return false;
+    }
+    const float dx = ctx.mouse.x() - px;
+    const float dy = ctx.mouse.y() - py;
+    angleOut = std::atan2(dy, dx);
+    distOut = std::sqrt(dx * dx + dy * dy);
+    return true;
+}
+
 void EditController::beginGizmoDrag(const Context& ctx, const lot_pick::Ray& ray, int handle) {
     const vec3 origin = pivot(ctx.objects);
+    const auto mode = ctx.gizmo.mode;
+    drag_.pivotStart = origin;  // 아래 screenAngleAroundPivot 이 쓴다
+
     bool ok = false;
-    if (GizmoRenderSystem::isPlaneHandle(handle)) {
+    if (mode == GizmoRenderSystem::Mode::Rotate) {
+        // 회전: 화면에서 기준점 둘레 각. 링을 옆에서 볼 때도 안정적이다.
+        float dist = 0.0f;
+        ok = screenAngleAroundPivot(ctx, drag_.startAngle, dist);
+    } else if (mode == GizmoRenderSystem::Mode::Scale) {
+        if (handle == GizmoRenderSystem::kHandleUniform) {
+            // 균등: 화면에서 기준점까지의 거리 비율
+            float angle = 0.0f;
+            ok = screenAngleAroundPivot(ctx, angle, drag_.startScreenDist);
+            ok = ok && drag_.startScreenDist > 2.0f;
+        } else {
+            ok = lot_pick::closestPointOnLine(
+                ray, origin, GizmoRenderSystem::axisDirection(handle), drag_.startS);
+            ok = ok && std::fabs(drag_.startS) > 1e-4f;
+        }
+    } else if (GizmoRenderSystem::isPlaneHandle(handle)) {
         ok = GizmoRenderSystem::intersectPlane(
             ray, origin, GizmoRenderSystem::planeNormalAxis(handle), drag_.startHit);
     } else {
@@ -123,16 +154,46 @@ void EditController::beginGizmoDrag(const Context& ctx, const lot_pick::Ray& ray
     if (!ok) return;
 
     drag_.active = true;
+    drag_.mode = static_cast<int>(mode);
     drag_.handle = handle;
-    drag_.pivotStart = origin;
     drag_.startTransforms.clear();
     for (id_t id : selection_) {
         if (const auto* obj = LotGameObject::find(ctx.objects, id)) {
             drag_.startTransforms.emplace_back(id, obj->transform);
         }
     }
-    LOT_LOG("drag: start on " << (GizmoRenderSystem::isPlaneHandle(handle) ? "plane " : "axis ")
-            << handle << ", " << drag_.startTransforms.size() << " objects");
+    static const char* kModeNames[] = {"move", "rotate", "scale"};
+    LOT_LOG("drag: start " << kModeNames[drag_.mode] << " on handle " << handle
+            << ", " << drag_.startTransforms.size() << " objects");
+}
+
+void EditController::applyRotation(const Context& ctx, int axis, float angle) {
+    // 월드 축 둘레로 기준점을 중심 삼아 돌린다.
+    // 회전: R_new = R_axis * R_start (오브젝트 자기 회전 뒤에 월드 회전).
+    // 위치: 기준점에서의 오프셋을 같은 행렬로 돌린다 - 여러 개면 서로의 배치가 유지된다.
+    const mat4 r = mat4::rotationAxis(GizmoRenderSystem::axisDirection(axis), angle);
+    for (const auto& entry : drag_.startTransforms) {
+        auto* obj = LotGameObject::find(ctx.objects, entry.first);
+        if (!obj) continue;
+        const TransformComponent& start = entry.second;
+        obj->transform.setRotationFromMatrix(r * start.rotationMatrix());
+        const vec3 offset = start.translation - drag_.pivotStart;
+        obj->transform.translation = drag_.pivotStart + transformPoint(r, offset);
+    }
+}
+
+void EditController::applyScale(const Context& ctx, const vec3& factor) {
+    // 기준점을 중심으로 축마다 factor 배. 위치도 같은 비율로 기준점에서 멀어진다.
+    for (const auto& entry : drag_.startTransforms) {
+        auto* obj = LotGameObject::find(ctx.objects, entry.first);
+        if (!obj) continue;
+        const TransformComponent& start = entry.second;
+        obj->transform.scale = vec3{start.scale.x * factor.x, start.scale.y * factor.y,
+                                    start.scale.z * factor.z};
+        const vec3 offset = start.translation - drag_.pivotStart;
+        obj->transform.translation = drag_.pivotStart
+            + vec3{offset.x * factor.x, offset.y * factor.y, offset.z * factor.z};
+    }
 }
 
 void EditController::applyTranslation(const Context& ctx, const vec3& delta) {
@@ -144,6 +205,39 @@ void EditController::applyTranslation(const Context& ctx, const vec3& delta) {
 }
 
 void EditController::updateGizmoDrag(const Context& ctx, const lot_pick::Ray& ray) {
+    if (drag_.mode == static_cast<int>(GizmoRenderSystem::Mode::Rotate)) {
+        float angle = 0.0f, dist = 0.0f;
+        if (!screenAngleAroundPivot(ctx, angle, dist)) return;
+        // 화면에서 잰 각의 방향은 축이 카메라를 향하는지 등지는지에 따라 뒤집힌다.
+        // 축이 카메라 쪽(-forward)이면 화면의 시계 방향이 축 둘레의 양의 회전이다.
+        const vec3 axisDir = GizmoRenderSystem::axisDirection(drag_.handle);
+        const float facing = dot(axisDir, ctx.camera.getForward());
+        const float sign = (facing < 0.0f) ? 1.0f : -1.0f;
+        applyRotation(ctx, drag_.handle, sign * (angle - drag_.startAngle));
+        return;
+    }
+
+    if (drag_.mode == static_cast<int>(GizmoRenderSystem::Mode::Scale)) {
+        auto clampFactor = [](float f) { return std::fmax(0.01f, std::fmin(f, 100.0f)); };
+        if (drag_.handle == GizmoRenderSystem::kHandleUniform) {
+            float angle = 0.0f, dist = 0.0f;
+            if (!screenAngleAroundPivot(ctx, angle, dist)) return;
+            const float f = clampFactor(dist / drag_.startScreenDist);
+            applyScale(ctx, vec3{f, f, f});
+        } else {
+            const vec3 axisDir = GizmoRenderSystem::axisDirection(drag_.handle);
+            float sNow = 0.0f;
+            if (!lot_pick::closestPointOnLine(ray, drag_.pivotStart, axisDir, sNow)) return;
+            const float f = clampFactor(sNow / drag_.startS);
+            vec3 factor{1.0f, 1.0f, 1.0f};
+            if (drag_.handle == 0) factor.x = f;
+            else if (drag_.handle == 1) factor.y = f;
+            else factor.z = f;
+            applyScale(ctx, factor);
+        }
+        return;
+    }
+
     const bool plane = GizmoRenderSystem::isPlaneHandle(drag_.handle);
     vec3 delta{0.0f, 0.0f, 0.0f};
 
@@ -186,6 +280,14 @@ void EditController::endGizmoDrag(const Context& ctx) {
     }
     const vec3 p = pivot(ctx.objects);
     LOT_LOG("drag: end, pivot at (" << p.x << ", " << p.y << ", " << p.z << ")");
+    if (!drag_.startTransforms.empty()) {
+        if (const auto* obj = LotGameObject::find(ctx.objects, drag_.startTransforms[0].first)) {
+            const auto& t = obj->transform;
+            LOT_LOG("drag: first object rot (" << t.rotation.x << ", " << t.rotation.y << ", "
+                    << t.rotation.z << ") scale (" << t.scale.x << ", " << t.scale.y << ", "
+                    << t.scale.z << ")");
+        }
+    }
 }
 
 void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool additive) {
