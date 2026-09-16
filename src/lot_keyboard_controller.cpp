@@ -131,18 +131,22 @@ void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerOb
 
     // normalize 해야 대각선(위 + 오른쪽)이 더 빨라지지 않는다.
     if (dot(rotate, rotate) > kEpsilon) {
-        viewerObject.transform.rotation =
-            viewerObject.transform.rotation + normalize(rotate) * (lookSpeed * dt);
+        const vec3 step = normalize(rotate) * (lookSpeed * dt);
+        pitch_ += step.x;
+        yaw_ += step.y;
     }
 
-    float& pitch = viewerObject.transform.rotation.x;
-    if (pitch < -kMaxPitch) pitch = -kMaxPitch;
-    if (pitch >  kMaxPitch) pitch =  kMaxPitch;
+    if (pitch_ < -kMaxPitch) pitch_ = -kMaxPitch;
+    if (pitch_ >  kMaxPitch) pitch_ =  kMaxPitch;
 
     // yaw 는 계속 돌 수 있어야 하므로 자르지 않고 한 바퀴로 접는다
     // (오래 돌렸을 때 float 정밀도가 나빠지는 것을 막는다).
-    float& yaw = viewerObject.transform.rotation.y;
-    yaw = std::fmod(yaw, kTwoPi);
+    yaw_ = std::fmod(yaw_, kTwoPi);
+
+    // 1인칭 카메라는 pitch/yaw 두 각으로 충분하고, 이렇게 각을 따로 들고
+    // 쿼터니언은 매 프레임 새로 만들면 짐벌락도 누적 오차도 없다.
+    viewerObject.transform.rotation = quat::fromEulerYXZ(vec3{pitch_, yaw_, 0.0f});
+    const float yaw = yaw_;
 
     // 2. 이동. 시선의 yaw 만 반영하므로 위를 봐도 앞으로만 간다.
     const vec3 forwardDir{std::sin(yaw), 0.0f, std::cos(yaw)};

@@ -85,22 +85,6 @@ struct mat4 {
         return result;
     }
 
-    // 임의 축 둘레 회전 (Rodrigues). axis 는 단위 벡터, angle 은 라디안.
-    // 회전 기즈모가 월드 축 둘레로 돌릴 때 쓴다.
-    static mat4 rotationAxis(const vec3& axis, float angle) {
-        const float c = std::cos(angle);
-        const float s = std::sin(angle);
-        const float t = 1.0f - c;
-        const float x = axis.x, y = axis.y, z = axis.z;
-
-        mat4 r = identity();
-        // 열 우선: m[col][row]. 아래는 표준 Rodrigues 행렬을 열 단위로 적은 것.
-        r.m[0][0] = t * x * x + c;      r.m[0][1] = t * x * y + s * z;  r.m[0][2] = t * x * z - s * y;
-        r.m[1][0] = t * x * y - s * z;  r.m[1][1] = t * y * y + c;      r.m[1][2] = t * y * z + s * x;
-        r.m[2][0] = t * x * z + s * y;  r.m[2][1] = t * y * z - s * x;  r.m[2][2] = t * z * z + c;
-        return r;
-    }
-
     // 원근 투영 행렬.
     //
     // 좌표 규약은 Vulkan 쪽 원본과 같다: +X 오른쪽, +Y 아래, +Z 화면 안쪽.
@@ -160,34 +144,6 @@ struct mat4 {
                        const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
         return view(position, target - position, up);
     }
-
-    // 오일러 각으로 직접 만드는 뷰 행렬 (Y -> X -> Z, TransformComponent 와 같은 순서).
-    //
-    // lookAt 은 '어디를 볼지'를 주는 방식이라 1인칭 조작과 잘 맞지 않는다.
-    // 카메라를 게임 오브젝트처럼 위치 + 회전으로 들고 다니려면 이쪽이 편하다.
-    // 회전 행렬이 직교라 역행렬 = 전치이므로, u/v/w 를 행에 넣는 것만으로
-    // 역변환이 된다.
-    static mat4 viewYXZ(const vec3& position, const vec3& rotation) {
-        const float c3 = std::cos(rotation.z);
-        const float s3 = std::sin(rotation.z);
-        const float c2 = std::cos(rotation.x);
-        const float s2 = std::sin(rotation.x);
-        const float c1 = std::cos(rotation.y);
-        const float s1 = std::sin(rotation.y);
-
-        const vec3 u{(c1 * c3 + s1 * s2 * s3), (c2 * s3), (c1 * s2 * s3 - c3 * s1)};
-        const vec3 v{(c3 * s1 * s2 - c1 * s3), (c2 * c3), (c1 * c3 * s2 + s1 * s3)};
-        const vec3 w{(c2 * s1), (-s2), (c1 * c2)};
-
-        mat4 result = identity();
-        result.m[0][0] = u.x;  result.m[1][0] = u.y;  result.m[2][0] = u.z;
-        result.m[0][1] = v.x;  result.m[1][1] = v.y;  result.m[2][1] = v.z;
-        result.m[0][2] = w.x;  result.m[1][2] = w.y;  result.m[2][2] = w.z;
-        result.m[3][0] = -dot(u, position);
-        result.m[3][1] = -dot(v, position);
-        result.m[3][2] = -dot(w, position);
-        return result;
-    }
 };
 
 // 점 변환 (w = 1). 이동이 적용된다.
@@ -199,45 +155,174 @@ inline vec3 transformPoint(const mat4& m, const vec3& p) {
     };
 }
 
+// 쿼터니언 (w, x, y, z) - 회전 표현.
+//
+// 오일러 각을 버리고 이걸 쓰는 이유: 회전 기즈모로 임의 축 둘레를 계속 돌리면
+// 오일러는 짐벌락(cos(x) = 0 근처에서 y, z 가 한 자유도로 겹침)에 걸리고
+// 행렬 -> 오일러 복원 때 값이 튄다. 쿼터니언은 합성이 곱 하나고 특이점이 없다.
+// Vulkan 쪽(glm::quat)과 같은 규약이라 값이 그대로 옮겨진다.
+struct quat {
+    float w = 1.0f;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+
+    quat() = default;
+    quat(float w_, float x_, float y_, float z_) : w(w_), x(x_), y(y_), z(z_) {}
+
+    static quat identity() { return quat{}; }
+
+    // 단위 축 둘레 angle 라디안 회전 (glm::angleAxis 와 같다).
+    static quat angleAxis(float angle, const vec3& axis) {
+        const float h = angle * 0.5f;
+        const float s = std::sin(h);
+        return quat{std::cos(h), axis.x * s, axis.y * s, axis.z * s};
+    }
+
+    // Tait-Bryan 각 (Y -> X -> Z, 즉 R = Ry * Rx * Rz) 에서. 예전 TransformComponent
+    // 의 rotation 값을 그대로 넘기면 같은 자세가 된다 - 초기 배치 코드 호환용.
+    static quat fromEulerYXZ(const vec3& e) {
+        const quat qy = angleAxis(e.y, vec3{0.0f, 1.0f, 0.0f});
+        const quat qx = angleAxis(e.x, vec3{1.0f, 0.0f, 0.0f});
+        const quat qz = angleAxis(e.z, vec3{0.0f, 0.0f, 1.0f});
+        return qy * qx * qz;
+    }
+
+    // 회전 행렬(직교, 스케일 없음)에서. Shepperd 방식 - 대각 성분 중 가장 큰
+    // 것을 기준으로 뽑아 나눗셈이 0 근처가 되는 것을 피한다.
+    static quat fromMatrix(const mat4& m) {
+        // R(r, c) = m[c][r]
+        const float r00 = m.m[0][0], r01 = m.m[1][0], r02 = m.m[2][0];
+        const float r10 = m.m[0][1], r11 = m.m[1][1], r12 = m.m[2][1];
+        const float r20 = m.m[0][2], r21 = m.m[1][2], r22 = m.m[2][2];
+        const float trace = r00 + r11 + r22;
+        quat q;
+        if (trace > 0.0f) {
+            const float s = std::sqrt(trace + 1.0f) * 2.0f;
+            q.w = 0.25f * s;
+            q.x = (r21 - r12) / s;
+            q.y = (r02 - r20) / s;
+            q.z = (r10 - r01) / s;
+        } else if (r00 > r11 && r00 > r22) {
+            const float s = std::sqrt(1.0f + r00 - r11 - r22) * 2.0f;
+            q.w = (r21 - r12) / s;
+            q.x = 0.25f * s;
+            q.y = (r01 + r10) / s;
+            q.z = (r02 + r20) / s;
+        } else if (r11 > r22) {
+            const float s = std::sqrt(1.0f + r11 - r00 - r22) * 2.0f;
+            q.w = (r02 - r20) / s;
+            q.x = (r01 + r10) / s;
+            q.y = 0.25f * s;
+            q.z = (r12 + r21) / s;
+        } else {
+            const float s = std::sqrt(1.0f + r22 - r00 - r11) * 2.0f;
+            q.w = (r10 - r01) / s;
+            q.x = (r02 + r20) / s;
+            q.y = (r12 + r21) / s;
+            q.z = 0.25f * s;
+        }
+        return q;
+    }
+
+    // 합성: (a * b) 는 b 를 먼저, a 를 나중에 적용한다 (행렬 곱과 같은 순서).
+    quat operator*(const quat& b) const {
+        return quat{
+            w * b.w - x * b.x - y * b.y - z * b.z,
+            w * b.x + x * b.w + y * b.z - z * b.y,
+            w * b.y - x * b.z + y * b.w + z * b.x,
+            w * b.z + x * b.y - y * b.x + z * b.w,
+        };
+    }
+
+    // 역회전. 단위 쿼터니언이면 역원 = 공액.
+    quat conjugate() const { return quat{w, -x, -y, -z}; }
+
+    // 회전 행렬 (열 우선). 상단 3x3 만 채우고 나머지는 단위.
+    mat4 toMat4() const {
+        const float xx = x * x, yy = y * y, zz = z * z;
+        const float xy = x * y, xz = x * z, yz = y * z;
+        const float wx = w * x, wy = w * y, wz = w * z;
+
+        mat4 r = mat4::identity();
+        // m[col][row]
+        r.m[0][0] = 1.0f - 2.0f * (yy + zz);
+        r.m[0][1] = 2.0f * (xy + wz);
+        r.m[0][2] = 2.0f * (xz - wy);
+
+        r.m[1][0] = 2.0f * (xy - wz);
+        r.m[1][1] = 1.0f - 2.0f * (xx + zz);
+        r.m[1][2] = 2.0f * (yz + wx);
+
+        r.m[2][0] = 2.0f * (xz + wy);
+        r.m[2][1] = 2.0f * (yz - wx);
+        r.m[2][2] = 1.0f - 2.0f * (xx + yy);
+        return r;
+    }
+
+    // 다시 Tait-Bryan 각으로 (Y -> X -> Z). 로그/디버그용 - 편집 계산에는 쓰지 않는다.
+    //
+    // R = Ry * Rx * Rz 를 펼치면 m[2][1] = -sin(x) 라 x 가 바로 나오고,
+    // cos(x) != 0 이면 m[2][0] / m[2][2] = tan(y), m[0][1] / m[1][1] = tan(z).
+    // cos(x) = 0 이면 y 와 z 가 겹치므로 z = 0 으로 두고 y 를 첫 열에서 읽는다.
+    vec3 toEulerYXZ() const {
+        const mat4 r = toMat4();
+        float sx = -r.m[2][1];
+        if (sx > 1.0f) sx = 1.0f;
+        if (sx < -1.0f) sx = -1.0f;
+        vec3 e;
+        e.x = std::asin(sx);
+        const float cx = std::cos(e.x);
+        if (std::fabs(cx) > 1e-4f) {
+            e.y = std::atan2(r.m[2][0], r.m[2][2]);
+            e.z = std::atan2(r.m[0][1], r.m[1][1]);
+        } else {
+            e.z = 0.0f;
+            e.y = std::atan2(-r.m[0][2], r.m[0][0]);
+        }
+        return e;
+    }
+};
+
+inline float dot(const quat& a, const quat& b) {
+    return a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+// 곱을 반복하면 길이가 1 에서 조금씩 벗어난다. 편집 한 번마다 한 번 불러준다.
+inline quat normalize(const quat& q) {
+    const float len = std::sqrt(dot(q, q));
+    if (len <= 0.0f) return quat::identity();
+    const float inv = 1.0f / len;
+    return quat{q.w * inv, q.x * inv, q.y * inv, q.z * inv};
+}
+
+// 벡터 회전 v' = q v q*. 행렬을 만들지 않고 직접 푼 형태.
+inline vec3 rotate(const quat& q, const vec3& v) {
+    const vec3 u{q.x, q.y, q.z};
+    const vec3 t = cross(u, v) * 2.0f;
+    return v + t * q.w + cross(u, t);
+}
+
 // 3D 변환 컴포넌트
 //
-// 회전은 Tait-Bryan 각(Y -> X -> Z 순서)을 쓴다.
-// Vulkan 쪽 원본과 같은 규약이라 값이 그대로 옮겨진다.
+// model = T * R * S. 회전은 쿼터니언이다 (오일러 금지 - 위 quat 주석 참고).
+// 오일러로 자세를 주고 싶으면 setRotationEuler 를 거친다.
 struct TransformComponent {
     vec3 translation{0.0f, 0.0f, 0.0f};
     vec3 scale{1.0f, 1.0f, 1.0f};
-    vec3 rotation{0.0f, 0.0f, 0.0f};  // 라디안
+    quat rotation{};
 
-    // translate * Ry * Rx * Rz * scale 을 펼쳐 쓴 것.
-    // 행렬 곱을 매 프레임 4번 하는 대신 결과를 직접 채운다.
+    // R 의 열에 스케일을 곱하고 마지막 열에 이동을 넣는다.
     mat4 mat4Transform() const {
-        const float c3 = std::cos(rotation.z);
-        const float s3 = std::sin(rotation.z);
-        const float c2 = std::cos(rotation.x);
-        const float s2 = std::sin(rotation.x);
-        const float c1 = std::cos(rotation.y);
-        const float s1 = std::sin(rotation.y);
-
-        mat4 result;
-        result.m[0][0] = scale.x * (c1 * c3 + s1 * s2 * s3);
-        result.m[0][1] = scale.x * (c2 * s3);
-        result.m[0][2] = scale.x * (c1 * s2 * s3 - c3 * s1);
-        result.m[0][3] = 0.0f;
-
-        result.m[1][0] = scale.y * (c3 * s1 * s2 - c1 * s3);
-        result.m[1][1] = scale.y * (c2 * c3);
-        result.m[1][2] = scale.y * (c1 * c3 * s2 + s1 * s3);
-        result.m[1][3] = 0.0f;
-
-        result.m[2][0] = scale.z * (c2 * s1);
-        result.m[2][1] = scale.z * (-s2);
-        result.m[2][2] = scale.z * (c1 * c2);
-        result.m[2][3] = 0.0f;
-
+        mat4 result = rotation.toMat4();
+        for (int r = 0; r < 3; ++r) {
+            result.m[0][r] *= scale.x;
+            result.m[1][r] *= scale.y;
+            result.m[2][r] *= scale.z;
+        }
         result.m[3][0] = translation.x;
         result.m[3][1] = translation.y;
         result.m[3][2] = translation.z;
-        result.m[3][3] = 1.0f;
         return result;
     }
 
@@ -246,66 +331,38 @@ struct TransformComponent {
     // 모델 행렬을 노멀에 그대로 쓰면 안 된다. 스케일이 축마다 다를 때
     // (예: scale{2, 1, 1}) 노멀이 면에 수직이 아니게 기울어지기 때문이다.
     // 회전은 직교행렬이라 역전치가 자기 자신이고, 스케일만 역수를 취하면
-    // 되므로 일반적인 역행렬 계산 없이 mat4Transform 의 스케일 자리에
-    // 1/scale 을 넣은 것과 같다.
+    // 되므로 mat4Transform 의 스케일 자리에 1/scale 을 넣은 것과 같다.
     //
     // 상단 3x3 만 의미가 있다. 셰이더에서는 vec4(normal, 0) 을 곱해 쓴다.
     mat4 normalMatrix() const {
-        const float c3 = std::cos(rotation.z);
-        const float s3 = std::sin(rotation.z);
-        const float c2 = std::cos(rotation.x);
-        const float s2 = std::sin(rotation.x);
-        const float c1 = std::cos(rotation.y);
-        const float s1 = std::sin(rotation.y);
-
-        const vec3 invScale{1.0f / scale.x, 1.0f / scale.y, 1.0f / scale.z};
-
-        mat4 result;
-        result.m[0][0] = invScale.x * (c1 * c3 + s1 * s2 * s3);
-        result.m[0][1] = invScale.x * (c2 * s3);
-        result.m[0][2] = invScale.x * (c1 * s2 * s3 - c3 * s1);
-
-        result.m[1][0] = invScale.y * (c3 * s1 * s2 - c1 * s3);
-        result.m[1][1] = invScale.y * (c2 * c3);
-        result.m[1][2] = invScale.y * (c1 * c3 * s2 + s1 * s3);
-
-        result.m[2][0] = invScale.z * (c2 * s1);
-        result.m[2][1] = invScale.z * (-s2);
-        result.m[2][2] = invScale.z * (c1 * c2);
-
-        result.m[3][3] = 1.0f;
+        mat4 result = rotation.toMat4();
+        for (int r = 0; r < 3; ++r) {
+            result.m[0][r] /= scale.x;
+            result.m[1][r] /= scale.y;
+            result.m[2][r] /= scale.z;
+        }
         return result;
     }
 
-    // 회전만 (스케일/이동 없는 Ry * Rx * Rz). 회전 기즈모가 여기에 월드 축
-    // 회전을 곱한 뒤 다시 오일러로 풀어 넣는다.
-    mat4 rotationMatrix() const {
-        TransformComponent unit;
-        unit.rotation = rotation;
-        return unit.mat4Transform();  // scale = 1, translation = 0
+    // 회전만 (스케일/이동 없음).
+    mat4 rotationMatrix() const { return rotation.toMat4(); }
+
+    // Tait-Bryan 각(Y -> X -> Z, 라디안)으로 자세 지정. 초기 배치처럼
+    // 사람이 숫자를 적는 자리용이다.
+    void setRotationEuler(const vec3& e) { rotation = quat::fromEulerYXZ(e); }
+    vec3 eulerAngles() const { return rotation.toEulerYXZ(); }
+
+    // 월드 축 둘레로 angle 만큼 더 돌린다 (기즈모: 오브젝트 자기 회전 뒤에 월드 회전).
+    void rotateWorld(float angle, const vec3& axis) {
+        rotation = normalize(quat::angleAxis(angle, axis) * rotation);
+    }
+    // 자기 축 둘레로 (Vulkan 쪽 rotateAroundAxis 와 같은 순서).
+    void rotateLocal(float angle, const vec3& axis) {
+        rotation = normalize(rotation * quat::angleAxis(angle, axis));
     }
 
-    // 회전 행렬 -> 오일러 (Y -> X -> Z 순서, mat4Transform 의 역).
-    //
-    // mat4Transform 에서 m[2][1] = -sin(x) 이므로 x 가 바로 나오고,
-    // cos(x) != 0 이면 m[2][0] / m[2][2] = tan(y), m[0][1] / m[1][1] = tan(z).
-    // cos(x) = 0 (짐벌락, 위/아래를 정면으로 봄) 이면 y 와 z 가 한 자유도로
-    // 겹치므로 z = 0 으로 두고 y 를 첫 열에서 읽는다.
-    void setRotationFromMatrix(const mat4& r) {
-        float sx = -r.m[2][1];
-        if (sx > 1.0f) sx = 1.0f;
-        if (sx < -1.0f) sx = -1.0f;
-        rotation.x = std::asin(sx);
-
-        const float cx = std::cos(rotation.x);
-        if (std::fabs(cx) > 1e-4f) {
-            rotation.y = std::atan2(r.m[2][0], r.m[2][2]);
-            rotation.z = std::atan2(r.m[0][1], r.m[1][1]);
-        } else {
-            rotation.z = 0.0f;
-            rotation.y = std::atan2(-r.m[0][2], r.m[0][0]);
-        }
-    }
+    // 회전 행렬에서 (스케일 없는 직교 행렬이어야 한다).
+    void setRotationFromMatrix(const mat4& r) { rotation = normalize(quat::fromMatrix(r)); }
 
     // 월드 -> 로컬 (방향). 피킹에서 레이를 모델 공간으로 가져올 때 쓴다.
     //

@@ -41,9 +41,23 @@ public:
         view_ = mat4::lookAt(position, target, up);
     }
 
-    // 위치 + 오일러 각. 카메라를 게임 오브젝트처럼 다룰 때 쓴다 (1인칭 조작).
-    void setViewYXZ(const vec3& position, const vec3& rotation) {
-        view_ = mat4::viewYXZ(position, rotation);
+    // 위치 + 쿼터니언. 카메라를 게임 오브젝트처럼 다룰 때 쓴다 (1인칭 조작).
+    //
+    // 카메라 변환이 T * R 이므로 뷰는 R^T * T^-1 이다. R 이 직교라 전치가
+    // 역행렬이므로, R 의 열 u/v/w 를 행에 넣기만 하면 된다.
+    void setViewFromTransform(const vec3& position, const quat& rotation) {
+        const mat4 r = rotation.toMat4();
+        const vec3 u{r.m[0][0], r.m[0][1], r.m[0][2]};
+        const vec3 v{r.m[1][0], r.m[1][1], r.m[1][2]};
+        const vec3 w{r.m[2][0], r.m[2][1], r.m[2][2]};
+
+        view_ = mat4::identity();
+        view_.m[0][0] = u.x;  view_.m[1][0] = u.y;  view_.m[2][0] = u.z;
+        view_.m[0][1] = v.x;  view_.m[1][1] = v.y;  view_.m[2][1] = v.z;
+        view_.m[0][2] = w.x;  view_.m[1][2] = w.y;  view_.m[2][2] = w.z;
+        view_.m[3][0] = -dot(u, position);
+        view_.m[3][1] = -dot(v, position);
+        view_.m[3][2] = -dot(w, position);
     }
 
     const mat4& getProjection() const { return projection_; }

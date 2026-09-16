@@ -169,16 +169,17 @@ void EditController::beginGizmoDrag(const Context& ctx, const lot_pick::Ray& ray
 
 void EditController::applyRotation(const Context& ctx, int axis, float angle) {
     // 월드 축 둘레로 기준점을 중심 삼아 돌린다.
-    // 회전: R_new = R_axis * R_start (오브젝트 자기 회전 뒤에 월드 회전).
-    // 위치: 기준점에서의 오프셋을 같은 행렬로 돌린다 - 여러 개면 서로의 배치가 유지된다.
-    const mat4 r = mat4::rotationAxis(GizmoRenderSystem::axisDirection(axis), angle);
+    // 회전: q_new = q_axis * q_start (오브젝트 자기 회전 뒤에 월드 회전).
+    // 위치: 기준점에서의 오프셋을 같은 회전으로 돌린다 - 여러 개면 서로의 배치가 유지된다.
+    // 매 프레임 '시작값 + 이번 각도'로 다시 계산하므로 오차가 쌓이지 않는다.
+    const quat q = quat::angleAxis(angle, GizmoRenderSystem::axisDirection(axis));
     for (const auto& entry : drag_.startTransforms) {
         auto* obj = LotGameObject::find(ctx.objects, entry.first);
         if (!obj) continue;
         const TransformComponent& start = entry.second;
-        obj->transform.setRotationFromMatrix(r * start.rotationMatrix());
+        obj->transform.rotation = normalize(q * start.rotation);
         const vec3 offset = start.translation - drag_.pivotStart;
-        obj->transform.translation = drag_.pivotStart + transformPoint(r, offset);
+        obj->transform.translation = drag_.pivotStart + rotate(q, offset);
     }
 }
 
@@ -283,9 +284,11 @@ void EditController::endGizmoDrag(const Context& ctx) {
     if (!drag_.startTransforms.empty()) {
         if (const auto* obj = LotGameObject::find(ctx.objects, drag_.startTransforms[0].first)) {
             const auto& t = obj->transform;
-            LOT_LOG("drag: first object rot (" << t.rotation.x << ", " << t.rotation.y << ", "
-                    << t.rotation.z << ") scale (" << t.scale.x << ", " << t.scale.y << ", "
-                    << t.scale.z << ")");
+            const vec3 e = t.eulerAngles() * (180.0f / 3.14159265f);
+            LOT_LOG("drag: first object rot deg (" << e.x << ", " << e.y << ", " << e.z
+                    << ") quat (" << t.rotation.w << ", " << t.rotation.x << ", "
+                    << t.rotation.y << ", " << t.rotation.z << ") scale ("
+                    << t.scale.x << ", " << t.scale.y << ", " << t.scale.z << ")");
         }
     }
 }

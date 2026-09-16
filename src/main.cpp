@@ -137,7 +137,7 @@ void createGameObjects() {
         cube.material = g_checkerMaterial;
         cube.transform.translation = translation;
         cube.transform.scale = vec3(0.6f);
-        cube.transform.rotation = vec3(0.35f, 0.6f, 0.0f);  // 세 면이 다 보이게 살짝 기울인다
+        cube.transform.setRotationEuler(vec3(0.35f, 0.6f, 0.0f));  // 세 면이 다 보이게 살짝 기울인다
 
         const auto id = cube.getId();
         g_gameObjects.emplace(id, std::move(cube));
@@ -155,7 +155,7 @@ void placeObjModel() {
     object.model = g_objModel;
     object.material = g_checkerMaterial;
     object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
-    object.transform.rotation = vec3(1.1f, 0.3f, 0.0f);  // 토러스 구멍이 보이도록 눕힌다
+    object.transform.setRotationEuler(vec3(1.1f, 0.3f, 0.0f));  // 토러스 구멍이 보이도록 눕힌다
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
     g_objObjectId = object.getId();
     g_gameObjects.emplace(g_objObjectId, std::move(object));
@@ -348,8 +348,8 @@ void renderLoop() {
         } else {
             g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
         }
-        g_camera.setViewYXZ(g_viewerObject.transform.translation,
-                            g_viewerObject.transform.rotation);
+        g_camera.setViewFromTransform(g_viewerObject.transform.translation,
+                                      g_viewerObject.transform.rotation);
 
         // (예전의 자동 회전은 뺐다 - 회전/축척 기즈모로 편집한 값을 매 프레임
         //  덮어쓰기 때문이다. 초기 자세는 createGameObjects / placeObjModel 에서 준다.)

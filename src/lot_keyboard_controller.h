@@ -43,6 +43,10 @@ public:
     float lookSpeed = 1.5f;
 
 private:
+    // 시선 각 (라디안). 뷰어 오브젝트의 쿼터니언은 이 둘로 매 프레임 만든다.
+    float pitch_ = 0.0f;  // x 축 둘레 (위/아래)
+    float yaw_ = 0.0f;    // y 축 둘레 (좌/우)
+
     // 브라우저 KeyboardEvent.code 기준 (자판 배열과 무관한 물리 키 위치).
     enum KeyId {
         MoveForward,
