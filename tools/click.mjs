@@ -2,6 +2,9 @@
 //
 //   node tools/click.mjs out.png  click X Y            클릭 후 캡처
 //   node tools/click.mjs out.png  drag X1 Y1 X2 Y2     누른 채 이동 후 뗌, 캡처
+//   node tools/click.mjs out.png  rdrag X1 Y1 X2 Y2    오른쪽 버튼 드래그 (CAD 궤도)
+//   node tools/click.mjs out.png  mdrag X1 Y1 X2 Y2    가운데 버튼 드래그 (팬)
+//   node tools/click.mjs out.png  wheel X Y N          휠 N 노치 (양수 = 위 = 줌 인)
 //   node tools/click.mjs out.png  wait                 그냥 캡처
 //
 // 좌표는 페이지 기준 픽셀이다 (캔버스가 상태바 아래에서 시작하므로
@@ -43,12 +46,29 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
 const mouse = (type, x, y, extra = {}) =>
   send('Input.dispatchMouseEvent', { type, x, y, button: 'left', ...extra });
+
+// 버튼 이름 -> mousemove 의 buttons 비트 (왼 1, 오른 2, 가운데 4)
+const buttonsBit = { left: 1, right: 2, middle: 4 };
+const dragWith = async (button, x1, y1, x2, y2) => {
+  await mouse('mouseMoved', x1, y1);
+  await mouse('mousePressed', x1, y1, { button, clickCount: 1 });
+  await sleep(100);
+  const steps = 12;
+  for (let s = 1; s <= steps; ++s) {
+    const x = x1 + (x2 - x1) * s / steps;
+    const y = y1 + (y2 - y1) * s / steps;
+    await mouse('mouseMoved', x, y, { button, buttons: buttonsBit[button] });
+    await sleep(50);
+  }
+  await mouse('mouseReleased', x2, y2, { button, clickCount: 1 });
+  await sleep(400);
+};
 
 await sleep(8000);  // 엔진이 자리잡을 시간
 
@@ -80,6 +100,20 @@ while (i < args.length) {
     await mouse('mouseReleased', x2, y2, { clickCount: 1 });
     await sleep(400);
     console.log(`drag (${x1}, ${y1}) -> (${x2}, ${y2})`);
+  } else if (cmd === 'rdrag' || cmd === 'mdrag') {
+    const x1 = Number(args[i++]), y1 = Number(args[i++]);
+    const x2 = Number(args[i++]), y2 = Number(args[i++]);
+    const button = cmd === 'rdrag' ? 'right' : 'middle';
+    await dragWith(button, x1, y1, x2, y2);
+    console.log(`${cmd} (${x1}, ${y1}) -> (${x2}, ${y2})`);
+  } else if (cmd === 'wheel') {
+    // 브라우저 규약: 아래로 스크롤 = +deltaY. 노치 하나 = 100px.
+    const x = Number(args[i++]), y = Number(args[i++]);
+    const notches = Number(args[i++]);
+    await mouse('mouseMoved', x, y);
+    await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY: -notches * 100 });
+    await sleep(400);
+    console.log(`wheel (${x}, ${y}) ${notches}`);
   } else if (cmd === 'shiftclick') {
     // Shift + 클릭 (선택 추가/토글). CDP modifiers: 8 = Shift
     const x = Number(args[i++]), y = Number(args[i++]);

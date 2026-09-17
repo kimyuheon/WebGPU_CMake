@@ -4,10 +4,122 @@
 
 #include <cmath>
 
-// 카메라 - 투영 행렬과 뷰 행렬만 들고 있는 순수 계산 클래스.
+// 카메라 - 투영 행렬과 뷰 행렬, 그리고 CAD 궤도 상태를 들고 있는 순수 계산 클래스.
 // GPU 리소스를 잡지 않으므로 헤더 하나로 끝난다.
+//
+// 두 가지 뷰 모드가 있다 (Vulkan 쪽 ViewMode 와 같다):
+//   Fps - 카메라를 게임 오브젝트처럼 위치 + 회전으로 들고 다닌다 (WASD).
+//   Cad - 타깃을 중심으로 궤도를 돈다 (우클릭 궤도, 중클릭 팬, 휠 줌). CAD 기본.
 class LotCamera {
 public:
+    enum class ViewMode { Fps, Cad };
+
+    // 표준 CAD 뷰. 이 엔진의 좌표계(+X 오른쪽, +Y 아래, +Z 앞, 바닥 = XZ 평면)에서
+    // Front 는 -Z 에서 +Z 를 본다, Top 은 위(-Y)에서 내려다본다.
+    enum class CadViewType { Front, Back, Top, Bottom, Right, Left, Isometric };
+
+    void setViewMode(ViewMode m) { viewMode_ = m; }
+    ViewMode getViewMode() const { return viewMode_; }
+    bool isCadMode() const { return viewMode_ == ViewMode::Cad; }
+
+    // ---- CAD 궤도 ----
+    //
+    // orbitRotation_ 규약: forward = q * (0, 0, 1), up = q * (0, -1, 0), right = q * (1, 0, 0).
+    // 카메라 위치는 target - forward * orbitDistance. 뷰 행렬은 updateCadView 가 만든다.
+
+    // 턴테이블 궤도: yaw 는 월드 위 축(-Y) 둘레, pitch 는 카메라 오른쪽 축 둘레 (라디안).
+    // 자유 트랙볼과 달리 롤이 쌓이지 않아 수평선이 항상 수평이다 (AutoCAD 3DORBIT 과 같다).
+    // 극점을 넘어가면 카메라가 뒤집히므로 그 직전에서 pitch 를 막는다.
+    void orbitAroundTarget(float yaw, float pitch) {
+        const vec3 worldUp{0.0f, -1.0f, 0.0f};
+        const quat qYaw = quat::angleAxis(yaw, worldUp);
+        const vec3 right = rotate(orbitRotation_, vec3{1.0f, 0.0f, 0.0f});
+        const quat qPitch = quat::angleAxis(pitch, right);
+
+        quat next = normalize(qYaw * qPitch * orbitRotation_);
+        const vec3 nextUp = rotate(next, vec3{0.0f, -1.0f, 0.0f});
+        if (dot(nextUp, worldUp) < kMinUpDot) {
+            next = normalize(qYaw * orbitRotation_);  // pitch 는 버리고 yaw 만
+        }
+        orbitRotation_ = next;
+        updateCadView();
+    }
+
+    // 휠 한 노치 = 약 8% (AutoCAD 감각). notches > 0 이 줌 인.
+    // 원근에서는 거리, 직교에서는 호출자가 halfHeight 를 같은 비율로 줄인다 (zoomFactor).
+    static float zoomFactor(float notches) {
+        if (notches > kMaxNotchesPerFrame) notches = kMaxNotchesPerFrame;
+        if (notches < -kMaxNotchesPerFrame) notches = -kMaxNotchesPerFrame;
+        return std::pow(kZoomBase, notches);
+    }
+    void zoomToTarget(float notches) {
+        orbitDistance_ *= zoomFactor(notches);
+        if (orbitDistance_ < kMinOrbitDistance) orbitDistance_ = kMinOrbitDistance;
+        if (orbitDistance_ > kMaxOrbitDistance) orbitDistance_ = kMaxOrbitDistance;
+        updateCadView();
+    }
+
+    // 픽셀 단위 팬. 타깃 깊이에서 화면 1 픽셀이 월드 몇 단위인지로 환산하므로
+    // 드래그한 만큼 정확히 장면이 따라온다 (원근/직교 모두).
+    void panTarget(float dxPx, float dyPx, float viewportHeight) {
+        const float wpp = worldPerPixel(target_, viewportHeight);
+        target_ = target_ - (getRight() * dxPx + getDown() * dyPx) * wpp;
+        updateCadView();
+    }
+
+    // 표준 뷰로 리셋. 타깃은 원점, 거리는 기본값.
+    void resetCadView(CadViewType type) {
+        target_ = vec3{0.0f, 0.0f, 0.0f};
+        orbitDistance_ = kDefaultOrbitDistance;
+        const float kHalfPi = 1.57079632679f;
+        const vec3 X{1.0f, 0.0f, 0.0f}, Y{0.0f, 1.0f, 0.0f};
+        switch (type) {
+        case CadViewType::Front:  orbitRotation_ = quat::identity(); break;
+        case CadViewType::Back:   orbitRotation_ = quat::angleAxis(2.0f * kHalfPi, Y); break;
+        case CadViewType::Top:    orbitRotation_ = quat::angleAxis(-kHalfPi, X); break;
+        case CadViewType::Bottom: orbitRotation_ = quat::angleAxis(kHalfPi, X); break;
+        case CadViewType::Right:  orbitRotation_ = quat::angleAxis(-kHalfPi, Y); break;
+        case CadViewType::Left:   orbitRotation_ = quat::angleAxis(kHalfPi, Y); break;
+        case CadViewType::Isometric:
+            // 앞-왼쪽-위에서 내려다본다. 세 축이 같은 각으로 보이는 등각.
+            setViewFromDirection(normalize(vec3{-1.0f, -1.0f, -1.0f}));
+            return;
+        }
+        currentViewType_ = type;
+        updateCadView();
+    }
+
+    // 타깃에서 카메라를 향하는 임의 방향으로. 위쪽은 월드 -Y 기준으로 맞춘다
+    // (정확히 위/아래를 볼 때는 +Z 를 위로).
+    void setViewFromDirection(const vec3& dirFromTarget) {
+        const vec3 f = normalize(dirFromTarget) * -1.0f;  // 카메라가 바라보는 방향
+        vec3 upRef{0.0f, -1.0f, 0.0f};
+        if (std::fabs(dot(f, upRef)) > 0.999f) upRef = vec3{0.0f, 0.0f, 1.0f};
+        const vec3 right = normalize(cross(f, upRef));
+        const vec3 up = cross(right, f);
+
+        // 열 = 기저 벡터 (q * X = right, q * -Y = up 이므로 두 번째 열은 -up).
+        mat4 r = mat4::identity();
+        r.m[0][0] = right.x; r.m[0][1] = right.y; r.m[0][2] = right.z;
+        r.m[1][0] = -up.x;   r.m[1][1] = -up.y;   r.m[1][2] = -up.z;
+        r.m[2][0] = f.x;     r.m[2][1] = f.y;     r.m[2][2] = f.z;
+        orbitRotation_ = normalize(quat::fromMatrix(r));
+        currentViewType_ = CadViewType::Isometric;
+        updateCadView();
+    }
+
+    void setTarget(const vec3& t) { target_ = t; updateCadView(); }
+    const vec3& getTarget() const { return target_; }
+    float getOrbitDistance() const { return orbitDistance_; }
+    CadViewType getCurrentViewType() const { return currentViewType_; }
+
+    // 궤도 상태로 뷰 행렬을 다시 만든다. 상태를 바꾸는 함수들이 알아서 부른다.
+    void updateCadView() {
+        const vec3 forward = rotate(orbitRotation_, vec3{0.0f, 0.0f, 1.0f});
+        const vec3 up = rotate(orbitRotation_, vec3{0.0f, -1.0f, 0.0f});
+        setViewTarget(target_ - forward * orbitDistance_, target_, up);
+    }
+
     // fovY 는 라디안. aspect 는 창 크기가 바뀔 때마다 다시 넣어줘야 한다.
     void setPerspectiveProjection(float fovY, float aspect, float nearZ, float farZ) {
         projection_ = mat4::perspective(fovY, aspect, nearZ, farZ);
@@ -115,8 +227,21 @@ public:
     }
 
 private:
+    static constexpr float kZoomBase = 0.92f;
+    static constexpr float kMaxNotchesPerFrame = 3.0f;  // 스크롤이 몰려도 한 번에 3노치까지
+    static constexpr float kDefaultOrbitDistance = 4.0f;
+    static constexpr float kMinOrbitDistance = 0.3f;
+    static constexpr float kMaxOrbitDistance = 60.0f;
+    static constexpr float kMinUpDot = 0.02f;  // 이보다 기울면 극점 - pitch 를 막는다
+
     mat4 projection_ = mat4::identity();
     mat4 view_ = mat4::identity();
     bool orthographic_ = false;
     float orthoHalfHeight_ = 0.0f;
+
+    ViewMode viewMode_ = ViewMode::Cad;
+    quat orbitRotation_{};
+    vec3 target_{0.0f, 0.0f, 0.0f};
+    float orbitDistance_ = kDefaultOrbitDistance;
+    CadViewType currentViewType_ = CadViewType::Front;
 };

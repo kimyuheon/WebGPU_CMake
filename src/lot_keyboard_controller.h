@@ -39,6 +39,17 @@ public:
     // 없으면 -1. 값은 GizmoRenderSystem::Mode 순서 (0 이동, 1 회전, 2 축척).
     int consumeGizmoMode();
 
+    // 뷰 모드 토글 (V): CAD 궤도 <-> 1인칭. 누른 순간만.
+    bool consumeViewModeToggle();
+
+    // 표준 뷰 (F 정면, T 평면, R 우측면, I 등각). 눌린 순간의 뷰,
+    // 없으면 -1. 값은 LotCamera::CadViewType 순서.
+    int consumeViewPreset();
+
+    // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
+    // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXZ 가 같은 키를 시선으로 쓴다.
+    void orbitInput(float& yaw, float& pitch) const;
+
     float moveSpeed = 3.0f;
     float lookSpeed = 1.5f;
 
@@ -68,6 +79,11 @@ private:
         GizmoTranslate,
         GizmoRotate,
         GizmoScale,
+        ToggleViewMode,
+        ViewFront,
+        ViewTop,
+        ViewRight,
+        ViewIsometric,
         KeyCount,
     };
 

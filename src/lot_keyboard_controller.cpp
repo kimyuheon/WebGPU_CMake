@@ -52,6 +52,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         // G/R/S 는 WASD 의 S 와 겹친다 (S = 후진). 숫자 키로 - 충돌이 없다.
         {"Digit1", GizmoTranslate}, {"Digit2", GizmoRotate}, {"Digit3", GizmoScale},
         {"Delete", DeleteSelection}, {"Backspace", DeleteSelection},
+        {"KeyV", ToggleViewMode},
+        {"KeyF", ViewFront}, {"KeyT", ViewTop}, {"KeyR", ViewRight}, {"KeyI", ViewIsometric},
     };
 
     for (const auto& entry : kTable) {
@@ -109,6 +111,31 @@ int KeyboardMovementController::consumeGizmoMode() {
     return -1;
 }
 
+bool KeyboardMovementController::consumeViewModeToggle() {
+    const bool was = justPressed_[ToggleViewMode];
+    justPressed_[ToggleViewMode] = false;
+    return was;
+}
+
+int KeyboardMovementController::consumeViewPreset() {
+    // LotCamera::CadViewType 순서: Front 0, Back 1, Top 2, Bottom 3, Right 4, Left 5, Isometric 6
+    struct { KeyId key; int view; } table[] = {
+        {ViewFront, 0}, {ViewTop, 2}, {ViewRight, 4}, {ViewIsometric, 6},
+    };
+    for (const auto& e : table) {
+        if (justPressed_[e.key]) {
+            justPressed_[e.key] = false;
+            return e.view;
+        }
+    }
+    return -1;
+}
+
+void KeyboardMovementController::orbitInput(float& yaw, float& pitch) const {
+    yaw = (pressed_[LookRight] ? 1.0f : 0.0f) - (pressed_[LookLeft] ? 1.0f : 0.0f);
+    pitch = (pressed_[LookDown] ? 1.0f : 0.0f) - (pressed_[LookUp] ? 1.0f : 0.0f);
+}
+
 int KeyboardMovementController::zoomDirection() const {
     return (pressed_[ZoomIn] ? 1 : 0) - (pressed_[ZoomOut] ? 1 : 0);
 }
@@ -116,7 +143,8 @@ int KeyboardMovementController::zoomDirection() const {
 void KeyboardMovementController::init() {
     emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyDown);
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
-    LOT_LOG("KeyboardMovementController: WASD move, QE up/down, arrows look, "
+    LOT_LOG("KeyboardMovementController: V view mode (CAD orbit / FPS), "
+            "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
             "1/2/3 gizmo move/rotate/scale");
 }

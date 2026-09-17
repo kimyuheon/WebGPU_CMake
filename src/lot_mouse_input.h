@@ -15,7 +15,16 @@ public:
 
     float x() const { return x_; }
     float y() const { return y_; }
-    bool isLeftDown() const { return leftDown_; }
+    bool isLeftDown() const { return down_[0]; }
+    bool isMiddleDown() const { return down_[1]; }
+    bool isRightDown() const { return down_[2]; }
+
+    // 지난 프레임 이후 누적된 이동량 (픽셀). 읽으면 0 으로 돌아간다.
+    // 궤도/팬은 위치가 아니라 '얼마나 움직였나'가 필요하다.
+    void consumeDelta(float& dx, float& dy);
+
+    // 지난 프레임 이후 누적된 휠 노치 (위로 = +). 읽으면 0 으로 돌아간다.
+    float consumeWheel();
 
     // 마지막으로 눌렀을 때 Shift 가 눌려 있었나. 다중 선택(추가/토글)에 쓴다.
     // 키보드 리스너가 아니라 마우스 이벤트의 modifier 를 본다 - 타이밍이 정확하다.
@@ -28,16 +37,23 @@ public:
     // 브라우저 이벤트 콜백에서만 부른다.
     void onMove(float x, float y);
     void onButton(int button, bool down, float x, float y, bool shift);
+    void onWheel(float notches);
 
     // window 에서 받은 뗌. 좌표가 캔버스 기준이 아니라(페이지 기준) 위치는
     // 건드리지 않고 버튼 상태만 바꾼다. 마지막 mousemove 위치가 그대로 남는다.
     void onButtonReleasedAnywhere(int button);
 
 private:
+    // 버튼 인덱스는 브라우저 MouseEvent.button 그대로: 0 왼쪽, 1 가운데, 2 오른쪽.
+    static constexpr int kButtons = 3;
+
     float x_ = 0.0f;
     float y_ = 0.0f;
-    bool leftDown_ = false;
-    bool leftPressed_ = false;   // 프레임 사이에 눌림이 있었나
-    bool leftReleased_ = false;  // 프레임 사이에 뗌이 있었나
+    float dx_ = 0.0f;  // 프레임 사이 누적 이동
+    float dy_ = 0.0f;
+    float wheel_ = 0.0f;
+    bool down_[kButtons] = {};
+    bool leftPressed_ = false;   // 프레임 사이에 왼쪽 눌림이 있었나
+    bool leftReleased_ = false;  // 프레임 사이에 왼쪽 뗌이 있었나
     bool shiftAtPress_ = false;
 };

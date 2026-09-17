@@ -89,8 +89,12 @@ static bool g_gameObjectsCreated = false;
 // 카메라 설정
 static const float kFovY = 50.0f * 3.14159265f / 180.0f;
 static const float kNearZ = 0.1f;
-static const float kFarZ = 10.0f;
-static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // +Z 가 화면 안쪽이라 카메라는 -Z 쪽
+static const float kFarZ = 100.0f;  // 궤도 줌 아웃 한계(60)보다 멀어야 한다
+static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // (FPS 모드) +Z 가 화면 안쪽이라 카메라는 -Z 쪽
+
+// CAD 궤도 조작 감도
+static const float kOrbitRadPerPixel = 0.005f;  // 우클릭 드래그 1px 당 (한 바퀴 ≈ 1250px)
+static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 
 // 투영 모드. P 키로 전환한다.
 // 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
@@ -303,9 +307,55 @@ void renderLoop() {
             g_edit.update(ctx);
         }
 
-        // 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
-        // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
-        g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
+        // 뷰 모드 전환 / 표준 뷰
+        if (g_cameraController.consumeViewModeToggle()) {
+            g_camera.setViewMode(g_camera.isCadMode() ? LotCamera::ViewMode::Fps
+                                                      : LotCamera::ViewMode::Cad);
+            LOT_LOG("view: " << (g_camera.isCadMode() ? "cad orbit" : "fps"));
+        }
+        if (const int preset = g_cameraController.consumeViewPreset(); preset >= 0) {
+            g_camera.setViewMode(LotCamera::ViewMode::Cad);
+            g_camera.resetCadView(static_cast<LotCamera::CadViewType>(preset));
+            static const char* kViewNames[] = {"front", "back", "top", "bottom",
+                                               "right", "left", "isometric"};
+            LOT_LOG("view: " << kViewNames[preset]);
+        }
+
+        // 마우스/키로 카메라를 움직인다. 델타와 휠은 모드와 관계없이 매 프레임
+        // 비워야 한다 - 안 그러면 모드를 바꾼 순간 쌓인 값이 한꺼번에 들어간다.
+        float mouseDx = 0.0f, mouseDy = 0.0f;
+        g_mouse.consumeDelta(mouseDx, mouseDy);
+        const float wheel = g_mouse.consumeWheel();
+        if (g_camera.isCadMode()) {
+            // 우클릭 궤도, 중클릭 팬, 휠 줌, 화살표 궤도
+            if (g_mouse.isRightDown()) {
+                // 부호가 음수인 이유: 팬과 마찬가지로 '장면을 잡고 끄는' 느낌이어야 한다.
+                // 오른쪽으로 끌면 장면이 오른쪽으로 돌아야 하므로 카메라는 왼쪽으로 간다.
+                g_camera.orbitAroundTarget(-mouseDx * kOrbitRadPerPixel, -mouseDy * kOrbitRadPerPixel);
+            } else if (g_mouse.isMiddleDown()) {
+                g_camera.panTarget(mouseDx, mouseDy,
+                                   static_cast<float>(g_renderer->getSwapchain().getHeight()));
+            }
+            float yaw = 0.0f, pitch = 0.0f;
+            g_cameraController.orbitInput(yaw, pitch);
+            if (yaw != 0.0f || pitch != 0.0f) {
+                const float step = kOrbitRadPerSec * static_cast<float>(deltaSec);
+                g_camera.orbitAroundTarget(yaw * step, pitch * step);
+            }
+            if (wheel != 0.0f) {
+                if (g_orthographic) {
+                    g_orthoHalfHeight *= LotCamera::zoomFactor(wheel);
+                    if (g_orthoHalfHeight < kOrthoMinHalfHeight) g_orthoHalfHeight = kOrthoMinHalfHeight;
+                    if (g_orthoHalfHeight > kOrthoMaxHalfHeight) g_orthoHalfHeight = kOrthoMaxHalfHeight;
+                } else {
+                    g_camera.zoomToTarget(wheel);
+                }
+            }
+        } else {
+            // 1인칭: 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
+            // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
+            g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
+        }
 
         // 투영 전환 / 직교 줌
         if (const int mode = g_cameraController.consumeGizmoMode(); mode >= 0) {
@@ -348,8 +398,12 @@ void renderLoop() {
         } else {
             g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
         }
-        g_camera.setViewFromTransform(g_viewerObject.transform.translation,
-                                      g_viewerObject.transform.rotation);
+        if (g_camera.isCadMode()) {
+            g_camera.updateCadView();
+        } else {
+            g_camera.setViewFromTransform(g_viewerObject.transform.translation,
+                                          g_viewerObject.transform.rotation);
+        }
 
         // (예전의 자동 회전은 뺐다 - 회전/축척 기즈모로 편집한 값을 매 프레임
         //  덮어쓰기 때문이다. 초기 자세는 createGameObjects / placeObjModel 에서 준다.)
@@ -467,7 +521,9 @@ int main() {
     g_gizmoSystem = std::make_unique<GizmoRenderSystem>();
     g_postSystem = std::make_unique<PostProcessSystem>();
 
-    // 카메라 시작 위치 + 키보드 리스너 등록
+    // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
+    // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.
+    g_camera.setViewFromDirection(normalize(vec3{-0.45f, -0.4f, -1.0f}));
     g_viewerObject.transform.translation = kCameraStartPosition;
     g_cameraController.init();
     // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다
