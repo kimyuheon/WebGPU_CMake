@@ -3,6 +3,7 @@
 #include "lot_math.h"
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 class LotModel;
 class LotMaterial;
@@ -55,6 +56,27 @@ public:
 
     // 재질 (텍스처). 없으면 렌더 시스템의 기본 재질(흰색)을 쓴다.
     std::shared_ptr<LotMaterial> material;
+
+    // 스케치 오브젝트 (선, 사각형, 폴리라인). model 대신 이 점들을 가진다.
+    //
+    // 점은 로컬 좌표다 - 만들 때 무게중심을 translation 으로 잡고 점을 상대
+    // 좌표로 저장하므로, 기즈모가 붙는 기준점이 도형 가운데가 되고 이동/회전/
+    // 축척이 메시 오브젝트와 똑같이 동작한다. 그리기는 폴리라인 시스템이,
+    // 피킹/스냅/박스 선택은 세그먼트 단위로 한다.
+    // Vulkan 쪽은 kind=Line + LINE_LIST 모델이지만 여기서는 점 목록이 더 곧다.
+    std::vector<vec3> points;
+    bool closed = false;
+
+    bool isSketch() const { return !points.empty(); }
+
+    // 점들을 월드 좌표로.
+    std::vector<vec3> worldPoints() const {
+        std::vector<vec3> out;
+        out.reserve(points.size());
+        const mat4 m = transform.mat4Transform();
+        for (const vec3& p : points) out.push_back(transformPoint(m, p));
+        return out;
+    }
 
 private:
     explicit LotGameObject(id_t objId) : id_(objId) {}

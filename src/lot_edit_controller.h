@@ -35,6 +35,9 @@ public:
         LotGameObject::Map& objects;
         float width;
         float height;
+        // 스케치 도구가 열려 있으면 클릭은 그쪽 것이다. 스냅은 계속 찾는다
+        // (도구가 그걸 쓴다). 게이트는 이 플래그 하나 - SketchController::anyActive().
+        bool sketchActive = false;
     };
 
     // 입력 처리. 프레임당 한 번, 카메라가 갱신되기 전에 부른다
@@ -70,6 +73,7 @@ public:
 
     float snapRadiusPx = 14.0f;
     float snapMarkerPx = 7.0f;
+    float sketchPickPx = 8.0f;  // 선은 두께가 없으니 이 픽셀 안이면 집은 것으로
 
 private:
     // 기즈모 드래그 상태.

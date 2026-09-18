@@ -189,6 +189,45 @@ bool closestPointOnLine(const Ray& ray, const vec3& a, const vec3& dir, float& s
     return true;
 }
 
+float distancePointToSegment2D(float px, float py, float ax, float ay, float bx, float by) {
+    const float dx = bx - ax, dy = by - ay;
+    const float len2 = dx * dx + dy * dy;
+    float s = 0.0f;
+    if (len2 > 1e-12f) {
+        s = ((px - ax) * dx + (py - ay) * dy) / len2;
+        if (s < 0.0f) s = 0.0f;
+        if (s > 1.0f) s = 1.0f;
+    }
+    const float cx = ax + dx * s - px, cy = ay + dy * s - py;
+    return std::sqrt(cx * cx + cy * cy);
+}
+
+LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mouseY,
+                               float width, float height, float radiusPx,
+                               const LotGameObject::Map& objects, float& distOut) {
+    LotGameObject::id_t best = LotGameObject::kInvalidId;
+    distOut = radiusPx;
+    for (const auto& entry : objects) {
+        const LotGameObject& obj = entry.second;
+        if (!obj.isSketch()) continue;
+        const std::vector<vec3> pts = obj.worldPoints();
+        const size_t n = pts.size();
+        const size_t segments = obj.closed ? n : n - 1;
+        for (size_t i = 0; i < segments; ++i) {
+            float ax, ay, bx, by;
+            // 한쪽이라도 카메라 뒤면 그 세그먼트는 건너뛴다 (투영이 뒤집힌다)
+            if (!camera.projectToScreen(pts[i], width, height, ax, ay)) continue;
+            if (!camera.projectToScreen(pts[(i + 1) % n], width, height, bx, by)) continue;
+            const float d = distancePointToSegment2D(mouseX, mouseY, ax, ay, bx, by);
+            if (d < distOut) {
+                distOut = d;
+                best = entry.first;
+            }
+        }
+    }
+    return best;
+}
+
 float distanceRayToSegment(const Ray& ray, const vec3& a, const vec3& b, float& sOut) {
     const vec3 ab = b - a;
     const float len = std::sqrt(dot(ab, ab));

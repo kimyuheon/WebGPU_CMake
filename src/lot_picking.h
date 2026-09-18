@@ -55,6 +55,16 @@ bool intersectObjectPrecise(const Ray& ray, const LotGameObject& object, Hit& hi
 // 삼각형 단위로 가장 가까운 오브젝트. 경계 상자를 통과한 것만 삼각형을 돈다.
 Hit pickObjectPrecise(const Ray& ray, const LotGameObject::Map& objects);
 
+// 스케치 오브젝트(선/폴리라인) 피킹. 선은 두께가 없어 레이로는 못 맞히므로
+// 화면에서 커서와 각 세그먼트 사이의 픽셀 거리로 고른다. radiusPx 안에서
+// 가장 가까운 것. 없으면 kInvalidId. distOut 은 그 픽셀 거리.
+LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mouseY,
+                               float width, float height, float radiusPx,
+                               const LotGameObject::Map& objects, float& distOut);
+
+// 화면 점 (px, py) 에서 2D 세그먼트 a-b 까지의 거리 (픽셀).
+float distancePointToSegment2D(float px, float py, float ax, float ay, float bx, float by);
+
 // 레이와 선분(a -> b) 사이의 가장 가까운 거리.
 // 기즈모 축을 집을 때 쓴다. sOut 은 선분 위의 파라미터 (0 = a, 1 = b).
 float distanceRayToSegment(const Ray& ray, const vec3& a, const vec3& b, float& sOut);

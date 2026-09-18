@@ -8,6 +8,7 @@
 #include "lot_frame_info.h"
 #include "lot_render_target.h"
 #include "lot_edit_controller.h"
+#include "lot_sketch_tool.h"
 #include "lot_mouse_input.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -57,6 +58,7 @@ LotGameObject::Map g_gameObjects;
 LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
+SketchController g_sketch;
 
 // 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
 EditController g_edit;
@@ -303,8 +305,28 @@ void renderLoop() {
             const auto& sc = g_renderer->getSwapchain();
             EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
                                         static_cast<float>(sc.getWidth()),
-                                        static_cast<float>(sc.getHeight())};
+                                        static_cast<float>(sc.getHeight()),
+                                        g_sketch.anyActive()};
             g_edit.update(ctx);
+
+            // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
+            SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                           static_cast<float>(sc.getWidth()),
+                                           static_cast<float>(sc.getHeight())};
+            g_sketch.update(sctx);
+        }
+
+        // 스케치 도구 시작 / 끝 / 취소. 도구를 열면 선택은 비운다 (Vulkan 쪽과 같다).
+        if (const int tool = g_cameraController.consumeSketchTool(); tool >= 0) {
+            g_edit.clearSelection();
+            g_sketch.start(static_cast<SketchController::Kind>(tool), g_camera);
+        }
+        if (g_cameraController.consumeEnter()) {
+            g_sketch.finish(g_gameObjects);
+        }
+        if (g_cameraController.consumeEscape()) {
+            if (g_sketch.anyActive()) g_sketch.cancel();
+            else g_edit.clearSelection();
         }
 
         // 뷰 모드 전환 / 표준 뷰
@@ -363,10 +385,12 @@ void renderLoop() {
             static const char* kModeNames[] = {"move", "rotate", "scale"};
             LOT_LOG("gizmo: " << kModeNames[mode]);
         }
-        if (g_cameraController.consumeDuplicate()) {
+        // 스케치 중에는 편집 키를 무시한다 (플래그는 비워야 나중에 튀어나오지 않는다)
+        const bool editKeysEnabled = !g_sketch.anyActive();
+        if (g_cameraController.consumeDuplicate() && editKeysEnabled) {
             g_edit.duplicateSelection(g_gameObjects);
         }
-        if (g_cameraController.consumeDelete()) {
+        if (g_cameraController.consumeDelete() && editKeysEnabled) {
             g_edit.deleteSelection(g_gameObjects);
         }
         if (g_cameraController.consumeOutlineToggle()) {
@@ -450,9 +474,22 @@ void renderLoop() {
             g_edit.drawOverlay(*g_lineSystem, ctx);
         }
 
+        // 스케치 오브젝트 + 그리는 중인 프리뷰
+        g_polylineSystem->clear();
+        for (const auto& entry : g_gameObjects) {
+            const LotGameObject& obj = entry.second;
+            if (!obj.isSketch()) continue;
+            g_polylineSystem->addPolyline(obj.worldPoints(), obj.color, obj.closed);
+        }
+        {
+            SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                           static_cast<float>(sc.getWidth()),
+                                           static_cast<float>(sc.getHeight())};
+            g_sketch.drawPreview(*g_polylineSystem, *g_lineSystem, sctx);
+        }
+
         // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).
         // 둘을 draw 한 번에 그리므로 restart 인덱스가 실제로 동작하는지도 보인다.
-        g_polylineSystem->clear();
         {
             std::vector<vec3> orbit;
             for (int i = 0; i < 64; ++i) {

@@ -46,6 +46,14 @@ public:
     // 없으면 -1. 값은 LotCamera::CadViewType 순서.
     int consumeViewPreset();
 
+    // 스케치 도구 (L 선, B 사각형, N 폴리라인). 눌린 순간의 도구, 없으면 -1.
+    // 값은 SketchController::Kind 순서 (0 선, 1 사각형, 2 폴리라인).
+    int consumeSketchTool();
+
+    // Enter / Esc. 누른 순간만.
+    bool consumeEnter();
+    bool consumeEscape();
+
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
     // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXZ 가 같은 키를 시선으로 쓴다.
     void orbitInput(float& yaw, float& pitch) const;
@@ -84,6 +92,11 @@ private:
         ViewTop,
         ViewRight,
         ViewIsometric,
+        SketchLine,
+        SketchRectangle,
+        SketchPolyline,
+        Enter,
+        Escape,
         KeyCount,
     };
 

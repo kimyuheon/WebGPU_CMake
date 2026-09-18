@@ -60,8 +60,8 @@ void EditController::update(const Context& ctx) {
         snap_ = lot_osnap::find(query, mouseRay(), ctx.objects);
     }
 
-    // 2. 누름
-    if (ctx.mouse.consumeLeftPress()) {
+    // 2. 누름 (스케치 중이면 클릭은 스케치 컨트롤러가 가져간다)
+    if (!ctx.sketchActive && ctx.mouse.consumeLeftPress()) {
         const lot_pick::Ray ray = mouseRay();
         const bool shift = ctx.mouse.shiftAtPress();
 
@@ -71,18 +71,31 @@ void EditController::update(const Context& ctx) {
         if (handle >= 0) {
             beginGizmoDrag(ctx, ray, handle);
         } else {
-            // 2-2. 오브젝트?
+            // 2-2. 오브젝트? 메시가 먼저, 없으면 커서 근처의 스케치 선.
+            //      (메시 위에 선이 겹쳐 있어도 메시가 이긴다 - 선은 스냅으로 집기 쉽다)
             const lot_pick::Hit hit = lot_pick::pickObjectPrecise(ray, ctx.objects);
-            if (hit.valid()) {
+            id_t picked = hit.id;
+            float sketchDist = 0.0f;
+            if (!hit.valid()) {
+                picked = lot_pick::pickSketch(ctx.camera, ctx.mouse.x(), ctx.mouse.y(),
+                                              ctx.width, ctx.height, sketchPickPx,
+                                              ctx.objects, sketchDist);
+            }
+            if (picked != LotGameObject::kInvalidId) {
                 if (shift) {
                     // 토글
-                    if (isSelected(hit.id)) selection_.erase(hit.id);
-                    else selection_.insert(hit.id);
+                    if (isSelected(picked)) selection_.erase(picked);
+                    else selection_.insert(picked);
                 } else {
-                    selection_ = {hit.id};
+                    selection_ = {picked};
                 }
-                LOT_LOG("pick: object " << hit.id << " tri " << hit.triangle
-                        << " -> " << selection_.size() << " selected");
+                if (hit.valid()) {
+                    LOT_LOG("pick: object " << picked << " tri " << hit.triangle
+                            << " -> " << selection_.size() << " selected");
+                } else {
+                    LOT_LOG("pick: sketch " << picked << " (" << sketchDist << "px) -> "
+                            << selection_.size() << " selected");
+                }
             } else {
                 // 2-3. 빈 곳: 박스 선택 시작. 뗄 때 크기를 보고 클릭인지 판단한다.
                 marquee_.active = true;
@@ -313,15 +326,10 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
 
     if (!additive) selection_.clear();
 
-    for (const auto& entry : ctx.objects) {
-        const LotGameObject& obj = entry.second;
-        if (!obj.model) continue;
-
-        // 모델의 모든 정점을 화면에 투영해서 본다. 경계 상자 꼭짓점보다 정확하고
-        // (회전한 상자의 꼭짓점은 실제 실루엣보다 크다) 정점 수천 개는 값싸다.
-        const mat4 m = obj.transform.mat4Transform();
+    // 점 집합을 화면에 투영해 상자와 비교. window 는 전부, crossing 은 하나라도.
+    auto testPoints = [&](const mat4& m, const std::vector<vec3>& points) {
         bool any = false, all = true;
-        for (const vec3& p : obj.model->getPositions()) {
+        for (const vec3& p : points) {
             float px, py;
             const bool inside = ctx.camera.projectToScreen(transformPoint(m, p), ctx.width,
                                                            ctx.height, px, py)
@@ -330,7 +338,21 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
             else all = false;
             if (crossing ? any : !all) break;  // 결론이 났으면 그만
         }
-        if (crossing ? any : all) selection_.insert(entry.first);
+        return crossing ? any : all;
+    };
+
+    for (const auto& entry : ctx.objects) {
+        const LotGameObject& obj = entry.second;
+        const mat4 m = obj.transform.mat4Transform();
+        bool selected = false;
+        if (obj.model) {
+            // 모델의 모든 정점을 화면에 투영해서 본다. 경계 상자 꼭짓점보다 정확하고
+            // (회전한 상자의 꼭짓점은 실제 실루엣보다 크다) 정점 수천 개는 값싸다.
+            selected = testPoints(m, obj.model->getPositions());
+        } else if (obj.isSketch()) {
+            selected = testPoints(m, obj.points);
+        }
+        if (selected) selection_.insert(entry.first);
     }
     LOT_LOG("marquee: " << (crossing ? "crossing" : "window") << " -> "
             << selection_.size() << " selected");
@@ -349,6 +371,8 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.color = src->color;
         copy.model = src->model;        // 공유 - GPU 버퍼 복사 없음
         copy.material = src->material;  // 공유
+        copy.points = src->points;      // 스케치는 점을 복사 (GPU 자원이 아니다)
+        copy.closed = src->closed;
         const id_t newId = copy.getId();
         objects.emplace(newId, std::move(copy));
         copies.insert(newId);
@@ -373,9 +397,18 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
     // 선택 상자 (OBB). 오브젝트 변환을 그대로 타서 회전하면 같이 돈다.
     for (id_t id : selection_) {
         const auto* obj = LotGameObject::find(ctx.objects, id);
-        if (obj && obj->model) {
+        if (!obj) continue;
+        if (obj->model) {
             lines.addTransformedBox(obj->model->boundsMin(), obj->model->boundsMax(),
                                     obj->transform.mat4Transform(), kSelectionColor);
+        } else if (obj->isSketch()) {
+            // 선은 상자 대신 자기 자신을 선택 색으로 한 번 더 그린다
+            const std::vector<vec3> pts = obj->worldPoints();
+            const size_t n = pts.size();
+            const size_t segments = obj->closed ? n : n - 1;
+            for (size_t i = 0; i < segments; ++i) {
+                lines.addLine(pts[i], pts[(i + 1) % n], kSelectionColor);
+            }
         }
     }
 

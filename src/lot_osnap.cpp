@@ -68,8 +68,25 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
             consider(q, Kind::Midpoint, (wb + wc) * 0.5f, hit.id, best);
             consider(q, Kind::Midpoint, (wc + wa) * 0.5f, hit.id, best);
         }
-        if (best.valid()) return best;
     }
+
+    // 1-2. 스케치 오브젝트의 끝점/중점. 선은 면이 없어 '커서 아래 삼각형'이 없으므로
+    //      항상 전부 대본다. 메시 후보와 같은 best 를 두고 겨루므로 더 가까운 쪽이 이긴다.
+    for (const auto& entry : objects) {
+        if (q.isExcluded(entry.first)) continue;
+        const LotGameObject& obj = entry.second;
+        if (!obj.isSketch()) continue;
+        const std::vector<vec3> pts = obj.worldPoints();
+        const size_t n = pts.size();
+        for (size_t i = 0; i < n; ++i) {
+            consider(q, Kind::Endpoint, pts[i], entry.first, best);
+        }
+        const size_t segments = obj.closed ? n : n - 1;
+        for (size_t i = 0; i < segments; ++i) {
+            consider(q, Kind::Midpoint, (pts[i] + pts[(i + 1) % n]) * 0.5f, entry.first, best);
+        }
+    }
+    if (best.valid()) return best;
 
     // 2. 폴백: 커서가 메시 밖. 모든 정점을 화면에 투영해 가장 가까운 끝점.
     //    실루엣 바로 옆에서 꼭짓점을 집을 때 필요하다. 정점 수천 개를 프레임마다

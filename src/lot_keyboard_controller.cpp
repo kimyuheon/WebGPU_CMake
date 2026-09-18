@@ -54,6 +54,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"Delete", DeleteSelection}, {"Backspace", DeleteSelection},
         {"KeyV", ToggleViewMode},
         {"KeyF", ViewFront}, {"KeyT", ViewTop}, {"KeyR", ViewRight}, {"KeyI", ViewIsometric},
+        {"KeyL", SketchLine}, {"KeyB", SketchRectangle}, {"KeyN", SketchPolyline},
+        {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
     };
 
     for (const auto& entry : kTable) {
@@ -111,6 +113,29 @@ int KeyboardMovementController::consumeGizmoMode() {
     return -1;
 }
 
+int KeyboardMovementController::consumeSketchTool() {
+    const KeyId keys[3] = {SketchLine, SketchRectangle, SketchPolyline};
+    for (int i = 0; i < 3; ++i) {
+        if (justPressed_[keys[i]]) {
+            justPressed_[keys[i]] = false;
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool KeyboardMovementController::consumeEnter() {
+    const bool was = justPressed_[Enter];
+    justPressed_[Enter] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeEscape() {
+    const bool was = justPressed_[Escape];
+    justPressed_[Escape] = false;
+    return was;
+}
+
 bool KeyboardMovementController::consumeViewModeToggle() {
     const bool was = justPressed_[ToggleViewMode];
     justPressed_[ToggleViewMode] = false;
@@ -146,7 +171,8 @@ void KeyboardMovementController::init() {
     LOT_LOG("KeyboardMovementController: V view mode (CAD orbit / FPS), "
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
-            "1/2/3 gizmo move/rotate/scale");
+            "1/2/3 gizmo move/rotate/scale, L/B/N sketch line/rectangle/polyline, "
+            "Enter finish, Esc cancel");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {
