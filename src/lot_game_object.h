@@ -30,8 +30,14 @@ public:
 
     // 팩토리 메서드로 생성. id 는 0 부터 한 번씩만 나간다.
     static LotGameObject createGameObject() {
-        static id_t currentId = 0;
-        return LotGameObject{currentId++};
+        return LotGameObject{nextId()++};
+    }
+
+    // 예전에 나갔던 id 로 다시 만든다 - 실행 취소가 지워진 오브젝트를 되살릴 때.
+    // 카운터는 건드리지 않는다: 한 번 나간 id 는 다시 나가지 않으므로 충돌이 없다.
+    static LotGameObject createWithId(id_t id) {
+        if (id >= nextId()) nextId() = id + 1;  // 혹시 모를 앞선 id 도 안전하게
+        return LotGameObject{id};
     }
 
     // "선택 없음" 을 나타내는 값. 실제 id 로는 절대 나오지 않는다.
@@ -80,6 +86,11 @@ public:
 
 private:
     explicit LotGameObject(id_t objId) : id_(objId) {}
+
+    static id_t& nextId() {
+        static id_t currentId = 0;
+        return currentId;
+    }
 
     id_t id_;
 };

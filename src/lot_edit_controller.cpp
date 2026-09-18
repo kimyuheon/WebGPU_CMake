@@ -288,6 +288,23 @@ void EditController::updateGizmoDrag(const Context& ctx, const lot_pick::Ray& ra
 
 void EditController::endGizmoDrag(const Context& ctx) {
     drag_.active = false;
+
+    // 히스토리: 누른 순간의 변환 -> 지금 변환. 안 움직였으면 record 가 걸러낸다.
+    {
+        static const char* kLabels[] = {"move", "rotate", "scale"};
+        EditHistory::Edit edit;
+        edit.label = kLabels[drag_.mode];
+        for (const auto& entry : drag_.startTransforms) {
+            const auto* obj = LotGameObject::find(ctx.objects, entry.first);
+            if (!obj) continue;
+            EditHistory::Record before = EditHistory::Record::capture(*obj);
+            before.transform = entry.second;
+            edit.before.push_back(std::move(before));
+            edit.after.push_back(EditHistory::Record::capture(*obj));
+        }
+        history_.record(std::move(edit));
+    }
+
     if (snap_.valid()) {
         LOT_LOG("snap: " << (snap_.kind == lot_osnap::Kind::Endpoint ? "endpoint" : "midpoint")
                 << " of object " << snap_.id << " (" << snap_.screenDistance << "px)");
@@ -378,6 +395,7 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copies.insert(newId);
     }
     LOT_LOG("copy: " << copies.size() << " objects duplicated");
+    history_.recordCreated("copy", objects, copies);
     selection_ = std::move(copies);
 }
 
@@ -385,12 +403,40 @@ void EditController::deleteSelection(LotGameObject::Map& objects) {
     if (selection_.empty()) return;
     drag_.active = false;
 
+    EditHistory::Edit edit;
+    edit.label = "delete";
+    edit.before = EditHistory::snapshot(objects, selection_);
+
     size_t removed = 0;
     for (id_t id : selection_) {
         removed += objects.erase(id);
     }
     LOT_LOG("delete: " << removed << " objects removed");
+    history_.record(std::move(edit));
     selection_.clear();
+}
+
+void EditController::undo(LotGameObject::Map& objects) {
+    drag_.active = false;
+    marquee_.active = false;
+    std::set<id_t> touched = history_.undo(objects);
+    if (touched.empty()) return;
+    // 되살아난/되돌아간 것들을 선택해 무엇이 바뀌었는지 보여준다. 지워진 것은 뺀다.
+    selection_.clear();
+    for (id_t id : touched) {
+        if (LotGameObject::find(objects, id)) selection_.insert(id);
+    }
+}
+
+void EditController::redo(LotGameObject::Map& objects) {
+    drag_.active = false;
+    marquee_.active = false;
+    std::set<id_t> touched = history_.redo(objects);
+    if (touched.empty()) return;
+    selection_.clear();
+    for (id_t id : touched) {
+        if (LotGameObject::find(objects, id)) selection_.insert(id);
+    }
 }
 
 void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {

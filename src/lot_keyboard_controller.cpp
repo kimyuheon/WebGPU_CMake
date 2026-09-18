@@ -21,7 +21,7 @@ constexpr float kTwoPi = 6.28318530718f;
 // 반환값 true 는 '이벤트를 소비했다'는 뜻이다 (em_key_callback_func 규약).
 bool handleKey(const EmscriptenKeyboardEvent* e, void* userData, bool down) {
     auto* self = static_cast<KeyboardMovementController*>(userData);
-    return self->handleBrowserKey(e->code, down, e->ctrlKey || e->metaKey);
+    return self->handleBrowserKey(e->code, down, e->ctrlKey || e->metaKey, e->shiftKey);
 }
 
 bool onKeyDown(int, const EmscriptenKeyboardEvent* e, void* userData) {
@@ -66,10 +66,18 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
     return KeyCount;
 }
 
-bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, bool ctrlOrMeta) {
-    const KeyId id = lookupKey(code);
-    if (id == KeyCount || ctrlOrMeta) {
-        return false;  // 우리 키가 아니거나 브라우저 단축키(Ctrl+C 등)면 그대로 넘긴다
+bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, bool ctrlOrMeta,
+                                                  bool shift) {
+    KeyId id = KeyCount;
+    if (ctrlOrMeta) {
+        // Ctrl 조합은 실행 취소/다시 실행만 우리 것. 나머지(Ctrl+C, Ctrl+R 등)는
+        // 브라우저에 넘긴다. Ctrl+Z 는 잡지 않으면 브라우저가 폼 입력을 되돌리려 든다.
+        if (std::strcmp(code, "KeyZ") == 0) id = shift ? Redo : Undo;
+        else if (std::strcmp(code, "KeyY") == 0) id = Redo;
+        else return false;
+    } else {
+        id = lookupKey(code);
+        if (id == KeyCount) return false;  // 우리 키가 아니면 그대로 넘긴다
     }
     // 키를 누르고 있으면 브라우저가 keydown 을 반복해서 보낸다.
     // '누른 순간'은 떼어져 있던 상태에서 눌릴 때만이다.
@@ -136,6 +144,18 @@ bool KeyboardMovementController::consumeEscape() {
     return was;
 }
 
+bool KeyboardMovementController::consumeUndo() {
+    const bool was = justPressed_[Undo];
+    justPressed_[Undo] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeRedo() {
+    const bool was = justPressed_[Redo];
+    justPressed_[Redo] = false;
+    return was;
+}
+
 bool KeyboardMovementController::consumeViewModeToggle() {
     const bool was = justPressed_[ToggleViewMode];
     justPressed_[ToggleViewMode] = false;
@@ -172,7 +192,7 @@ void KeyboardMovementController::init() {
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
             "1/2/3 gizmo move/rotate/scale, L/B/N sketch line/rectangle/polyline, "
-            "Enter finish, Esc cancel");
+            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

@@ -19,7 +19,8 @@ public:
     // 브라우저 이벤트 콜백에서만 부른다.
     // 우리가 쓰는 키였으면 true - 그 경우 이벤트를 소비한다.
     // ctrlOrMeta 가 참이면(Ctrl+C 같은 브라우저 단축키) 우리 키로 보지 않는다.
-    bool handleBrowserKey(const char* code, bool down, bool ctrlOrMeta = false);
+    bool handleBrowserKey(const char* code, bool down, bool ctrlOrMeta = false,
+                          bool shift = false);
 
     // 투영 토글 (P). 이번 프레임에 눌렸으면 true - 한 번만 소비된다.
     // 이동 키와 달리 '누르고 있는 동안'이 아니라 '누른 순간'이 의미 있다.
@@ -53,6 +54,10 @@ public:
     // Enter / Esc. 누른 순간만.
     bool consumeEnter();
     bool consumeEscape();
+
+    // Ctrl+Z / Ctrl+Y (또는 Ctrl+Shift+Z). 누른 순간만.
+    bool consumeUndo();
+    bool consumeRedo();
 
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
     // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXZ 가 같은 키를 시선으로 쓴다.
@@ -97,6 +102,8 @@ private:
         SketchPolyline,
         Enter,
         Escape,
+        Undo,
+        Redo,
         KeyCount,
     };
 

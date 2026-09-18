@@ -314,6 +314,19 @@ void renderLoop() {
                                            static_cast<float>(sc.getWidth()),
                                            static_cast<float>(sc.getHeight())};
             g_sketch.update(sctx);
+            if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
+                g_edit.history().recordCreated("sketch", g_gameObjects, id);
+            }
+        }
+
+        // 실행 취소 / 다시 실행. 스케치 중이면 도구부터 닫는다 - 반쯤 그린 것과 섞이지 않게.
+        if (g_cameraController.consumeUndo()) {
+            g_sketch.cancel();
+            g_edit.undo(g_gameObjects);
+        }
+        if (g_cameraController.consumeRedo()) {
+            g_sketch.cancel();
+            g_edit.redo(g_gameObjects);
         }
 
         // 스케치 도구 시작 / 끝 / 취소. 도구를 열면 선택은 비운다 (Vulkan 쪽과 같다).

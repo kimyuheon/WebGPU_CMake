@@ -3,6 +3,7 @@
 #include "lot_camera.h"
 #include "lot_frame_info.h"
 #include "lot_game_object.h"
+#include "lot_history.h"
 #include "lot_math.h"
 #include "lot_osnap.h"
 #include "lot_picking.h"
@@ -71,6 +72,12 @@ public:
 
     const lot_osnap::Snap& snap() const { return snap_; }
 
+    // 실행 취소 / 다시 실행. 드래그 중이면 먼저 끝내고, 영향 받은 오브젝트를 선택한다.
+    // 스케치 도구가 만든 오브젝트도 여기 기록된다 (main 이 recordCreated 로 넣는다).
+    EditHistory& history() { return history_; }
+    void undo(LotGameObject::Map& objects);
+    void redo(LotGameObject::Map& objects);
+
     float snapRadiusPx = 14.0f;
     float snapMarkerPx = 7.0f;
     float sketchPickPx = 8.0f;  // 선은 두께가 없으니 이 픽셀 안이면 집은 것으로
@@ -115,4 +122,5 @@ private:
     Drag drag_;
     Marquee marquee_;
     lot_osnap::Snap snap_;
+    EditHistory history_;
 };

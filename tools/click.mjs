@@ -5,6 +5,7 @@
 //   node tools/click.mjs out.png  rdrag X1 Y1 X2 Y2    오른쪽 버튼 드래그 (CAD 궤도)
 //   node tools/click.mjs out.png  mdrag X1 Y1 X2 Y2    가운데 버튼 드래그 (팬)
 //   node tools/click.mjs out.png  wheel X Y N          휠 N 노치 (양수 = 위 = 줌 인)
+//   node tools/click.mjs out.png  ctrl KeyZ             Ctrl+키 (실행 취소)
 //   node tools/click.mjs out.png  wait                 그냥 캡처
 //
 // 좌표는 페이지 기준 픽셀이다 (캔버스가 상태바 아래에서 시작하므로
@@ -46,7 +47,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
@@ -137,6 +138,14 @@ while (i < args.length) {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code });
     await sleep(300);
     console.log(`key ${code}`);
+  } else if (cmd === 'ctrl') {
+    // Ctrl + 키 (실행 취소 등). CDP modifiers: 2 = Ctrl
+    const code = args[i++];
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', code, key: code, modifiers: 2 });
+    await sleep(60);
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code, modifiers: 2 });
+    await sleep(300);
+    console.log(`ctrl+${code}`);
   } else if (cmd === 'hold') {
     // 키를 ms 동안 누르고 있기 (이동/줌)
     const code = args[i++];
