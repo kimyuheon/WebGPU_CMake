@@ -3,6 +3,7 @@
 #include "lot_log.h"
 #include "lot_material.h"
 #include "lot_model.h"
+#include "lot_sketch_tool.h"
 
 #include <cmath>
 
@@ -78,6 +79,25 @@ JsonValue objectJson(const LotGameObject& obj) {
     jo.set("transform", transformJson(obj.transform));
 
     if (obj.isSketch()) {
+        // 원/호는 정의로 저장한다 (점 목록은 파생물). 네이티브 CircleData/ArcData 와 같은 키.
+        if (obj.hasCurve()) {
+            const auto& c = obj.curve;
+            JsonValue jc = JsonValue::makeObject();
+            jc.set("center", j3(toNative(c.center)));
+            jc.set("radius", c.radius);
+            jc.set("right", j3(toNative(c.right)));
+            jc.set("up", j3(toNative(c.up)));
+            if (c.kind == LotGameObject::Curve::Kind::Circle) {
+                jo.set("kind", "circle");
+                jo.set("circle", jc);
+            } else {
+                jc.set("start", c.start);
+                jc.set("end", c.end);
+                jo.set("kind", "arc");
+                jo.set("arc", jc);
+            }
+            return jo;
+        }
         // 열린 2점 스케치는 네이티브의 "line", 나머지는 "polyline".
         if (obj.points.size() == 2 && !obj.closed) {
             jo.set("kind", "line");
@@ -127,14 +147,34 @@ JsonValue objectJson(const LotGameObject& obj) {
 
 // 스케치 오브젝트를 만들어 넣는다. 점은 이미 웹 로컬 좌표.
 void addSketch(LotGameObject::Map& objects, std::vector<vec3> points, bool closed,
-               const TransformComponent& t, const vec3& color) {
+               const TransformComponent& t, const vec3& color,
+               const LotGameObject::Curve* curve = nullptr) {
     auto obj = LotGameObject::createGameObject();
     obj.transform = t;
     obj.color = color;
     obj.points = std::move(points);
     obj.closed = closed;
+    if (curve) obj.curve = *curve;
     const auto id = obj.getId();
     objects.emplace(id, std::move(obj));
+}
+
+// "circle" / "arc" 정의를 읽어 웹 좌표로. 값이 없으면 네이티브 기본값 (right X, up Y).
+LotGameObject::Curve curveFromJson(const JsonValue& jc, bool arc) {
+    LotGameObject::Curve c;
+    c.kind = arc ? LotGameObject::Curve::Kind::Arc : LotGameObject::Curve::Kind::Circle;
+    c.center = fromNative(getv3(jc.find("center"), vec3{0.0f, 0.0f, 0.0f}));
+    c.radius = static_cast<float>(jc.find("radius") ? jc.find("radius")->numberOr(1.0) : 1.0);
+    c.right = normalize(fromNative(getv3(jc.find("right"), vec3{1.0f, 0.0f, 0.0f})));
+    c.up = normalize(fromNative(getv3(jc.find("up"), vec3{0.0f, 1.0f, 0.0f})));
+    if (arc) {
+        c.start = static_cast<float>(jc.find("start") ? jc.find("start")->numberOr(0.0) : 0.0);
+        c.end = static_cast<float>(jc.find("end") ? jc.find("end")->numberOr(3.14159265) : 3.14159265);
+    } else {
+        c.start = 0.0f;
+        c.end = 6.28318530718f;
+    }
+    return c;
 }
 
 bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformComponent& t,
@@ -244,6 +284,14 @@ LoadStats load(const std::string& text, lot_web_device& device,
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
             addSketch(objects, std::move(pts), closed, t, color);
             ++stats.polylines;
+        } else if ((kind == "circle" && jo.find("circle")) || (kind == "arc" && jo.find("arc"))) {
+            const bool arc = kind == "arc";
+            const LotGameObject::Curve c = curveFromJson(*jo.find(arc ? "arc" : "circle"), arc);
+            std::vector<vec3> pts = tessellateArc(c.center, c.radius, c.right, c.up,
+                                                  c.start, c.end, /*includeEnd=*/arc);
+            if (pts.size() < 2) { ++stats.skipped; continue; }
+            addSketch(objects, std::move(pts), !arc, t, color, &c);
+            arc ? ++stats.arcs : ++stats.circles;
         } else if (jo.find("mesh")) {
             if (loadMesh(*jo.find("mesh"), device, t, color, defaultMaterial, objects)) ++stats.meshes;
             else ++stats.skipped;
@@ -257,7 +305,8 @@ LoadStats load(const std::string& text, lot_web_device& device,
     }
 
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
-            << stats.polylines << " polylines"
+            << stats.polylines << " polylines, " << stats.circles << " circles, "
+            << stats.arcs << " arcs"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

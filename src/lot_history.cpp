@@ -50,6 +50,7 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.material = obj.material;
     r.points = obj.points;
     r.closed = obj.closed;
+    r.curve = obj.curve;
     return r;
 }
 
@@ -60,6 +61,7 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.material = material;
     obj.points = points;
     obj.closed = closed;
+    obj.curve = curve;
 }
 
 EditHistory::Record EditHistory::snapshot(const LotGameObject::Map& objects, id_t id) {

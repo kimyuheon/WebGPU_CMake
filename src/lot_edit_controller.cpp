@@ -306,7 +306,8 @@ void EditController::endGizmoDrag(const Context& ctx) {
     }
 
     if (snap_.valid()) {
-        LOT_LOG("snap: " << (snap_.kind == lot_osnap::Kind::Endpoint ? "endpoint" : "midpoint")
+        LOT_LOG("snap: " << (snap_.kind == lot_osnap::Kind::Endpoint ? "endpoint"
+                             : snap_.kind == lot_osnap::Kind::Center ? "center" : "midpoint")
                 << " of object " << snap_.id << " (" << snap_.screenDistance << "px)");
     }
     const vec3 p = pivot(ctx.objects);
@@ -390,6 +391,7 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.material = src->material;  // 공유
         copy.points = src->points;      // 스케치는 점을 복사 (GPU 자원이 아니다)
         copy.closed = src->closed;
+        copy.curve = src->curve;
         const id_t newId = copy.getId();
         objects.emplace(newId, std::move(copy));
         copies.insert(newId);

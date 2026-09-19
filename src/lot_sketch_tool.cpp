@@ -11,6 +11,11 @@ namespace {
 const vec3 kLineColor{0.92f, 0.92f, 0.92f};
 const vec3 kRectangleColor{0.75f, 0.85f, 1.0f};
 const vec3 kPolylineColor{0.8f, 1.0f, 0.8f};
+const vec3 kCircleColor{1.0f, 0.85f, 0.7f};
+const vec3 kArcColor{1.0f, 0.75f, 0.85f};
+const vec3 kPolygonColor{0.85f, 0.8f, 1.0f};
+constexpr float kPi = 3.14159265358979f;
+constexpr float kTwoPi = 6.28318530717959f;
 const vec3 kPreviewColor{0.55f, 0.8f, 1.0f};
 const vec3 kCursorColor{1.0f, 1.0f, 1.0f};
 
@@ -63,22 +68,48 @@ bool SketchPlane::intersect(const lot_pick::Ray& ray, vec3& out) const {
     return true;
 }
 
+// ---------------------------------------------------------------- tessellation
+
+std::vector<vec3> tessellateArc(const vec3& center, float radius, const vec3& right,
+                                const vec3& up, float start, float end, bool includeEnd) {
+    const float sweep = end - start;
+    int segments = static_cast<int>(std::fabs(sweep) / kTwoPi * 64.0f + 0.5f);
+    if (segments < 8) segments = 8;
+    std::vector<vec3> pts;
+    pts.reserve(static_cast<size_t>(segments) + 1);
+    const int last = includeEnd ? segments : segments - 1;
+    for (int i = 0; i <= last; ++i) {
+        const float t = start + sweep * static_cast<float>(i) / static_cast<float>(segments);
+        pts.push_back(center + right * (radius * std::cos(t)) + up * (radius * std::sin(t)));
+    }
+    return pts;
+}
+
 // ---------------------------------------------------------------- SketchTool
 
 LotGameObject::id_t SketchTool::commit(const std::vector<vec3>& worldPoints, bool closed,
-                                       const vec3& color, LotGameObject::Map& objects) {
+                                       const vec3& color, LotGameObject::Map& objects,
+                                       const LotGameObject::Curve* curve) {
     if (worldPoints.size() < 2) return LotGameObject::kInvalidId;
 
-    vec3 centroid{0.0f, 0.0f, 0.0f};
-    for (const vec3& p : worldPoints) centroid = centroid + p;
-    centroid = centroid * (1.0f / static_cast<float>(worldPoints.size()));
+    vec3 origin{0.0f, 0.0f, 0.0f};
+    if (curve) {
+        origin = curve->center;  // 원/호는 중심이 기준점 - 회전/축척 기즈모가 중심에서 돈다
+    } else {
+        for (const vec3& p : worldPoints) origin = origin + p;
+        origin = origin * (1.0f / static_cast<float>(worldPoints.size()));
+    }
 
     auto obj = LotGameObject::createGameObject();
-    obj.transform.translation = centroid;
+    obj.transform.translation = origin;
     obj.color = color;
     obj.closed = closed;
     obj.points.reserve(worldPoints.size());
-    for (const vec3& p : worldPoints) obj.points.push_back(p - centroid);
+    for (const vec3& p : worldPoints) obj.points.push_back(p - origin);
+    if (curve) {
+        obj.curve = *curve;
+        obj.curve.center = vec3{0.0f, 0.0f, 0.0f};  // 로컬
+    }
 
     const auto id = obj.getId();
     objects.emplace(id, std::move(obj));
@@ -186,12 +217,191 @@ void PolylineTool::preview(const vec3& cursor, const SketchPlane&,
     out.push_back(cursor);
 }
 
+// ---------------------------------------------------------------- CircleTool
+
+void CircleTool::onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) {
+    if (points_.empty()) {
+        points_.push_back(p);
+        return;
+    }
+    const vec3 d = p - points_.front();
+    const float r = std::sqrt(dot(d, d));
+    if (r < 1e-5f) return;
+    LotGameObject::Curve c;
+    c.kind = LotGameObject::Curve::Kind::Circle;
+    c.center = points_.front();
+    c.radius = r;
+    c.right = plane.right;
+    c.up = plane.up;
+    c.start = 0.0f;
+    c.end = kTwoPi;
+    commit(tessellateArc(c.center, r, plane.right, plane.up, 0.0f, kTwoPi, false), true,
+           kCircleColor, objects, &c);
+    points_.clear();
+}
+
+bool CircleTool::onFinish(LotGameObject::Map&) {
+    points_.clear();
+    return true;
+}
+
+void CircleTool::preview(const vec3& cursor, const SketchPlane& plane,
+                         std::vector<vec3>& out, bool& closed) const {
+    out.clear();
+    closed = true;
+    if (points_.empty()) return;
+    const vec3 d = cursor - points_.front();
+    const float r = std::sqrt(dot(d, d));
+    if (r < 1e-5f) return;
+    out = tessellateArc(points_.front(), r, plane.right, plane.up, 0.0f, kTwoPi, false);
+    // 반지름 선도 같이 - 어디를 잡았는지 보인다 (닫힌 원에 끼우면 모양이 깨지므로 따로)
+}
+
+// ---------------------------------------------------------------- ArcTool
+
+bool ArcTool::solve(const vec3& a, const vec3& b, const vec3& c, const SketchPlane& plane,
+                    LotGameObject::Curve& out) {
+    // 평면 2D 로 내려서 외심을 구한다. (평면 밖 성분 - 스냅으로 잡힌 점 - 은 버린다)
+    auto to2 = [&](const vec3& p, float& x, float& y) {
+        const vec3 d = p - a;
+        x = dot(d, plane.right);
+        y = dot(d, plane.up);
+    };
+    float bx, by, cx, cy;
+    to2(b, bx, by);
+    to2(c, cx, cy);
+    // a 는 (0, 0). 외심 (ux, uy): 표준 공식.
+    const float dd = 2.0f * (bx * cy - by * cx);
+    if (std::fabs(dd) < 1e-9f) return false;  // 한 직선
+    const float b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+    const float ux = (cy * b2 - by * c2) / dd;
+    const float uy = (bx * c2 - cx * b2) / dd;
+    const float r = std::sqrt(ux * ux + uy * uy);
+    if (r < 1e-6f) return false;
+
+    // 각도: 중심에서 본 a, b, c. a -> c 로 가되 b 를 지나는 방향을 고른다.
+    auto angleOf = [&](float x, float y) { return std::atan2(y - uy, x - ux); };
+    const float ta = angleOf(0.0f, 0.0f);
+    const float tb = angleOf(bx, by);
+    const float tc = angleOf(cx, cy);
+    auto ccw = [](float from, float to) {  // from 에서 to 까지 반시계 누적각 [0, 2π)
+        float d = to - from;
+        while (d < 0.0f) d += kTwoPi;
+        while (d >= kTwoPi) d -= kTwoPi;
+        return d;
+    };
+    const float sweepCcw = ccw(ta, tc);
+    const bool bOnCcw = ccw(ta, tb) <= sweepCcw;
+    const float sweep = bOnCcw ? sweepCcw : -(kTwoPi - sweepCcw);
+
+    out.kind = LotGameObject::Curve::Kind::Arc;
+    out.center = a + plane.right * ux + plane.up * uy;
+    out.radius = r;
+    out.right = plane.right;
+    out.up = plane.up;
+    out.start = ta;
+    out.end = ta + sweep;
+    return true;
+}
+
+void ArcTool::onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) {
+    if (!points_.empty() && samePoint(points_.back(), p)) return;
+    points_.push_back(p);
+    if (points_.size() < 3) return;
+    LotGameObject::Curve c;
+    if (ArcTool::solve(points_[0], points_[1], points_[2], plane, c)) {
+        commit(tessellateArc(c.center, c.radius, c.right, c.up, c.start, c.end), false,
+               kArcColor, objects, &c);
+    } else {
+        LOT_LOG("sketch: arc - the three points are collinear, try again");
+    }
+    points_.clear();
+}
+
+bool ArcTool::onFinish(LotGameObject::Map&) {
+    points_.clear();
+    return true;
+}
+
+void ArcTool::preview(const vec3& cursor, const SketchPlane& plane,
+                      std::vector<vec3>& out, bool& closed) const {
+    out.clear();
+    closed = false;
+    if (points_.empty()) return;
+    if (points_.size() == 1) {
+        out = {points_[0], cursor};  // 아직 직선 - 두 번째 점을 기다린다
+        return;
+    }
+    LotGameObject::Curve c;
+    if (ArcTool::solve(points_[0], points_[1], cursor, plane, c)) {
+        out = tessellateArc(c.center, c.radius, c.right, c.up, c.start, c.end);
+    } else {
+        out = {points_[0], points_[1], cursor};
+    }
+}
+
+// ---------------------------------------------------------------- PolygonTool
+
+std::vector<vec3> PolygonTool::vertices(const vec3& center, const vec3& vertex,
+                                        const SketchPlane& plane, int sides) {
+    const vec3 d = vertex - center;
+    const float x = dot(d, plane.right), y = dot(d, plane.up);
+    const float r = std::sqrt(x * x + y * y);
+    const float t0 = std::atan2(y, x);  // 찍은 꼭짓점이 첫 꼭짓점
+    std::vector<vec3> pts;
+    pts.reserve(static_cast<size_t>(sides));
+    for (int i = 0; i < sides; ++i) {
+        const float t = t0 + kTwoPi * static_cast<float>(i) / static_cast<float>(sides);
+        pts.push_back(center + plane.right * (r * std::cos(t)) + plane.up * (r * std::sin(t)));
+    }
+    return pts;
+}
+
+void PolygonTool::onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) {
+    if (points_.empty()) {
+        points_.push_back(p);
+        return;
+    }
+    const vec3 d = p - points_.front();
+    if (dot(d, d) < 1e-10f) return;
+    commit(vertices(points_.front(), p, plane, sides), true, kPolygonColor, objects);
+    points_.clear();
+}
+
+bool PolygonTool::onFinish(LotGameObject::Map&) {
+    points_.clear();
+    return true;
+}
+
+void PolygonTool::preview(const vec3& cursor, const SketchPlane& plane,
+                          std::vector<vec3>& out, bool& closed) const {
+    out.clear();
+    closed = true;
+    if (points_.empty()) return;
+    const vec3 d = cursor - points_.front();
+    if (dot(d, d) < 1e-10f) return;
+    out = vertices(points_.front(), cursor, plane, sides);
+}
+
 // ---------------------------------------------------------------- SketchController
 
 SketchController::SketchController()
     : line_(std::make_unique<LineTool>()),
       rectangle_(std::make_unique<RectangleTool>()),
-      polyline_(std::make_unique<PolylineTool>()) {}
+      polyline_(std::make_unique<PolylineTool>()),
+      circle_(std::make_unique<CircleTool>()),
+      arc_(std::make_unique<ArcTool>()),
+      polygon_(std::make_unique<PolygonTool>()) {}
+
+void SketchController::changePolygonSides(int delta) {
+    int n = polygon_->sides + delta;
+    if (n < 3) n = 3;
+    if (n > 32) n = 32;
+    polygon_->sides = n;
+    LOT_LOG("sketch: polygon sides = " << n);
+}
+
+int SketchController::polygonSides() const { return polygon_->sides; }
 
 void SketchController::start(Kind kind, const LotCamera& camera) {
     cancel();
@@ -199,6 +409,9 @@ void SketchController::start(Kind kind, const LotCamera& camera) {
     case Kind::Line:      active_ = line_.get(); break;
     case Kind::Rectangle: active_ = rectangle_.get(); break;
     case Kind::Polyline:  active_ = polyline_.get(); break;
+    case Kind::Circle:    active_ = circle_.get(); break;
+    case Kind::Arc:       active_ = arc_.get(); break;
+    case Kind::Polygon:   active_ = polygon_.get(); break;
     }
     plane_ = SketchPlane::fromCamera(camera);
     active_->begin();
@@ -279,6 +492,9 @@ int SketchController::activeKind() const {
     if (active_ == line_.get()) return static_cast<int>(Kind::Line);
     if (active_ == rectangle_.get()) return static_cast<int>(Kind::Rectangle);
     if (active_ == polyline_.get()) return static_cast<int>(Kind::Polyline);
+    if (active_ == circle_.get()) return static_cast<int>(Kind::Circle);
+    if (active_ == arc_.get()) return static_cast<int>(Kind::Arc);
+    if (active_ == polygon_.get()) return static_cast<int>(Kind::Polygon);
     return -1;
 }
 
@@ -293,6 +509,14 @@ std::string SketchController::hint() const {
                                   : "click first point";
     } else if (active_ == rectangle_.get()) {
         s += active_->hasPoints() ? "click opposite corner" : "click first corner";
+    } else if (active_ == circle_.get()) {
+        s += active_->hasPoints() ? "click a point on the circle (radius)" : "click center";
+    } else if (active_ == arc_.get()) {
+        const size_t n = active_->points().size();
+        s += n == 0 ? "click start point" : (n == 1 ? "click a point on the arc" : "click end point");
+    } else if (active_ == polygon_.get()) {
+        s += std::to_string(polygon_->sides) + " sides ([ / ] to change): ";
+        s += active_->hasPoints() ? "click a vertex (radius)" : "click center";
     } else {
         const size_t n = active_->points().size();
         if (n == 0) s += "click first point";

@@ -471,6 +471,10 @@ void renderLoop() {
         if (g_cameraController.consumeZoomExtents()) {
             zoomExtents();
         }
+        if (const int d = g_cameraController.consumePolygonSidesDelta(); d != 0) {
+            g_sketch.changePolygonSides(d);
+        }
+        g_cameraController.setCadMode(g_camera.isCadMode());
 
         // 실행 취소 / 다시 실행. 스케치 중이면 도구부터 닫는다 - 반쯤 그린 것과 섞이지 않게.
         if (g_cameraController.consumeUndo()) {

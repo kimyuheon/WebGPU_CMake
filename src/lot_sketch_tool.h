@@ -42,6 +42,12 @@ struct SketchPlane {
     bool intersect(const lot_pick::Ray& ray, vec3& out) const;
 };
 
+// 원/호를 점으로 쪼갠다. 점 = center + r (cos t right + sin t up), t 는 start 에서 end 까지
+// (end < start 면 시계 방향). 원은 start 0, end 2π 를 주고 closed 로 그린다.
+// 세그먼트 수는 각도에 비례하되 최소 8 - 작은 호가 각지지 않게.
+std::vector<vec3> tessellateArc(const vec3& center, float radius, const vec3& right,
+                                const vec3& up, float start, float end, bool includeEnd = true);
+
 // 도구 하나. 활성 동안 점을 받아 모으고, 조건이 차면 스케치 오브젝트를 만든다.
 class SketchTool {
 public:
@@ -77,8 +83,11 @@ public:
 
 protected:
     // 점 목록을 스케치 오브젝트로. 무게중심을 translation 으로, 점은 상대 좌표로.
+    // curve 를 주면 (원/호) 그 정의도 같이 - 기준점은 무게중심 대신 curve.center 로 잡고
+    // center 는 로컬 원점이 된다.
     LotGameObject::id_t commit(const std::vector<vec3>& worldPoints, bool closed,
-                               const vec3& color, LotGameObject::Map& objects);
+                               const vec3& color, LotGameObject::Map& objects,
+                               const LotGameObject::Curve* curve = nullptr);
 
     std::vector<vec3> points_;
     LotGameObject::id_t committedId_ = LotGameObject::kInvalidId;
@@ -123,10 +132,48 @@ public:
     float closeRadius = 0.0f;
 };
 
+// 원 (C). 중심, 반지름 점. 하나로 끝.
+class CircleTool : public SketchTool {
+public:
+    const char* name() const override { return "circle"; }
+    void onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) override;
+    bool onFinish(LotGameObject::Map& objects) override;
+    void preview(const vec3& cursor, const SketchPlane& plane,
+                 std::vector<vec3>& outPoints, bool& outClosed) const override;
+};
+
+// 호 (A). 세 점 - 시작, 호 위의 한 점, 끝 (AutoCAD 의 3P). 하나로 끝.
+class ArcTool : public SketchTool {
+public:
+    const char* name() const override { return "arc"; }
+    void onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) override;
+    bool onFinish(LotGameObject::Map& objects) override;
+    void preview(const vec3& cursor, const SketchPlane& plane,
+                 std::vector<vec3>& outPoints, bool& outClosed) const override;
+
+    // 세 점을 지나는 호의 정의. 세 점이 한 직선이면 false.
+    static bool solve(const vec3& a, const vec3& b, const vec3& c, const SketchPlane& plane,
+                      LotGameObject::Curve& out);
+};
+
+// 정다각형 (G). 중심, 꼭짓점 하나 (내접 - 꼭짓점이 원 위). [ / ] 로 변 수. 하나로 끝.
+class PolygonTool : public SketchTool {
+public:
+    const char* name() const override { return "polygon"; }
+    void onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) override;
+    bool onFinish(LotGameObject::Map& objects) override;
+    void preview(const vec3& cursor, const SketchPlane& plane,
+                 std::vector<vec3>& outPoints, bool& outClosed) const override;
+
+    static std::vector<vec3> vertices(const vec3& center, const vec3& vertex,
+                                      const SketchPlane& plane, int sides);
+    int sides = 6;
+};
+
 // 도구 레지스트리 + 입력. 렌더 루프가 프레임마다 update 를 부른다.
 class SketchController {
 public:
-    enum class Kind { Line, Rectangle, Polyline };
+    enum class Kind { Line, Rectangle, Polyline, Circle, Arc, Polygon };
 
     struct Context {
         const LotCamera& camera;
@@ -170,6 +217,10 @@ public:
     // 픽셀 -> 월드 환산에 쓰는 커서 반경 (폴리라인 닫기 판정)
     float closeRadiusPx = 10.0f;
 
+    // 다각형 변 수 (3 ~ 32). 도구가 열려 있든 아니든 바꿀 수 있다.
+    void changePolygonSides(int delta);
+    int polygonSides() const;
+
 private:
     // 커서의 월드 점: 스냅이 있으면 스냅 점, 없으면 평면 교점. 평행이면 false.
     bool cursorPoint(const Context& ctx, vec3& out) const;
@@ -177,6 +228,9 @@ private:
     std::unique_ptr<LineTool> line_;
     std::unique_ptr<RectangleTool> rectangle_;
     std::unique_ptr<PolylineTool> polyline_;
+    std::unique_ptr<CircleTool> circle_;
+    std::unique_ptr<ArcTool> arc_;
+    std::unique_ptr<PolygonTool> polygon_;
     SketchTool* active_ = nullptr;
     SketchPlane plane_;
     LotGameObject::id_t lastCommitted_ = LotGameObject::kInvalidId;

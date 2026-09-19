@@ -25,6 +25,8 @@ struct LoadStats {
     int meshes = 0;
     int lines = 0;
     int polylines = 0;
+    int circles = 0;
+    int arcs = 0;
     int skipped = 0;          // 지원하지 않는 종류
     std::string skippedKinds; // 로그용: "circle, text" 처럼
     std::string error;        // 비어 있지 않으면 실패

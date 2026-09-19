@@ -85,6 +85,11 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
         for (size_t i = 0; i < segments; ++i) {
             consider(q, Kind::Midpoint, (pts[i] + pts[(i + 1) % n]) * 0.5f, entry.first, best);
         }
+        if (obj.hasCurve()) {
+            // 원/호의 중심. 쪼갠 점들의 중점이 아니라 정의된 중심이다.
+            consider(q, Kind::Center, transformPoint(obj.transform.mat4Transform(), obj.curve.center),
+                     entry.first, best);
+        }
     }
     if (best.valid()) return best;
 
@@ -113,7 +118,17 @@ void addMarker(LineRenderSystem& lines, const Snap& snap, const LotCamera& camer
     const vec3 u = camera.getDown() * -s;  // 화면 위쪽
     const vec3& p = snap.point;
 
-    if (snap.kind == Kind::Endpoint) {
+    if (snap.kind == Kind::Center) {
+        // 원 (8각형으로)
+        const vec3 color{1.0f, 0.6f, 0.3f};
+        vec3 prev = p + r;
+        for (int i = 1; i <= 8; ++i) {
+            const float t = 6.2831853f * static_cast<float>(i) / 8.0f;
+            const vec3 cur = p + r * std::cos(t) + u * std::sin(t);
+            lines.addLine(prev, cur, color);
+            prev = cur;
+        }
+    } else if (snap.kind == Kind::Endpoint) {
         const vec3 color{1.0f, 0.9f, 0.2f};
         const vec3 c0 = p - r - u, c1 = p + r - u, c2 = p + r + u, c3 = p - r + u;
         lines.addLine(c0, c1, color);

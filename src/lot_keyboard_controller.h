@@ -32,7 +32,7 @@ public:
     // 외곽선 토글 (O). 누른 순간만.
     bool consumeOutlineToggle();
 
-    // 선택 복제 (C) / 삭제 (Delete, Backspace). 누른 순간만.
+    // 선택 복제 (Ctrl+D) / 삭제 (Delete, Backspace). 누른 순간만.
     bool consumeDuplicate();
     bool consumeDelete();
 
@@ -47,9 +47,15 @@ public:
     // 없으면 -1. 값은 LotCamera::CadViewType 순서.
     int consumeViewPreset();
 
-    // 스케치 도구 (L 선, B 사각형, N 폴리라인). 눌린 순간의 도구, 없으면 -1.
-    // 값은 SketchController::Kind 순서 (0 선, 1 사각형, 2 폴리라인).
+    // 스케치 도구 (L 선, B 사각형, N 폴리라인, C 원, A 호, G 다각형). 눌린 순간의 도구,
+    // 없으면 -1. 값은 SketchController::Kind 순서.
     int consumeSketchTool();
+
+    // 다각형 변 수 ([ -1, ] +1). 눌린 순간의 증감, 없으면 0.
+    int consumePolygonSidesDelta();
+
+    // CAD 궤도 모드인가. A 키가 CAD 에서는 호, FPS 에서는 좌이동이라 매 프레임 알려준다.
+    void setCadMode(bool cad) { cadMode_ = cad; }
 
     // Enter / Esc. 누른 순간만.
     bool consumeEnter();
@@ -70,6 +76,8 @@ public:
     float lookSpeed = 1.5f;
 
 private:
+    bool cadMode_ = true;
+
     // 시선 각 (라디안). 뷰어 오브젝트의 쿼터니언은 이 둘로 매 프레임 만든다.
     float pitch_ = 0.0f;  // x 축 둘레 (위/아래)
     float yaw_ = 0.0f;    // y 축 둘레 (좌/우)
@@ -103,6 +111,11 @@ private:
         SketchLine,
         SketchRectangle,
         SketchPolyline,
+        SketchCircle,
+        SketchArc,
+        SketchPolygon,
+        PolygonSidesDown,
+        PolygonSidesUp,
         Enter,
         Escape,
         Undo,
@@ -113,7 +126,7 @@ private:
 
     // code 문자열을 위 enum 으로. 모르는 키면 KeyCount 를 돌려준다
     // (그 경우 이벤트를 소비하지 않고 브라우저에 넘긴다).
-    static KeyId lookupKey(const char* code);
+    KeyId lookupKey(const char* code) const;
 
     bool pressed_[KeyCount] = {};
     bool justPressed_[KeyCount] = {};  // 떼었다 누른 순간만 true (키 반복은 무시)

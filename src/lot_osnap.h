@@ -26,6 +26,7 @@ enum class Kind {
     None,
     Endpoint,  // 꼭짓점 - 마커는 사각형
     Midpoint,  // 모서리 중점 - 마커는 삼각형
+    Center,    // 원/호의 중심 - 마커는 원 (CAD 관례)
 };
 
 struct Snap {

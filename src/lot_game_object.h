@@ -73,7 +73,24 @@ public:
     std::vector<vec3> points;
     bool closed = false;
 
+    // 원/호의 CAD 정의. 점 목록은 이걸 잘게 쪼갠 '표시용' 사본이고, 저장할 때는
+    // 이 파라미터를 쓴다 - 그래야 닫았다 열어도 원은 원이다 (Vulkan 쪽 CircleData/ArcData).
+    // 점 = center + radius * (cos(t) * right + sin(t) * up), t 는 start..end (호) 또는 한 바퀴 (원).
+    // 좌표는 points 와 같이 로컬이다.
+    struct Curve {
+        enum class Kind { None, Circle, Arc };
+        Kind kind = Kind::None;
+        vec3 center{0.0f, 0.0f, 0.0f};
+        float radius = 1.0f;
+        vec3 right{1.0f, 0.0f, 0.0f};
+        vec3 up{0.0f, -1.0f, 0.0f};
+        float start = 0.0f;  // 라디안
+        float end = 0.0f;
+    };
+    Curve curve;
+
     bool isSketch() const { return !points.empty(); }
+    bool hasCurve() const { return curve.kind != Curve::Kind::None; }
 
     // 점들을 월드 좌표로.
     std::vector<vec3> worldPoints() const {

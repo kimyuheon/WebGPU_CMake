@@ -34,7 +34,10 @@ bool onKeyUp(int, const EmscriptenKeyboardEvent* e, void* userData) {
 
 }  // namespace
 
-KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const char* code) {
+KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const char* code) const {
+    // A 는 모드에 따라 다르다: CAD 궤도에서는 WASD 가 놀고 있으니 호(Arc), FPS 에서는 좌이동.
+    if (std::strcmp(code, "KeyA") == 0) return cadMode_ ? SketchArc : MoveLeft;
+
     struct Entry {
         const char* code;
         KeyId id;
@@ -48,13 +51,14 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"KeyP", ToggleProjection},
         {"Equal", ZoomIn},      {"Minus", ZoomOut},
         {"KeyO", ToggleOutline},
-        {"KeyC", Duplicate},
         // G/R/S 는 WASD 의 S 와 겹친다 (S = 후진). 숫자 키로 - 충돌이 없다.
         {"Digit1", GizmoTranslate}, {"Digit2", GizmoRotate}, {"Digit3", GizmoScale},
         {"Delete", DeleteSelection}, {"Backspace", DeleteSelection},
         {"KeyV", ToggleViewMode},
         {"KeyF", ViewFront}, {"KeyT", ViewTop}, {"KeyR", ViewRight}, {"KeyI", ViewIsometric},
         {"KeyL", SketchLine}, {"KeyB", SketchRectangle}, {"KeyN", SketchPolyline},
+        {"KeyC", SketchCircle}, {"KeyG", SketchPolygon},
+        {"BracketLeft", PolygonSidesDown}, {"BracketRight", PolygonSidesUp},
         {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
         {"KeyZ", ZoomExtents},
     };
@@ -75,6 +79,7 @@ bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, b
         // 브라우저에 넘긴다. Ctrl+Z 는 잡지 않으면 브라우저가 폼 입력을 되돌리려 든다.
         if (std::strcmp(code, "KeyZ") == 0) id = shift ? Redo : Undo;
         else if (std::strcmp(code, "KeyY") == 0) id = Redo;
+        else if (std::strcmp(code, "KeyD") == 0) id = Duplicate;  // C 는 원(circle)에 내줬다
         else return false;
     } else {
         id = lookupKey(code);
@@ -122,9 +127,17 @@ int KeyboardMovementController::consumeGizmoMode() {
     return -1;
 }
 
+int KeyboardMovementController::consumePolygonSidesDelta() {
+    int delta = 0;
+    if (justPressed_[PolygonSidesDown]) { justPressed_[PolygonSidesDown] = false; delta -= 1; }
+    if (justPressed_[PolygonSidesUp])   { justPressed_[PolygonSidesUp] = false;   delta += 1; }
+    return delta;
+}
+
 int KeyboardMovementController::consumeSketchTool() {
-    const KeyId keys[3] = {SketchLine, SketchRectangle, SketchPolyline};
-    for (int i = 0; i < 3; ++i) {
+    const KeyId keys[6] = {SketchLine, SketchRectangle, SketchPolyline,
+                           SketchCircle, SketchArc, SketchPolygon};
+    for (int i = 0; i < 6; ++i) {
         if (justPressed_[keys[i]]) {
             justPressed_[keys[i]] = false;
             return i;
@@ -197,9 +210,9 @@ void KeyboardMovementController::init() {
     emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, false, onKeyUp);
     LOT_LOG("KeyboardMovementController: V view mode (CAD orbit / FPS), "
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
-            "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
-            "1/2/3 gizmo move/rotate/scale, L/B/N sketch line/rectangle/polyline, "
-            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
+            "P projection, -/= ortho zoom, O outline, Ctrl+D duplicate, Del delete, "
+            "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G sketch line/rect/polyline/circle/arc/polygon, "
+            "[ ] polygon sides, Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

@@ -35,6 +35,7 @@ public:
         std::shared_ptr<LotMaterial> material;
         std::vector<vec3> points;
         bool closed = false;
+        LotGameObject::Curve curve;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;
