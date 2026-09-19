@@ -45,7 +45,8 @@ add_link_options(${EMDAWNWEBGPU_PORT})
 # Emscripten 링커 플래그
 add_link_options(
     -sALLOW_MEMORY_GROWTH=1
-    --js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js"
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_toolbar.js"
 )
 
 if(LOT_DIST)
@@ -71,7 +72,7 @@ add_executable(WebGPUApp ${SOURCE_FILES})
 
 # JS 라이브러리가 바뀌면 다시 링크되도록 의존성을 걸어둔다.
 set_target_properties(WebGPUApp PROPERTIES
-    LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js
+    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_toolbar.js"
 )
 
 # 셰이더를 빌드 폴더로 복사

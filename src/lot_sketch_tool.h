@@ -7,6 +7,7 @@
 #include "lot_picking.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 class LineRenderSystem;
@@ -146,7 +147,12 @@ public:
     // 활성 도구가 있나. 게이트는 이것 하나다 (클릭, C/Del, 스냅 제외 등).
     bool anyActive() const { return active_ != nullptr; }
     const char* activeName() const { return active_ ? active_->name() : ""; }
+    // 열린 도구의 Kind 번호, 없으면 -1 (툴바 표시용)
+    int activeKind() const;
     const SketchPlane& plane() const { return plane_; }
+
+    // 사용자에게 보일 다음 할 일. 도구가 없으면 빈 문자열.
+    std::string hint() const;
 
     // 프레임당 한 번. 활성이면 왼쪽 클릭을 소비한다 (EditController 에 가지 않는다).
     void update(const Context& ctx);

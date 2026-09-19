@@ -42,6 +42,7 @@ public:
             next = normalize(qYaw * orbitRotation_);  // pitch 는 버리고 yaw 만
         }
         orbitRotation_ = next;
+        presetView_ = false;  // 돌리는 순간 더 이상 표준 뷰가 아니다
         updateCadView();
     }
 
@@ -83,9 +84,12 @@ public:
         case CadViewType::Isometric:
             // 앞-왼쪽-위에서 내려다본다. 세 축이 같은 각으로 보이는 등각.
             setViewFromDirection(normalize(vec3{-1.0f, -1.0f, -1.0f}));
+            currentViewType_ = type;
+            presetView_ = true;
             return;
         }
         currentViewType_ = type;
+        presetView_ = true;
         updateCadView();
     }
 
@@ -105,6 +109,7 @@ public:
         r.m[2][0] = f.x;     r.m[2][1] = f.y;     r.m[2][2] = f.z;
         orbitRotation_ = normalize(quat::fromMatrix(r));
         currentViewType_ = CadViewType::Isometric;
+        presetView_ = false;  // 임의 방향 - 등각 버튼을 켜지 않는다
         updateCadView();
     }
 
@@ -112,6 +117,10 @@ public:
     const vec3& getTarget() const { return target_; }
     float getOrbitDistance() const { return orbitDistance_; }
     CadViewType getCurrentViewType() const { return currentViewType_; }
+    // 표준 뷰(F/T/R/I)를 누른 뒤 아직 돌리지 않았으면 그 뷰 번호, 아니면 -1. 툴바 표시용.
+    int presetViewIndex() const {
+        return (isCadMode() && presetView_) ? static_cast<int>(currentViewType_) : -1;
+    }
 
     // 궤도 상태로 뷰 행렬을 다시 만든다. 상태를 바꾸는 함수들이 알아서 부른다.
     void updateCadView() {
@@ -244,4 +253,5 @@ private:
     vec3 target_{0.0f, 0.0f, 0.0f};
     float orbitDistance_ = kDefaultOrbitDistance;
     CadViewType currentViewType_ = CadViewType::Front;
+    bool presetView_ = false;
 };

@@ -31,6 +31,10 @@
 extern "C" {
     // 파일 선택창은 사용자 제스처로만 열 수 있어서 JS 쪽에 버튼을 만든다.
     extern void js_setupObjFileInput();
+    // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
+    extern void js_setupToolbar();
+    extern void js_setToolbarState(int gizmoMode, int sketchTool, int view, int fps, int ortho,
+                                   int outline, int canUndo, int canRedo, const char* hint);
 }
 
 // 전역 객체들
@@ -172,6 +176,55 @@ void placeObjModel() {
 
 // 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
 //
+// 툴바 버튼. 키보드 이벤트와 같은 경로를 타게 눌렀다 뗀 것으로 넣는다 -
+// 버튼과 단축키가 어긋날 수 없다. code 는 JS 가 잡은 버퍼라 JS 가 해제한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onToolbarKey(const char* code, int ctrl) {
+    if (code == nullptr) return;
+    g_cameraController.handleBrowserKey(code, true, ctrl != 0);
+    g_cameraController.handleBrowserKey(code, false, ctrl != 0);
+}
+
+// 툴바에 밀어 넣는 상태. 프레임마다 만들어 이전 것과 다를 때만 JS 를 부른다
+// (DOM 갱신은 비싸고, 대부분 프레임에는 아무것도 안 바뀐다).
+struct ToolbarState {
+    int gizmoMode = -1;
+    int sketchTool = -1;
+    int view = -1;
+    int fps = 0;
+    int ortho = 0;
+    int outline = 0;
+    int canUndo = 0;
+    int canRedo = 0;
+    std::string hint;
+
+    bool operator==(const ToolbarState& o) const {
+        return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && view == o.view
+            && fps == o.fps && ortho == o.ortho && outline == o.outline
+            && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
+    }
+};
+static ToolbarState g_toolbarState;
+static bool g_toolbarPushed = false;
+
+static void pushToolbarState() {
+    ToolbarState s;
+    s.gizmoMode = static_cast<int>(g_gizmoSystem->mode);
+    s.sketchTool = g_sketch.activeKind();
+    s.view = g_camera.presetViewIndex();
+    s.fps = g_camera.isCadMode() ? 0 : 1;
+    s.ortho = g_orthographic ? 1 : 0;
+    s.outline = (g_postSystem->mode == PostProcessSystem::Mode::Outline) ? 1 : 0;
+    s.canUndo = g_edit.history().canUndo() ? 1 : 0;
+    s.canRedo = g_edit.history().canRedo() ? 1 : 0;
+    s.hint = g_sketch.hint();
+    if (g_toolbarPushed && s == g_toolbarState) return;
+    g_toolbarState = s;
+    g_toolbarPushed = true;
+    js_setToolbarState(s.gizmoMode, s.sketchTool, s.view, s.fps, s.ortho, s.outline,
+                       s.canUndo, s.canRedo, s.hint.c_str());
+}
+
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼다. 해제는 여기 책임이다.
 // 길이를 같이 받는 이유는 널 종료가 아니기 때문이다.
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -218,6 +271,8 @@ void renderLoop() {
 
         // 캔버스는 스왑체인이 만들므로 이제야 셀렉터로 찾을 수 있다
         g_mouse.init();
+        // 툴바도 상태바 높이를 DOM 에서 읽으므로 같은 시점에
+        js_setupToolbar();
     }
 
     // 1-1. OBJ 모델은 네트워크로 받아오므로 요청만 보내두고 넘어간다.
@@ -426,6 +481,9 @@ void renderLoop() {
                 if (g_orthoHalfHeight > kOrthoMaxHalfHeight) g_orthoHalfHeight = kOrthoMaxHalfHeight;
             }
         }
+
+        // 툴바 하이라이트 / 안내문 (바뀐 프레임에만 DOM 을 건드린다)
+        pushToolbarState();
 
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.

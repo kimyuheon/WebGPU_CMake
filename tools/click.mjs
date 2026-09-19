@@ -6,6 +6,8 @@
 //   node tools/click.mjs out.png  mdrag X1 Y1 X2 Y2    가운데 버튼 드래그 (팬)
 //   node tools/click.mjs out.png  wheel X Y N          휠 N 노치 (양수 = 위 = 줌 인)
 //   node tools/click.mjs out.png  ctrl KeyZ             Ctrl+키 (실행 취소)
+//   node tools/click.mjs out.png  btn Top               툴바 버튼 누르기 (글자로 찾는다)
+//   node tools/click.mjs out.png  hint                  안내문 출력
 //   node tools/click.mjs out.png  wait                 그냥 캡처
 //
 // 좌표는 페이지 기준 픽셀이다 (캔버스가 상태바 아래에서 시작하므로
@@ -146,6 +148,18 @@ while (i < args.length) {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: code, modifiers: 2 });
     await sleep(300);
     console.log(`ctrl+${code}`);
+  } else if (cmd === 'btn') {
+    // 툴바 버튼을 글자로 찾아 누른다 (좌표를 몰라도 된다)
+    const label = args[i++];
+    const expr = `(() => { const b = [...document.querySelectorAll('#lot-toolbar button')]`
+      + `.find(x => x.textContent === ${JSON.stringify(label)}); if (b) b.click(); return !!b; })()`;
+    const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
+    await sleep(300);
+    console.log(`btn ${label} -> ${r?.result?.value}`);
+  } else if (cmd === 'hint') {
+    const r = await send('Runtime.evaluate', {
+      expression: `document.getElementById('lot-hint')?.textContent`, returnByValue: true });
+    console.log(`hint: ${r?.result?.value}`);
   } else if (cmd === 'hold') {
     // 키를 ms 동안 누르고 있기 (이동/줌)
     const code = args[i++];

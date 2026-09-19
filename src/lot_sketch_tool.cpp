@@ -275,6 +275,34 @@ void SketchController::drawPreview(PolylineRenderSystem& polylines, LineRenderSy
     if (pts.size() >= 2) polylines.addPolyline(pts, kPreviewColor, closed);
 }
 
+int SketchController::activeKind() const {
+    if (active_ == line_.get()) return static_cast<int>(Kind::Line);
+    if (active_ == rectangle_.get()) return static_cast<int>(Kind::Rectangle);
+    if (active_ == polyline_.get()) return static_cast<int>(Kind::Polyline);
+    return -1;
+}
+
+std::string SketchController::hint() const {
+    if (!active_) return "";
+    std::string s = active_->name();
+    s += " on ";
+    s += plane_.name;
+    s += ": ";
+    if (active_ == line_.get()) {
+        s += active_->hasPoints() ? "click next point (Enter/Esc to stop)"
+                                  : "click first point";
+    } else if (active_ == rectangle_.get()) {
+        s += active_->hasPoints() ? "click opposite corner" : "click first corner";
+    } else {
+        const size_t n = active_->points().size();
+        if (n == 0) s += "click first point";
+        else if (n < 3) s += "click next point (Enter = open)";
+        else s += "click next point, first point = close, Enter = open";
+    }
+    s += "  [Esc cancel]";
+    return s;
+}
+
 LotGameObject::id_t SketchController::consumeCommittedId() {
     const auto id = lastCommitted_;
     lastCommitted_ = LotGameObject::kInvalidId;
