@@ -13,7 +13,8 @@
 
 mergeInto(LibraryManager.library, {
 
-    js_setupToolbar__deps: ['lot_onToolbarKey', '$stringToNewUTF8', 'free'],
+    js_setupToolbar__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
+                            '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
     js_setupToolbar: function() {
         if (!Module.lotDom) {
             Module.lotDom = {};
@@ -23,14 +24,83 @@ mergeInto(LibraryManager.library, {
         // 캔버스는 상태바 아래에서 시작한다. 상태바가 아직 없으면 (호출 순서가 바뀌면) 0.
         var statusBarHeight = dom.statusBar ? dom.statusBar.offsetHeight : 0;
 
-        // [그룹, 버튼들...]. 버튼 = [표시, 키 코드, ctrl 여부, 툴팁, 상태 키]
+        // .lot 파일 입력 (숨김). 파일 선택창은 사용자 제스처로만 열리므로 버튼이 click() 한다.
+        var lotInput = document.createElement('input');
+        lotInput.type = 'file';
+        lotInput.accept = '.lot,.json';
+        lotInput.style.display = 'none';
+        // 씬 텍스트 <-> C++. 파일 대화상자와 분리해 두면 테스트 도구(tools/click.mjs)가
+        // Module.lotDom.sceneSave() / sceneLoad(text) 로 대화상자 없이 부를 수 있다.
+        dom.sceneSave = function() {
+            var ptr = _lot_saveScene();  // C++ 이 malloc 으로 잡아 준 JSON, 여기서 free
+            if (!ptr) return '';
+            var text = UTF8ToString(ptr);
+            _free(ptr);
+            return text;
+        };
+        dom.sceneLoad = function(text) {
+            var bytes = new TextEncoder().encode(text);
+            var ptr = _malloc(bytes.length);
+            if (!ptr) { console.error('scene: out of memory (' + bytes.length + ' bytes)'); return false; }
+            HEAPU8.set(bytes, ptr);
+            _lot_onLotFileLoaded(ptr, bytes.length);  // 해제는 C++ 쪽
+            return true;
+        };
+
+        // Closure 가 속성 이름을 줄이므로, 바깥(테스트 도구, 콘솔)에서 부를 이름은
+        // 따옴표로 박아 둔다. 안에서는 dom.sceneSave 로 써도 같은 함수다.
+        Module['lotDom'] = dom;
+        dom['sceneSave'] = dom.sceneSave;
+        dom['sceneLoad'] = dom.sceneLoad;
+
+        lotInput.addEventListener('change', function() {
+            var file = lotInput.files && lotInput.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function() { dom.sceneLoad(reader.result); };
+            reader.onerror = function() { console.error('scene: could not read ' + file.name); };
+            reader.readAsText(file);
+            lotInput.value = '';
+        });
+        document.body.appendChild(lotInput);
+        dom.lotInput = lotInput;
+
+        // 버튼 동작 중 키가 아닌 것들. '@이름' 코드로 가리킨다.
+        var actions = {
+            openObj: function() { if (dom.objInput) dom.objInput.click(); },
+            openLot: function() { lotInput.click(); },
+            saveLot: function() {
+                var text = dom.sceneSave();
+                if (!text) return;
+                var blob = new Blob([text], { type: 'application/json' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'scene.lot';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+            },
+        };
+
+        // 기존의 떠 있는 OBJ 버튼은 툴바로 들어왔으니 숨긴다
+        if (dom.objButton) dom.objButton.style.display = 'none';
+
+        // [그룹, 버튼들...]. 버튼 = [표시, 키 코드 또는 '@동작', ctrl 여부, 툴팁, 상태 키]
         // 상태 키는 js_setToolbarState 가 '켜짐' 표시를 할 때 대조하는 이름이다.
         var groups = [
+            ['file', [
+                ['Open .lot', '@openLot', 0, 'Open a .lot scene (replaces the scene)', ''],
+                ['Save .lot', '@saveLot', 0, 'Download the scene as scene.lot', ''],
+                ['Open OBJ',  '@openObj', 0, 'Add a Wavefront OBJ model', ''],
+            ]],
             ['view', [
                 ['Front', 'KeyF', 0, 'Front view (F)', 'view:0'],
                 ['Top',   'KeyT', 0, 'Top view (T)', 'view:2'],
                 ['Right', 'KeyR', 0, 'Right view (R)', 'view:4'],
                 ['Iso',   'KeyI', 0, 'Isometric view (I)', 'view:6'],
+                ['Fit',   'KeyZ', 0, 'Zoom extents - fit the whole scene (Z)', ''],
                 ['Ortho', 'KeyP', 0, 'Perspective / orthographic (P)', 'ortho'],
                 ['FPS',   'KeyV', 0, 'CAD orbit / first-person (V)', 'fps'],
             ]],
@@ -115,6 +185,11 @@ mergeInto(LibraryManager.library, {
                 // Enter/Space 가 버튼을 다시 누르지 않고 캔버스 단축키로 간다.
                 b.addEventListener('mousedown', function(e) { e.preventDefault(); });
                 b.addEventListener('click', function() {
+                    if (spec[1].charAt(0) === '@') {
+                        var fn = actions[spec[1].substring(1)];
+                        if (fn) fn();
+                        return;
+                    }
                     var ptr = stringToNewUTF8(spec[1]);
                     _lot_onToolbarKey(ptr, spec[2]);
                     _free(ptr);
@@ -159,7 +234,7 @@ mergeInto(LibraryManager.library, {
     js_setToolbarState: function(gizmoMode, sketchTool, view, fps, ortho, outline,
                                  canUndo, canRedo, hintPtr) {
         var dom = Module.lotDom;
-        if (!dom || !dom.toolbarButtons) return;
+        if (!dom || !dom.toolbarButtons) return 0;  // 아직 툴바가 없다 - C++ 이 다음 프레임에 다시 보낸다
         var buttons = dom.toolbarButtons;
         var style = dom.toolbarStyle;
 
@@ -182,6 +257,7 @@ mergeInto(LibraryManager.library, {
         var text = UTF8ToString(hintPtr);
         dom.hint.textContent = text;
         dom.hint.style.display = text ? 'block' : 'none';
+        return 1;
     },
 
 });

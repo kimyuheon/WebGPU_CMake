@@ -56,6 +56,7 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"KeyF", ViewFront}, {"KeyT", ViewTop}, {"KeyR", ViewRight}, {"KeyI", ViewIsometric},
         {"KeyL", SketchLine}, {"KeyB", SketchRectangle}, {"KeyN", SketchPolyline},
         {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
+        {"KeyZ", ZoomExtents},
     };
 
     for (const auto& entry : kTable) {
@@ -144,6 +145,12 @@ bool KeyboardMovementController::consumeEscape() {
     return was;
 }
 
+bool KeyboardMovementController::consumeZoomExtents() {
+    const bool was = justPressed_[ZoomExtents];
+    justPressed_[ZoomExtents] = false;
+    return was;
+}
+
 bool KeyboardMovementController::consumeUndo() {
     const bool was = justPressed_[Undo];
     justPressed_[Undo] = false;
@@ -192,7 +199,7 @@ void KeyboardMovementController::init() {
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, C duplicate, Del delete, "
             "1/2/3 gizmo move/rotate/scale, L/B/N sketch line/rectangle/polyline, "
-            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo");
+            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

@@ -56,9 +56,22 @@ public:
     void zoomToTarget(float notches) {
         orbitDistance_ *= zoomFactor(notches);
         if (orbitDistance_ < kMinOrbitDistance) orbitDistance_ = kMinOrbitDistance;
-        if (orbitDistance_ > kMaxOrbitDistance) orbitDistance_ = kMaxOrbitDistance;
+        if (orbitDistance_ > maxOrbitDistance_) orbitDistance_ = maxOrbitDistance_;
         updateCadView();
     }
+
+    // 구(중심, 반지름)가 화면에 꽉 차게 타깃과 거리를 잡는다 (Zoom Extents).
+    // 거리 = r / sin(fov/2) 에 여유 15%. 줌 아웃 한계도 씬 크기에 맞춰 늘린다 -
+    // mm 단위 도면처럼 수천 단위 씬은 고정 한계(60)로는 못 담는다.
+    void frame(const vec3& center, float radius, float fovY) {
+        if (radius < 1e-4f) radius = 1e-4f;
+        target_ = center;
+        const float dist = radius / std::sin(fovY * 0.5f) * 1.15f;
+        maxOrbitDistance_ = std::fmax(kMaxOrbitDistance, dist * 4.0f);
+        orbitDistance_ = std::fmax(kMinOrbitDistance, dist);
+        updateCadView();
+    }
+    float getMaxOrbitDistance() const { return maxOrbitDistance_; }
 
     // 픽셀 단위 팬. 타깃 깊이에서 화면 1 픽셀이 월드 몇 단위인지로 환산하므로
     // 드래그한 만큼 정확히 장면이 따라온다 (원근/직교 모두).
@@ -252,6 +265,7 @@ private:
     quat orbitRotation_{};
     vec3 target_{0.0f, 0.0f, 0.0f};
     float orbitDistance_ = kDefaultOrbitDistance;
+    float maxOrbitDistance_ = kMaxOrbitDistance;  // frame() 이 씬 크기에 맞춰 늘린다
     CadViewType currentViewType_ = CadViewType::Front;
     bool presetView_ = false;
 };

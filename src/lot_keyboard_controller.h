@@ -59,6 +59,9 @@ public:
     bool consumeUndo();
     bool consumeRedo();
 
+    // 전체 보기 (Z, Ctrl 없이). 누른 순간만.
+    bool consumeZoomExtents();
+
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
     // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXZ 가 같은 키를 시선으로 쓴다.
     void orbitInput(float& yaw, float& pitch) const;
@@ -104,6 +107,7 @@ private:
         Escape,
         Undo,
         Redo,
+        ZoomExtents,
         KeyCount,
     };
 

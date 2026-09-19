@@ -26,7 +26,8 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
         indexBuffer_->createBuffer(device, builder.indices.data());
     }
 
-    // CPU 사본 - 피킹/스냅용. 위치만.
+    // CPU 사본. 정점 전체는 씬 저장용, 위치 배열은 피킹/스냅이 빠르게 돌게 따로.
+    vertices_ = builder.vertices;
     positions_.reserve(builder.vertices.size());
     for (const auto& v : builder.vertices) {
         positions_.push_back(vec3{v.position[0], v.position[1], v.position[2]});

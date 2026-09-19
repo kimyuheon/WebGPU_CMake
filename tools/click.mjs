@@ -8,11 +8,13 @@
 //   node tools/click.mjs out.png  ctrl KeyZ             Ctrl+키 (실행 취소)
 //   node tools/click.mjs out.png  btn Top               툴바 버튼 누르기 (글자로 찾는다)
 //   node tools/click.mjs out.png  hint                  안내문 출력
+//   node tools/click.mjs out.png  savelot a.lot         씬을 .lot 로 저장
+//   node tools/click.mjs out.png  loadlot a.lot         .lot 씬 열기
 //   node tools/click.mjs out.png  wait                 그냥 캡처
 //
 // 좌표는 페이지 기준 픽셀이다 (캔버스가 상태바 아래에서 시작하므로
 // 캔버스 좌표 + 상태바 높이). 여러 명령을 이어 쓸 수 있다.
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const out = process.argv[2];
 const args = process.argv.slice(3);
@@ -49,7 +51,7 @@ ws.addEventListener('message', ev => {
   const msg = JSON.parse(ev.data);
   if (msg.method === 'Runtime.consoleAPICalled') {
     const text = msg.params.args.map(a => a.value ?? '').join(' ');
-    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
+    if (/pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|MouseInput|RenderTarget|ERROR|error/.test(text)) logs.push(text);
   }
 });
 
@@ -160,6 +162,21 @@ while (i < args.length) {
     const r = await send('Runtime.evaluate', {
       expression: `document.getElementById('lot-hint')?.textContent`, returnByValue: true });
     console.log(`hint: ${r?.result?.value}`);
+  } else if (cmd === 'savelot') {
+    // C++ 의 lot_saveScene 을 불러 JSON 을 파일로 받는다 (다운로드 대화상자 없이)
+    const out = args[i++];
+    const r = await send('Runtime.evaluate', { returnByValue: true, expression:
+      `Module.lotDom.sceneSave()` });
+    writeFileSync(out, r?.result?.value ?? '');
+    console.log(`savelot -> ${out} (${(r?.result?.value ?? '').length} bytes)`);
+  } else if (cmd === 'loadlot') {
+    // 로컬 파일을 wasm 힙에 넣고 lot_onLotFileLoaded 를 부른다 (파일 선택창 없이)
+    const path = args[i++];
+    const text = readFileSync(path, 'utf8');
+    const r = await send('Runtime.evaluate', { returnByValue: true, expression:
+      `Module.lotDom.sceneLoad(${JSON.stringify(text)})` });
+    await sleep(500);
+    console.log(`loadlot ${path} (${r?.result?.value} bytes)`);
   } else if (cmd === 'hold') {
     // 키를 ms 동안 누르고 있기 (이동/줌)
     const code = args[i++];

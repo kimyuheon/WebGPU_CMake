@@ -49,6 +49,8 @@ public:
     // GPU 에 올린 것과 별개로 위치만 따로 들고 있다 - 메모리는 정점당 12 바이트.
     const std::vector<vec3>& getPositions() const { return positions_; }
     const std::vector<uint32_t>& getIndices() const { return indices_; }
+    // 정점 전체 (위치/색/노멀/UV). 씬 저장이 메시를 파일에 굽는 데 쓴다.
+    const std::vector<Vertex>& getVertices() const { return vertices_; }
 
     // 삼각형 개수. 인덱스가 없으면 정점 셋씩 이어진 것으로 본다.
     // (선분 모델에는 의미 없다 - 피킹은 게임 오브젝트의 메시에만 한다.)
@@ -90,6 +92,7 @@ private:
     vec3 boundsMin_{0.0f, 0.0f, 0.0f};
     vec3 boundsMax_{0.0f, 0.0f, 0.0f};
 
+    std::vector<Vertex> vertices_;
     std::vector<vec3> positions_;
     std::vector<uint32_t> indices_;
 };

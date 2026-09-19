@@ -8,6 +8,7 @@
 #include "lot_frame_info.h"
 #include "lot_render_target.h"
 #include "lot_edit_controller.h"
+#include "lot_scene_io.h"
 #include "lot_sketch_tool.h"
 #include "lot_mouse_input.h"
 #include "lot_global_uniform.h"
@@ -24,6 +25,7 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,8 +35,9 @@ extern "C" {
     extern void js_setupObjFileInput();
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
     extern void js_setupToolbar();
-    extern void js_setToolbarState(int gizmoMode, int sketchTool, int view, int fps, int ortho,
-                                   int outline, int canUndo, int canRedo, const char* hint);
+    // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
+    extern int js_setToolbarState(int gizmoMode, int sketchTool, int view, int fps, int ortho,
+                                  int outline, int canUndo, int canRedo, const char* hint);
 }
 
 // 전역 객체들
@@ -94,8 +97,11 @@ static bool g_gameObjectsCreated = false;
 
 // 카메라 설정
 static const float kFovY = 50.0f * 3.14159265f / 180.0f;
-static const float kNearZ = 0.1f;
-static const float kFarZ = 100.0f;  // 궤도 줌 아웃 한계(60)보다 멀어야 한다
+// 클립 평면은 씬 크기에 따라 움직인다 (zoomExtents 가 정한다). 기본값은 미터 단위
+// 장난감 씬용이고, mm 도면을 열면 수천 배로 늘어난다. near 를 같이 키워야 깊이
+// 정밀도가 남는다 (near 0.1 에 far 100000 이면 z-fighting 이 심하다).
+static float g_nearZ = 0.1f;
+static float g_farZ = 100.0f;
 static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // (FPS 모드) +Z 가 화면 안쪽이라 카메라는 -Z 쪽
 
 // CAD 궤도 조작 감도
@@ -107,8 +113,8 @@ static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 static bool g_orthographic = false;
 static float g_orthoHalfHeight = 1.6f;
 static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
-static const float kOrthoMinHalfHeight = 0.2f;
-static const float kOrthoMaxHalfHeight = 20.0f;
+static float g_orthoMinHalfHeight = 0.2f;
+static float g_orthoMaxHalfHeight = 20.0f;
 
 // 조명. 광원은 큐브들 위쪽 앞에 두고 천천히 돌린다.
 // 감쇠가 거리 제곱에 반비례하므로 세기는 거리의 제곱 규모로 잡아야 한다
@@ -185,6 +191,93 @@ void lot_onToolbarKey(const char* code, int ctrl) {
     g_cameraController.handleBrowserKey(code, false, ctrl != 0);
 }
 
+// 전체 보기 (Zoom Extents). 모든 오브젝트의 월드 경계를 구해 카메라를 맞춘다.
+// 클립 평면과 직교 줌 한계도 그 크기에 맞춘다 - 씬 단위가 m 든 mm 든 보이게.
+static void zoomExtents() {
+    vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
+    bool any = false;
+    auto grow = [&](const vec3& p) {
+        if (!any) { lo = hi = p; any = true; return; }
+        lo = vec3{std::fmin(lo.x, p.x), std::fmin(lo.y, p.y), std::fmin(lo.z, p.z)};
+        hi = vec3{std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
+    };
+    for (const auto& entry : g_gameObjects) {
+        const LotGameObject& obj = entry.second;
+        if (obj.isSketch()) {
+            for (const vec3& p : obj.worldPoints()) grow(p);
+        } else if (obj.model) {
+            // 경계 상자 여덟 꼭짓점을 변환한다 (회전한 상자도 안전하게 덮인다)
+            const mat4 m = obj.transform.mat4Transform();
+            const vec3& a = obj.model->boundsMin();
+            const vec3& b = obj.model->boundsMax();
+            for (int i = 0; i < 8; ++i) {
+                grow(transformPoint(m, vec3{(i & 1) ? b.x : a.x, (i & 2) ? b.y : a.y,
+                                            (i & 4) ? b.z : a.z}));
+            }
+        }
+    }
+    if (!any) return;
+
+    const vec3 center = (lo + hi) * 0.5f;
+    const vec3 half = (hi - lo) * 0.5f;
+    const float radius = std::fmax(std::sqrt(dot(half, half)), 0.01f);
+
+    g_camera.setViewMode(LotCamera::ViewMode::Cad);
+    g_camera.frame(center, radius, kFovY);
+
+    // 직교: 세로 절반에 반지름이 담기게. 한계도 씬 크기에 비례.
+    g_orthoHalfHeight = radius * 1.15f;
+    g_orthoMaxHalfHeight = std::fmax(20.0f, radius * 20.0f);
+    g_orthoMinHalfHeight = std::fmin(0.2f, radius * 0.001f);
+
+    // 클립 평면: far 는 최대 궤도 거리 + 씬 반지름을 덮고, near 는 far 의 1e-5 이상.
+    g_farZ = std::fmax(100.0f, g_camera.getMaxOrbitDistance() + radius * 2.0f);
+    g_nearZ = std::fmax(0.01f, g_farZ * 1e-5f);
+
+    LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
+            << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
+}
+
+// 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+char* lot_saveScene() {
+    const std::string text = lot_scene::save(g_gameObjects);
+    char* out = static_cast<char*>(std::malloc(text.size() + 1));
+    if (!out) return nullptr;
+    std::memcpy(out, text.c_str(), text.size() + 1);
+    return out;
+}
+
+// 씬 열기. 현재 씬을 버리고 파일 것으로 바꾼다 (히스토리/선택도 비운다).
+// data 는 JS 가 malloc 으로 잡아 넘긴 버퍼라 여기서 해제한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onLotFileLoaded(const char* data, int length) {
+    if (data == nullptr) return;
+    const std::string text(data, static_cast<size_t>(length));
+    std::free(const_cast<char*>(data));
+
+    if (!g_renderer || !g_renderer->getSwapchain().isReady()) {
+        LOT_ERR("scene: renderer is not ready yet");
+        return;
+    }
+
+    // 파싱이 실패하면 현재 씬을 건드리지 않도록 임시 맵에 먼저 읽는다
+    LotGameObject::Map loaded;
+    const lot_scene::LoadStats stats =
+        lot_scene::load(text, g_renderer->getDevice(), g_checkerMaterial, loaded);
+    if (!stats.error.empty()) {
+        LOT_ERR(stats.error);
+        return;
+    }
+
+    g_sketch.cancel();
+    g_edit.clearSelection();
+    g_edit.history().clear();
+    g_gameObjects = std::move(loaded);
+    g_objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
+    zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
+}
+
 // 툴바에 밀어 넣는 상태. 프레임마다 만들어 이전 것과 다를 때만 JS 를 부른다
 // (DOM 갱신은 비싸고, 대부분 프레임에는 아무것도 안 바뀐다).
 struct ToolbarState {
@@ -219,10 +312,11 @@ static void pushToolbarState() {
     s.canRedo = g_edit.history().canRedo() ? 1 : 0;
     s.hint = g_sketch.hint();
     if (g_toolbarPushed && s == g_toolbarState) return;
+    const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.view, s.fps, s.ortho,
+                                            s.outline, s.canUndo, s.canRedo, s.hint.c_str()) != 0;
+    if (!applied) return;  // 툴바 DOM 이 생기기 전 - 기억하지 말고 다음 프레임에 다시
     g_toolbarState = s;
     g_toolbarPushed = true;
-    js_setToolbarState(s.gizmoMode, s.sketchTool, s.view, s.fps, s.ortho, s.outline,
-                       s.canUndo, s.canRedo, s.hint.c_str());
 }
 
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼다. 해제는 여기 책임이다.
@@ -374,6 +468,10 @@ void renderLoop() {
             }
         }
 
+        if (g_cameraController.consumeZoomExtents()) {
+            zoomExtents();
+        }
+
         // 실행 취소 / 다시 실행. 스케치 중이면 도구부터 닫는다 - 반쯤 그린 것과 섞이지 않게.
         if (g_cameraController.consumeUndo()) {
             g_sketch.cancel();
@@ -435,8 +533,8 @@ void renderLoop() {
             if (wheel != 0.0f) {
                 if (g_orthographic) {
                     g_orthoHalfHeight *= LotCamera::zoomFactor(wheel);
-                    if (g_orthoHalfHeight < kOrthoMinHalfHeight) g_orthoHalfHeight = kOrthoMinHalfHeight;
-                    if (g_orthoHalfHeight > kOrthoMaxHalfHeight) g_orthoHalfHeight = kOrthoMaxHalfHeight;
+                    if (g_orthoHalfHeight < g_orthoMinHalfHeight) g_orthoHalfHeight = g_orthoMinHalfHeight;
+                    if (g_orthoHalfHeight > g_orthoMaxHalfHeight) g_orthoHalfHeight = g_orthoMaxHalfHeight;
                 } else {
                     g_camera.zoomToTarget(wheel);
                 }
@@ -477,8 +575,8 @@ void renderLoop() {
             if (zoom != 0) {
                 const float factor = std::exp(-zoom * kOrthoZoomSpeed * static_cast<float>(deltaSec));
                 g_orthoHalfHeight *= factor;
-                if (g_orthoHalfHeight < kOrthoMinHalfHeight) g_orthoHalfHeight = kOrthoMinHalfHeight;
-                if (g_orthoHalfHeight > kOrthoMaxHalfHeight) g_orthoHalfHeight = kOrthoMaxHalfHeight;
+                if (g_orthoHalfHeight < g_orthoMinHalfHeight) g_orthoHalfHeight = g_orthoMinHalfHeight;
+                if (g_orthoHalfHeight > g_orthoMaxHalfHeight) g_orthoHalfHeight = g_orthoMaxHalfHeight;
             }
         }
 
@@ -489,9 +587,9 @@ void renderLoop() {
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.
         if (g_orthographic) {
             g_camera.setOrthographicProjection(g_orthoHalfHeight, g_renderer->getAspectRatio(),
-                                               kNearZ, kFarZ);
+                                               g_nearZ, g_farZ);
         } else {
-            g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), kNearZ, kFarZ);
+            g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), g_nearZ, g_farZ);
         }
         if (g_camera.isCadMode()) {
             g_camera.updateCadView();
