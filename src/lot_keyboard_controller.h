@@ -2,6 +2,8 @@
 
 #include "lot_game_object.h"
 
+#include <string>
+
 // 키보드로 카메라(뷰어 오브젝트)를 움직인다.
 //
 // Vulkan 원본은 glfwGetKey 로 매 프레임 키 상태를 물어봤지만, 브라우저에는
@@ -57,6 +59,16 @@ public:
     // CAD 궤도 모드인가. A 키가 CAD 에서는 호, FPS 에서는 좌이동이라 매 프레임 알려준다.
     void setCadMode(bool cad) { cadMode_ = cad; }
 
+    // 변환 도구 (M 이동, U 복사, K 회전, X 축척). 눌린 순간의 모드, 없으면 -1.
+    // 값은 TransformTool::Mode 순서에서 None 을 뺀 것 (0 이동, 1 복사, 2 회전, 3 축척).
+    int consumeTransformMode();
+
+    // 숫자 입력 받기. 켜져 있으면 숫자/./-/Backspace 가 단축키가 아니라 버퍼로 간다
+    // (변환 도구가 거리·각도·배율을 받을 때). 1/2/3 기즈모 키도 이때는 숫자다.
+    void setNumberCapture(bool on);
+    const std::string& numberBuffer() const { return number_; }
+    void clearNumberBuffer() { number_.clear(); }
+
     // Enter / Esc. 누른 순간만.
     bool consumeEnter();
     bool consumeEscape();
@@ -77,6 +89,8 @@ public:
 
 private:
     bool cadMode_ = true;
+    bool numberCapture_ = false;
+    std::string number_;
 
     // 시선 각 (라디안). 뷰어 오브젝트의 쿼터니언은 이 둘로 매 프레임 만든다.
     float pitch_ = 0.0f;  // x 축 둘레 (위/아래)
@@ -116,6 +130,10 @@ private:
         SketchPolygon,
         PolygonSidesDown,
         PolygonSidesUp,
+        XformMove,
+        XformCopy,
+        XformRotate,
+        XformScale,
         Enter,
         Escape,
         Undo,

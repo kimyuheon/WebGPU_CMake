@@ -109,6 +109,12 @@ mergeInto(LibraryManager.library, {
                 ['Rotate', 'Digit2', 0, 'Rotate gizmo (2)', 'gizmo:1'],
                 ['Scale',  'Digit3', 0, 'Scale gizmo (3)', 'gizmo:2'],
             ]],
+            ['modify', [
+                ['Move',   'KeyM', 0, 'Move by base point -> destination, or distance (M)', 'xform:0'],
+                ['Copy',   'KeyU', 0, 'Copy by base point, repeat (U)', 'xform:1'],
+                ['Rotate', 'KeyK', 0, 'Rotate about base point, or degrees (K)', 'xform:2'],
+                ['Scale',  'KeyX', 0, 'Scale about base point, or factor (X)', 'xform:3'],
+            ]],
             ['sketch', [
                 ['Line',     'KeyL', 0, 'Line (L)', 'sketch:0'],
                 ['Rect',     'KeyB', 0, 'Rectangle (B)', 'sketch:1'],
@@ -120,7 +126,7 @@ mergeInto(LibraryManager.library, {
                 ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
             ]],
             ['edit', [
-                ['Copy',   'KeyD', 1, 'Duplicate selection (Ctrl+D)', ''],
+                ['Dup',    'KeyD', 1, 'Duplicate selection in place (Ctrl+D)', ''],
                 ['Delete', 'Delete', 0, 'Delete selection (Del)', ''],
                 ['Undo',   'KeyZ', 1, 'Undo (Ctrl+Z)', 'undo'],
                 ['Redo',   'KeyY', 1, 'Redo (Ctrl+Y)', 'redo'],
@@ -234,7 +240,7 @@ mergeInto(LibraryManager.library, {
     //   gizmoMode 0/1/2, sketchTool -1/0/1/2, view -1 또는 CadViewType, fps 0/1,
     //   ortho 0/1, outline 0/1, canUndo/canRedo 0/1, hint = UTF-8 문자열 (빈 문자열이면 숨김)
     js_setToolbarState__deps: ['$UTF8ToString'],
-    js_setToolbarState: function(gizmoMode, sketchTool, view, fps, ortho, outline,
+    js_setToolbarState: function(gizmoMode, sketchTool, xformMode, view, fps, ortho, outline,
                                  canUndo, canRedo, hintPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.toolbarButtons) return 0;  // 아직 툴바가 없다 - C++ 이 다음 프레임에 다시 보낸다
@@ -250,6 +256,7 @@ mergeInto(LibraryManager.library, {
         };
         setOn('gizmo', gizmoMode);
         setOn('sketch', sketchTool);
+        setOn('xform', xformMode);
         setOn('view', view);
         style(buttons['fps'], fps === 1, true);
         style(buttons['ortho'], ortho === 1, true);

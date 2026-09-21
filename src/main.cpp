@@ -10,6 +10,7 @@
 #include "lot_edit_controller.h"
 #include "lot_scene_io.h"
 #include "lot_sketch_tool.h"
+#include "lot_transform_tool.h"
 #include "lot_mouse_input.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -36,8 +37,9 @@ extern "C" {
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
     extern void js_setupToolbar();
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
-    extern int js_setToolbarState(int gizmoMode, int sketchTool, int view, int fps, int ortho,
-                                  int outline, int canUndo, int canRedo, const char* hint);
+    extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
+                                  int ortho, int outline, int canUndo, int canRedo,
+                                  const char* hint);
 }
 
 // 전역 객체들
@@ -66,6 +68,7 @@ LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
 SketchController g_sketch;
+TransformTool g_transform;
 
 // 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
 EditController g_edit;
@@ -271,6 +274,7 @@ void lot_onLotFileLoaded(const char* data, int length) {
     }
 
     g_sketch.cancel();
+    g_transform.cancel(g_gameObjects);
     g_edit.clearSelection();
     g_edit.history().clear();
     g_gameObjects = std::move(loaded);
@@ -283,6 +287,7 @@ void lot_onLotFileLoaded(const char* data, int length) {
 struct ToolbarState {
     int gizmoMode = -1;
     int sketchTool = -1;
+    int xformMode = -1;
     int view = -1;
     int fps = 0;
     int ortho = 0;
@@ -292,7 +297,8 @@ struct ToolbarState {
     std::string hint;
 
     bool operator==(const ToolbarState& o) const {
-        return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && view == o.view
+        return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && xformMode == o.xformMode
+            && view == o.view
             && fps == o.fps && ortho == o.ortho && outline == o.outline
             && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
     }
@@ -304,16 +310,18 @@ static void pushToolbarState() {
     ToolbarState s;
     s.gizmoMode = static_cast<int>(g_gizmoSystem->mode);
     s.sketchTool = g_sketch.activeKind();
+    s.xformMode = g_transform.isActive() ? g_transform.modeIndex() - 1 : -1;
     s.view = g_camera.presetViewIndex();
     s.fps = g_camera.isCadMode() ? 0 : 1;
     s.ortho = g_orthographic ? 1 : 0;
     s.outline = (g_postSystem->mode == PostProcessSystem::Mode::Outline) ? 1 : 0;
     s.canUndo = g_edit.history().canUndo() ? 1 : 0;
     s.canRedo = g_edit.history().canRedo() ? 1 : 0;
-    s.hint = g_sketch.hint();
+    s.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
     if (g_toolbarPushed && s == g_toolbarState) return;
-    const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.view, s.fps, s.ortho,
-                                            s.outline, s.canUndo, s.canRedo, s.hint.c_str()) != 0;
+    const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.xformMode, s.view, s.fps,
+                                            s.ortho, s.outline, s.canUndo, s.canRedo,
+                                            s.hint.c_str()) != 0;
     if (!applied) return;  // 툴바 DOM 이 생기기 전 - 기억하지 말고 다음 프레임에 다시
     g_toolbarState = s;
     g_toolbarPushed = true;
@@ -455,8 +463,20 @@ void renderLoop() {
             EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
-                                        g_sketch.anyActive()};
+                                        g_sketch.anyActive() || g_transform.isActive(),
+                                        g_transform.isPreviewing()};
             g_edit.update(ctx);
+
+            // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
+            g_cameraController.setNumberCapture(g_transform.isPreviewing());
+            g_transform.setNumberBuffer(g_cameraController.numberBuffer());
+            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                        static_cast<float>(sc.getWidth()),
+                                        static_cast<float>(sc.getHeight())};
+            g_transform.update(tctx, g_edit.history());
+            if (const auto copies = g_transform.consumeCreated(); !copies.empty()) {
+                g_edit.setSelection(copies);  // 놓은 사본을 선택 - 이어서 기즈모로 다듬을 수 있게
+            }
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
@@ -479,23 +499,42 @@ void renderLoop() {
         // 실행 취소 / 다시 실행. 스케치 중이면 도구부터 닫는다 - 반쯤 그린 것과 섞이지 않게.
         if (g_cameraController.consumeUndo()) {
             g_sketch.cancel();
+            g_transform.cancel(g_gameObjects);
             g_edit.undo(g_gameObjects);
         }
         if (g_cameraController.consumeRedo()) {
             g_sketch.cancel();
+            g_transform.cancel(g_gameObjects);
             g_edit.redo(g_gameObjects);
         }
 
         // 스케치 도구 시작 / 끝 / 취소. 도구를 열면 선택은 비운다 (Vulkan 쪽과 같다).
         if (const int tool = g_cameraController.consumeSketchTool(); tool >= 0) {
+            g_transform.cancel(g_gameObjects);
             g_edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), g_camera);
         }
+        // 변환 도구 (기준점 방식). 선택이 있어야 한다.
+        if (const int mode = g_cameraController.consumeTransformMode(); mode >= 0) {
+            g_sketch.cancel();
+            g_transform.cancel(g_gameObjects);
+            g_transform.start(static_cast<TransformTool::Mode>(mode + 1), g_edit.selection(),
+                              g_camera, g_gameObjects);
+        }
         if (g_cameraController.consumeEnter()) {
-            g_sketch.finish(g_gameObjects);
+            if (g_transform.isActive()) {
+                TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                            static_cast<float>(g_renderer->getSwapchain().getWidth()),
+                                            static_cast<float>(g_renderer->getSwapchain().getHeight())};
+                g_transform.finish(tctx, g_edit.history());
+                g_cameraController.clearNumberBuffer();
+            } else {
+                g_sketch.finish(g_gameObjects);
+            }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_sketch.anyActive()) g_sketch.cancel();
+            if (g_transform.isActive()) g_transform.cancel(g_gameObjects);
+            else if (g_sketch.anyActive()) g_sketch.cancel();
             else g_edit.clearSelection();
         }
 
@@ -555,8 +594,8 @@ void renderLoop() {
             static const char* kModeNames[] = {"move", "rotate", "scale"};
             LOT_LOG("gizmo: " << kModeNames[mode]);
         }
-        // 스케치 중에는 편집 키를 무시한다 (플래그는 비워야 나중에 튀어나오지 않는다)
-        const bool editKeysEnabled = !g_sketch.anyActive();
+        // 도구가 열려 있으면 편집 키를 무시한다 (플래그는 비워야 나중에 튀어나오지 않는다)
+        const bool editKeysEnabled = !g_sketch.anyActive() && !g_transform.isActive();
         if (g_cameraController.consumeDuplicate() && editKeysEnabled) {
             g_edit.duplicateSelection(g_gameObjects);
         }
@@ -659,6 +698,10 @@ void renderLoop() {
                                            static_cast<float>(sc.getWidth()),
                                            static_cast<float>(sc.getHeight())};
             g_sketch.drawPreview(*g_polylineSystem, *g_lineSystem, sctx);
+            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                        static_cast<float>(sc.getWidth()),
+                                        static_cast<float>(sc.getHeight())};
+            g_transform.drawOverlay(*g_lineSystem, tctx);
         }
 
         // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).

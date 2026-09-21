@@ -56,12 +56,12 @@ void EditController::update(const Context& ctx) {
         query.width = ctx.width;
         query.height = ctx.height;
         query.radiusPx = snapRadiusPx;
-        query.exclude = drag_.active ? &selection_ : nullptr;
+        query.exclude = (drag_.active || ctx.excludeSelectionFromSnap) ? &selection_ : nullptr;
         snap_ = lot_osnap::find(query, mouseRay(), ctx.objects);
     }
 
-    // 2. 누름 (스케치 중이면 클릭은 스케치 컨트롤러가 가져간다)
-    if (!ctx.sketchActive && ctx.mouse.consumeLeftPress()) {
+    // 2. 누름 (도구가 열려 있으면 클릭은 그 도구가 가져간다)
+    if (!ctx.toolActive && ctx.mouse.consumeLeftPress()) {
         const lot_pick::Ray ray = mouseRay();
         const bool shift = ctx.mouse.shiftAtPress();
 

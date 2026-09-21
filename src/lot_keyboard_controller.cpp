@@ -58,6 +58,7 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"KeyF", ViewFront}, {"KeyT", ViewTop}, {"KeyR", ViewRight}, {"KeyI", ViewIsometric},
         {"KeyL", SketchLine}, {"KeyB", SketchRectangle}, {"KeyN", SketchPolyline},
         {"KeyC", SketchCircle}, {"KeyG", SketchPolygon},
+        {"KeyM", XformMove}, {"KeyU", XformCopy}, {"KeyK", XformRotate}, {"KeyX", XformScale},
         {"BracketLeft", PolygonSidesDown}, {"BracketRight", PolygonSidesUp},
         {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
         {"KeyZ", ZoomExtents},
@@ -82,6 +83,41 @@ bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, b
         else if (std::strcmp(code, "KeyD") == 0) id = Duplicate;  // C 는 원(circle)에 내줬다
         else return false;
     } else {
+        if (numberCapture_ && down) {
+            // 숫자 버퍼. 여기서 잡힌 키는 아래 표로 가지 않는다 (1/2/3 이 기즈모 모드가 되지 않게).
+            const char* digits = "0123456789";
+            if (std::strncmp(code, "Digit", 5) == 0 && code[5] && std::strchr(digits, code[5])) {
+                number_ += code[5];
+                return true;
+            }
+            if (std::strncmp(code, "Numpad", 6) == 0 && code[6] && !code[7]
+                && std::strchr(digits, code[6])) {
+                number_ += code[6];
+                return true;
+            }
+            if (std::strcmp(code, "Period") == 0 || std::strcmp(code, "NumpadDecimal") == 0) {
+                if (number_.find('.') == std::string::npos) {
+                    if (number_.empty() || number_ == "-") number_ += '0';
+                    number_ += '.';
+                }
+                return true;
+            }
+            if (std::strcmp(code, "Minus") == 0 || std::strcmp(code, "NumpadSubtract") == 0) {
+                if (number_.empty()) number_ = "-";
+                return true;
+            }
+            if (std::strcmp(code, "Backspace") == 0) {
+                if (!number_.empty()) number_.pop_back();
+                return true;
+            }
+        } else if (numberCapture_ && !down) {
+            // 잡은 키의 뗌도 삼킨다 - 아래에서 pressed_ 를 건드리지 않게
+            if (std::strncmp(code, "Digit", 5) == 0 || std::strncmp(code, "Numpad", 6) == 0
+                || std::strcmp(code, "Period") == 0 || std::strcmp(code, "Minus") == 0
+                || std::strcmp(code, "Backspace") == 0) {
+                return true;
+            }
+        }
         id = lookupKey(code);
         if (id == KeyCount) return false;  // 우리 키가 아니면 그대로 넘긴다
     }
@@ -119,6 +155,23 @@ bool KeyboardMovementController::consumeDelete() {
 int KeyboardMovementController::consumeGizmoMode() {
     const KeyId keys[3] = {GizmoTranslate, GizmoRotate, GizmoScale};
     for (int i = 0; i < 3; ++i) {
+        if (justPressed_[keys[i]]) {
+            justPressed_[keys[i]] = false;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void KeyboardMovementController::setNumberCapture(bool on) {
+    if (numberCapture_ == on) return;
+    numberCapture_ = on;
+    if (!on) number_.clear();
+}
+
+int KeyboardMovementController::consumeTransformMode() {
+    const KeyId keys[4] = {XformMove, XformCopy, XformRotate, XformScale};
+    for (int i = 0; i < 4; ++i) {
         if (justPressed_[keys[i]]) {
             justPressed_[keys[i]] = false;
             return i;
@@ -212,7 +265,8 @@ void KeyboardMovementController::init() {
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, Ctrl+D duplicate, Del delete, "
             "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G sketch line/rect/polyline/circle/arc/polygon, "
-            "[ ] polygon sides, Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
+            "[ ] polygon sides, M/U/K/X move/copy/rotate/scale by base point (type value + Enter), "
+            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
 }
 
 void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {

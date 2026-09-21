@@ -36,9 +36,11 @@ public:
         LotGameObject::Map& objects;
         float width;
         float height;
-        // 스케치 도구가 열려 있으면 클릭은 그쪽 것이다. 스냅은 계속 찾는다
-        // (도구가 그걸 쓴다). 게이트는 이 플래그 하나 - SketchController::anyActive().
-        bool sketchActive = false;
+        // 도구(스케치/변환)가 열려 있으면 클릭은 그쪽 것이다. 스냅은 계속 찾는다
+        // (도구가 그걸 쓴다). 게이트는 이 플래그 하나.
+        bool toolActive = false;
+        // 변환 도구가 선택을 끌고 있을 때 - 끌리는 것들에는 스냅이 걸리지 않게
+        bool excludeSelectionFromSnap = false;
     };
 
     // 입력 처리. 프레임당 한 번, 카메라가 갱신되기 전에 부른다
