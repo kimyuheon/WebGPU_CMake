@@ -10,20 +10,17 @@
 namespace lot_scene {
 namespace {
 
-// ---- 좌표계 변환 (헤더 주석 참고) ----
+// ---- 좌표계 변환 ----
+//
+// 웹도 Z-up 으로 옮긴 뒤로는 파일 좌표 = 월드 좌표다. 예전에 +Y 아래 규약이던 때의
+// 변환 자리를 남겨두어 (항등), 다시 규약이 갈라지면 여기 한 곳만 고치면 된다.
 
-vec3 toNative(const vec3& v) { return vec3{v.x, v.z, -v.y}; }
-vec3 fromNative(const vec3& n) { return vec3{n.x, -n.z, n.y}; }
-
-// 웹 -> 네이티브 축 회전 = X 둘레 -90도. 위치는 toNative 가 이 회전을 펼친 것이다.
-const quat kAxisRot = quat::angleAxis(-1.57079632679f, vec3{1.0f, 0.0f, 0.0f});
-
-quat toNative(const quat& q) { return normalize(kAxisRot * q * kAxisRot.conjugate()); }
-quat fromNative(const quat& q) { return normalize(kAxisRot.conjugate() * q * kAxisRot); }
-
-// 축이 자리를 바꾸므로 (y <-> z) 스케일도 같이 바꾼다. 부호는 스케일에 없다.
-vec3 scaleToNative(const vec3& s) { return vec3{s.x, s.z, s.y}; }
-vec3 scaleFromNative(const vec3& s) { return vec3{s.x, s.z, s.y}; }
+vec3 toNative(const vec3& v) { return v; }
+vec3 fromNative(const vec3& n) { return n; }
+quat toNative(const quat& q) { return q; }
+quat fromNative(const quat& q) { return q; }
+vec3 scaleToNative(const vec3& s) { return s; }
+vec3 scaleFromNative(const vec3& s) { return s; }
 
 // ---- JSON 도우미 ----
 
@@ -193,7 +190,7 @@ bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformCompon
     builder.vertices.reserve(count);
     for (size_t i = 0; i < count; ++i) {
         const vec3 p = fromNative(vec3{P[i * 3], P[i * 3 + 1], P[i * 3 + 2]});
-        vec3 n{0.0f, -1.0f, 0.0f};
+        vec3 n{0.0f, 0.0f, 1.0f};
         if (N.size() >= (i + 1) * 3) n = fromNative(vec3{N[i * 3], N[i * 3 + 1], N[i * 3 + 2]});
         float u = 0.0f, v = 0.0f;
         if (UV.size() >= (i + 1) * 2) { u = UV[i * 2]; v = UV[i * 2 + 1]; }

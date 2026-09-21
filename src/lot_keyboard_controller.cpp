@@ -269,7 +269,7 @@ void KeyboardMovementController::init() {
             "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents");
 }
 
-void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerObject) {
+void KeyboardMovementController::moveInPlaneXY(float dt, LotGameObject& viewerObject) {
     // 1. 시선 회전
     vec3 rotate{0.0f, 0.0f, 0.0f};
     if (pressed_[LookRight]) rotate.y += 1.0f;
@@ -293,13 +293,17 @@ void KeyboardMovementController::moveInPlaneXZ(float dt, LotGameObject& viewerOb
 
     // 1인칭 카메라는 pitch/yaw 두 각으로 충분하고, 이렇게 각을 따로 들고
     // 쿼터니언은 매 프레임 새로 만들면 짐벌락도 누적 오차도 없다.
-    viewerObject.transform.rotation = quat::fromEulerYXZ(vec3{pitch_, yaw_, 0.0f});
+    // 카메라 기본 자세는 +Y 를 보고 +Z 가 위 (LotCamera::setViewFromTransform 규약).
+    // yaw 는 Z 둘레 - 오른쪽으로 돌면 forward 가 (sin, cos, 0) 이 되도록 부호를 맞춘다.
+    // pitch 는 (yaw 뒤의) 카메라 X 둘레, 양수가 위.
+    viewerObject.transform.rotation = normalize(
+        quat::angleAxis(-yaw_, vec3{0.0f, 0.0f, 1.0f}) * quat::angleAxis(pitch_, vec3{1.0f, 0.0f, 0.0f}));
     const float yaw = yaw_;
 
     // 2. 이동. 시선의 yaw 만 반영하므로 위를 봐도 앞으로만 간다.
-    const vec3 forwardDir{std::sin(yaw), 0.0f, std::cos(yaw)};
-    const vec3 rightDir{forwardDir.z, 0.0f, -forwardDir.x};
-    const vec3 upDir{0.0f, -1.0f, 0.0f};  // +Y 가 아래라 위는 -Y
+    const vec3 forwardDir{std::sin(yaw), std::cos(yaw), 0.0f};
+    const vec3 rightDir{forwardDir.y, -forwardDir.x, 0.0f};  // cross(forward, up)
+    const vec3 upDir{0.0f, 0.0f, 1.0f};
 
     vec3 moveDir{0.0f, 0.0f, 0.0f};
     if (pressed_[MoveForward])  moveDir = moveDir + forwardDir;

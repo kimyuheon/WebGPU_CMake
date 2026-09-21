@@ -111,8 +111,8 @@ void LotModel::draw(WGPURenderPassEncoder pass) {
 }
 
 std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
-    // 좌표 규약: +X 오른쪽, +Y 아래, +Z 화면 안쪽.
-    // 그래서 '윗면'은 y = -0.5 이다.
+    // 정육면체는 대칭이라 축 규약과 무관하다. 아래의 '위/아래/앞/뒤' 이름은
+    // 면을 구별하는 표지일 뿐이다 (월드는 Z-up: +Z 위, +Y 앞).
     //
     // 각 면의 네 꼭짓점은 바깥쪽 법선이 나오는 순서로 적는다
     // (오른손 법칙: cross(b-a, c-a) 가 면의 바깥을 향한다).
@@ -130,7 +130,7 @@ std::unique_ptr<LotModel> LotModel::createCube(lot_web_device& device) {
     const vec3 kFaceNormals[6] = {
         {-1.0f,  0.0f,  0.0f},  // 왼쪽
         { 1.0f,  0.0f,  0.0f},  // 오른쪽
-        { 0.0f, -1.0f,  0.0f},  // 위 (+Y 가 아래라 윗면 법선은 -Y)
+        { 0.0f, -1.0f,  0.0f},  // -Y 면
         { 0.0f,  1.0f,  0.0f},  // 아래
         { 0.0f,  0.0f, -1.0f},  // 앞 (카메라 쪽)
         { 0.0f,  0.0f,  1.0f},  // 뒤

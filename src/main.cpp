@@ -93,6 +93,8 @@ static LotGameObject::id_t g_objObjectId = LotGameObject::kInvalidId;
 // 불러온 모델이 화면에 차는 크기. 남이 만든 OBJ 는 단위가 제각각이라
 // (몇 백 단위짜리도 흔하다) 파일 값을 그대로 쓰면 안 보이거나 화면을 덮는다.
 static const float kObjTargetSize = 1.4f;
+static const float kObjHeight = 0.6f;       // 가운데 모델의 중심 높이 (바닥 위)
+static const float kCubeHalf = 0.3f;        // 큐브 반 변 (scale 0.6) - 바닥에 딱 얹히게
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
 static bool g_gridCreated = false;
@@ -105,7 +107,7 @@ static const float kFovY = 50.0f * 3.14159265f / 180.0f;
 // 정밀도가 남는다 (near 0.1 에 far 100000 이면 z-fighting 이 심하다).
 static float g_nearZ = 0.1f;
 static float g_farZ = 100.0f;
-static const vec3 kCameraStartPosition{0.0f, 0.0f, -2.5f};  // (FPS 모드) +Z 가 화면 안쪽이라 카메라는 -Z 쪽
+static const vec3 kCameraStartPosition{0.0f, -2.5f, 0.6f};  // (FPS 모드) 앞(-Y)에서 눈높이로
 
 // CAD 궤도 조작 감도
 static const float kOrbitRadPerPixel = 0.005f;  // 우클릭 드래그 1px 당 (한 바퀴 ≈ 1250px)
@@ -134,9 +136,9 @@ static SceneLighting g_lighting = [] {
 // 큐브와 같은 깊이(z = 0)에 두면 카메라를 향한 앞면이 전부 광원을 등지게 되어
 // 화면이 통째로 어두워진다 - 물리적으로는 맞지만 볼 게 없다.
 static const float kLightSwingX = 1.5f;
-static const float kLightHeight = -0.8f;  // +Y 가 아래라 위쪽은 음수
-static const float kLightBaseZ = -1.2f;
-static const float kLightSwingZ = 0.8f;
+static const float kLightHeight = 1.4f;   // Z-up: 바닥 위 1.4
+static const float kLightBaseY = -1.2f;   // 카메라 쪽(-Y)으로 조금
+static const float kLightSwingY = 0.8f;
 static const float kLightOrbitSpeed = 0.8f;
 
 // 게임 오브젝트 생성
@@ -145,8 +147,8 @@ void createGameObjects() {
     // 정점 데이터는 GPU 에 한 번만 올라가고, 오브젝트마다 다른 것은 transform 뿐이다.
     // 가운데는 OBJ 로 불러온 모델 자리로 비워둔다.
     const vec3 spawns[] = {
-        vec3(-1.5f, 0.0f, 0.0f),
-        vec3( 1.5f, 0.0f, 0.0f),
+        vec3(-1.5f, 0.0f, kCubeHalf),
+        vec3( 1.5f, 0.0f, kCubeHalf),
     };
 
     for (const auto& translation : spawns) {
@@ -156,7 +158,8 @@ void createGameObjects() {
         cube.material = g_checkerMaterial;
         cube.transform.translation = translation;
         cube.transform.scale = vec3(0.6f);
-        cube.transform.setRotationEuler(vec3(0.35f, 0.6f, 0.0f));  // 세 면이 다 보이게 살짝 기울인다
+        // 세 면이 다 보이게 위 축(Z) 둘레로 살짝 돌린다 (바닥에 얹힌 채로)
+        cube.transform.rotation = quat::angleAxis(0.6f, vec3(0.0f, 0.0f, 1.0f));
 
         const auto id = cube.getId();
         g_gameObjects.emplace(id, std::move(cube));
@@ -173,8 +176,11 @@ void placeObjModel() {
     auto object = LotGameObject::createGameObject();
     object.model = g_objModel;
     object.material = g_checkerMaterial;
-    object.transform.translation = vec3(0.0f, 0.0f, 0.0f);
-    object.transform.setRotationEuler(vec3(1.1f, 0.3f, 0.0f));  // 토러스 구멍이 보이도록 눕힌다
+    object.transform.translation = vec3(0.0f, 0.0f, kObjHeight);
+    // OBJ 는 Y-up 관례라 Z-up 세계에서는 X 둘레 +90도 돌려 세운다. 토러스는 그러면
+    // 구멍이 위를 보고 눕는다 - 살짝 기울여 구멍이 보이게.
+    object.transform.rotation = normalize(quat::angleAxis(0.3f, vec3(0.0f, 0.0f, 1.0f))
+                                          * quat::angleAxis(1.2f, vec3(1.0f, 0.0f, 0.0f)));
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
     g_objObjectId = object.getId();
     g_gameObjects.emplace(g_objObjectId, std::move(object));
@@ -585,7 +591,7 @@ void renderLoop() {
         } else {
             // 1인칭: 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
             // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
-            g_cameraController.moveInPlaneXZ(static_cast<float>(deltaSec), g_viewerObject);
+            g_cameraController.moveInPlaneXY(static_cast<float>(deltaSec), g_viewerObject);
         }
 
         // 투영 전환 / 직교 줌
@@ -648,8 +654,8 @@ void renderLoop() {
         // 눈에 보인다 (방향 광원이었다면 어디에 두든 결과가 같다).
         const float lightAngle = static_cast<float>(g_time) * kLightOrbitSpeed;
         g_lighting.pointLight.position = vec3(std::cos(lightAngle) * kLightSwingX,
-                                              kLightHeight,
-                                              kLightBaseZ + std::sin(lightAngle) * kLightSwingZ);
+                                              kLightBaseY + std::sin(lightAngle) * kLightSwingY,
+                                              kLightHeight);
 
         // 프레임당 유니폼 갱신. 렌더 시스템 전부가 같은 값을 본다.
         g_globalUniform.update(g_camera, g_lighting);
@@ -675,7 +681,7 @@ void renderLoop() {
         // 프레임마다 다시 채우므로 광원이 움직이면 십자도 따라간다.
         g_lineSystem->clear();
         g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
-        g_lineSystem->addBox(vec3(-2.4f, -0.9f, -0.9f), vec3(2.4f, 0.9f, 0.9f),
+        g_lineSystem->addBox(vec3(-2.4f, -0.9f, 0.0f), vec3(2.4f, 0.9f, 1.5f),
                              vec3(0.45f, 0.45f, 0.5f));
 
         // 선택 상자 / 박스 선택 사각형 / 스냅 마커
@@ -710,8 +716,8 @@ void renderLoop() {
             std::vector<vec3> orbit;
             for (int i = 0; i < 64; ++i) {
                 const float a = 6.2831853f * i / 64.0f;
-                orbit.push_back(vec3(std::cos(a) * kLightSwingX, kLightHeight,
-                                     kLightBaseZ + std::sin(a) * kLightSwingZ));
+                orbit.push_back(vec3(std::cos(a) * kLightSwingX,
+                                     kLightBaseY + std::sin(a) * kLightSwingY, kLightHeight));
             }
             g_polylineSystem->addPolyline(orbit, vec3(0.9f, 0.8f, 0.3f), /*closed=*/true);
 
@@ -720,7 +726,7 @@ void renderLoop() {
                 const float t = i / 120.0f;
                 const float a = t * 6.2831853f * 3.0f;
                 const float r = 0.95f;
-                spiral.push_back(vec3(std::cos(a) * r, 0.55f - t * 1.1f, std::sin(a) * r));
+                spiral.push_back(vec3(std::cos(a) * r, std::sin(a) * r, kObjHeight - 0.55f + t * 1.1f));
             }
             g_polylineSystem->addPolyline(spiral, vec3(0.4f, 0.9f, 0.9f));
         }
@@ -776,7 +782,7 @@ int main() {
 
     // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
     // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.
-    g_camera.setViewFromDirection(normalize(vec3{-0.45f, -0.4f, -1.0f}));
+    g_camera.setViewFromDirection(normalize(vec3{-0.45f, -1.0f, 0.45f}));  // 앞-왼쪽-위
     g_viewerObject.transform.translation = kCameraStartPosition;
     g_cameraController.init();
     // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다

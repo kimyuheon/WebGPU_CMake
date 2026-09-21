@@ -87,7 +87,8 @@ struct mat4 {
 
     // 원근 투영 행렬.
     //
-    // 좌표 규약은 Vulkan 쪽 원본과 같다: +X 오른쪽, +Y 아래, +Z 화면 안쪽.
+    // 뷰 공간 규약은 Vulkan 쪽 원본과 같다: +X 오른쪽, +Y 아래, +Z 화면 안쪽
+    // (월드는 Z-up 이지만 뷰 행렬이 여기로 가져온다).
     // 깊이 범위도 Vulkan 과 같은 [0, 1] 이라 공식이 그대로 옮겨진다.
     // 딱 한 군데만 다르다 - WebGPU 는 클립 공간의 +Y 가 위쪽이므로
     // m[1][1] 의 부호를 뒤집어 여기서 한 번에 맞춘다.
@@ -123,9 +124,10 @@ struct mat4 {
 
     // 뷰 행렬 (카메라를 원점으로 옮기는 변환).
     //
-    // up 기본값이 {0, -1, 0} 인 이유는 이 엔진에서 +Y 가 아래이기 때문이다.
+    // 좌표계는 CAD 표준 Z-up 이다 (+X 오른쪽, +Y 앞/깊이, +Z 위) - Vulkan 쪽과 같다.
+    // 뷰 공간은 여전히 +Y 아래 (v = cross(w, u)) 라 투영 행렬의 Y 뒤집기는 그대로다.
     static mat4 view(const vec3& position, const vec3& direction,
-                     const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
+                     const vec3& up = vec3{0.0f, 0.0f, 1.0f}) {
         const vec3 w = normalize(direction);
         const vec3 u = normalize(cross(w, up));
         const vec3 v = cross(w, u);
@@ -141,7 +143,7 @@ struct mat4 {
     }
 
     static mat4 lookAt(const vec3& position, const vec3& target,
-                       const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
+                       const vec3& up = vec3{0.0f, 0.0f, 1.0f}) {
         return view(position, target - position, up);
     }
 };

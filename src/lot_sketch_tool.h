@@ -25,16 +25,16 @@ class PolylineRenderSystem;
 
 // 스케치 평면. 클릭한 화면 점을 이 평면에 내려 월드 점으로 만든다.
 //
-// 이 엔진 좌표계(+X 오른쪽, +Y 아래, +Z 앞, 바닥 = XZ) 기준:
-//   Top 뷰 -> XZ (바닥, 법선 Y), Front -> XY (법선 Z), Right -> YZ (법선 X).
+// Z-up 좌표계(+X 오른쪽, +Y 앞, +Z 위, 바닥 = XY) 기준 - Vulkan 쪽 getPlaneVectors 와 같다:
+//   Top 뷰 -> XY (바닥, 법선 Z), Front -> XZ (법선 Y), Right -> YZ (법선 X).
 // 뷰 프리셋 이름 대신 카메라가 보는 방향의 지배 축으로 고르므로 궤도를 돌린
 // 뒤에도 '가장 정면으로 보이는' 평면이 잡힌다. 원점은 항상 월드 원점을 지난다.
 struct SketchPlane {
     vec3 origin{0.0f, 0.0f, 0.0f};
     vec3 right{1.0f, 0.0f, 0.0f};
-    vec3 up{0.0f, -1.0f, 0.0f};
-    vec3 normal{0.0f, 0.0f, 1.0f};
-    const char* name = "XY";
+    vec3 up{0.0f, 0.0f, 1.0f};
+    vec3 normal{0.0f, 1.0f, 0.0f};
+    const char* name = "XZ (front)";
 
     static SketchPlane fromCamera(const LotCamera& camera);
 

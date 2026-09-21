@@ -9,11 +9,11 @@ namespace {
 // 격자 크기. 카메라 시작 거리(2.5)와 큐브 간격(1.5)에 맞춘 값이다.
 constexpr int kHalfLines = 10;         // 중심에서 양쪽으로 몇 칸
 constexpr float kSpacing = 0.5f;
-constexpr float kGridY = 0.6f;         // +Y 가 아래라 바닥은 양수. 큐브 밑면(0.3)보다 아래.
+constexpr float kGridZ = 0.0f;         // 바닥 = z = 0 (Z-up). 스케치 Top 평면과 같은 높이.
 
-// 축 선은 눈에 띄게, 나머지는 은은하게.
+// 축 선은 눈에 띄게, 나머지는 은은하게. CAD 관례: X 빨강, Y 초록.
 const vec3 kAxisXColor{0.8f, 0.25f, 0.25f};   // X 축 - 붉은색
-const vec3 kAxisZColor{0.25f, 0.45f, 0.9f};   // Z 축 - 푸른색
+const vec3 kAxisYColor{0.25f, 0.8f, 0.3f};    // Y 축 - 초록색
 const vec3 kLineColor{0.28f, 0.28f, 0.28f};
 
 // 선분 목록으로 격자를 만든다. 인덱스 없이 정점 2개가 선 하나.
@@ -31,11 +31,11 @@ LotModel::Builder buildGrid() {
 
     for (int i = -kHalfLines; i <= kHalfLines; ++i) {
         const float t = i * kSpacing;
-        // Z 방향으로 뻗는 선 (x = t). x = 0 이면 Z 축이다.
-        pushLine(vec3{t, kGridY, -extent}, vec3{t, kGridY, extent},
-                 (i == 0) ? kAxisZColor : kLineColor);
-        // X 방향으로 뻗는 선 (z = t). z = 0 이면 X 축이다.
-        pushLine(vec3{-extent, kGridY, t}, vec3{extent, kGridY, t},
+        // Y 방향으로 뻗는 선 (x = t). x = 0 이면 Y 축이다.
+        pushLine(vec3{t, -extent, kGridZ}, vec3{t, extent, kGridZ},
+                 (i == 0) ? kAxisYColor : kLineColor);
+        // X 방향으로 뻗는 선 (y = t). y = 0 이면 X 축이다.
+        pushLine(vec3{-extent, t, kGridZ}, vec3{extent, t, kGridZ},
                  (i == 0) ? kAxisXColor : kLineColor);
     }
     return builder;

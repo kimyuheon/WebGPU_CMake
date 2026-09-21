@@ -83,7 +83,7 @@ public:
         vec3 center{0.0f, 0.0f, 0.0f};
         float radius = 1.0f;
         vec3 right{1.0f, 0.0f, 0.0f};
-        vec3 up{0.0f, -1.0f, 0.0f};
+        vec3 up{0.0f, 1.0f, 0.0f};  // 네이티브 기본값과 같다 (XY 평면)
         float start = 0.0f;  // 라디안
         float end = 0.0f;
     };

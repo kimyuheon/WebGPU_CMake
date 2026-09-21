@@ -14,9 +14,9 @@ public:
     // 브라우저 키 이벤트 리스너 등록. 한 번만 부르면 된다.
     void init();
 
-    // XZ 평면 위를 걸어다닌다 (비행이 아니라 FPS 이동).
-    // 위/아래는 월드 축 그대로라 시선을 위로 들어도 붕 뜨지 않는다.
-    void moveInPlaneXZ(float dt, LotGameObject& viewerObject);
+    // 바닥(XY) 평면 위를 걸어다닌다 (비행이 아니라 FPS 이동).
+    // 위/아래는 월드 Z 축 그대로라 시선을 위로 들어도 붕 뜨지 않는다.
+    void moveInPlaneXY(float dt, LotGameObject& viewerObject);
 
     // 브라우저 이벤트 콜백에서만 부른다.
     // 우리가 쓰는 키였으면 true - 그 경우 이벤트를 소비한다.
@@ -81,7 +81,7 @@ public:
     bool consumeZoomExtents();
 
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
-    // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXZ 가 같은 키를 시선으로 쓴다.
+    // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXY 가 같은 키를 시선으로 쓴다.
     void orbitInput(float& yaw, float& pitch) const;
 
     float moveSpeed = 3.0f;
@@ -93,8 +93,8 @@ private:
     std::string number_;
 
     // 시선 각 (라디안). 뷰어 오브젝트의 쿼터니언은 이 둘로 매 프레임 만든다.
-    float pitch_ = 0.0f;  // x 축 둘레 (위/아래)
-    float yaw_ = 0.0f;    // y 축 둘레 (좌/우)
+    float pitch_ = 0.0f;  // 카메라 오른쪽(X) 축 둘레 (위/아래)
+    float yaw_ = 0.0f;    // 월드 위(Z) 축 둘레 (좌/우)
 
     // 브라우저 KeyboardEvent.code 기준 (자판 배열과 무관한 물리 키 위치).
     enum KeyId {

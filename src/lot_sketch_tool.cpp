@@ -34,27 +34,27 @@ SketchPlane SketchPlane::fromCamera(const LotCamera& camera) {
     const vec3 f = camera.getForward();
     const float ax = std::fabs(f.x), ay = std::fabs(f.y), az = std::fabs(f.z);
 
+    // 축은 카메라 up 이 아니라 월드 축으로 고정한다 - 스냅/치수 계산이 단순하고,
+    // 사각형의 변이 항상 축에 나란하다. (Vulkan 쪽 getPlaneVectors 와 같은 값)
     SketchPlane p;
-    if (ay >= ax && ay >= az) {
-        // 위/아래에서 본다 -> 바닥 (XZ). 화면 위쪽이 +Z 가 되도록 up = +Z 가 아니라
-        // 카메라 up 을 그대로 쓰는 편이 사각형 도구에서 직관적이지만, 축 정렬을
-        // 유지해야 스냅/치수 계산이 단순하므로 월드 축으로 고정한다.
+    if (az >= ax && az >= ay) {
+        // 위/아래에서 본다 -> 바닥 (XY). 화면 위 = +Y.
         p.right = vec3{1.0f, 0.0f, 0.0f};
+        p.up = vec3{0.0f, 1.0f, 0.0f};
+        p.normal = vec3{0.0f, 0.0f, 1.0f};
+        p.name = "XY (floor)";
+    } else if (ax >= ay) {
+        // 옆에서 본다 -> YZ. 위는 +Z.
+        p.right = vec3{0.0f, 1.0f, 0.0f};
         p.up = vec3{0.0f, 0.0f, 1.0f};
-        p.normal = vec3{0.0f, 1.0f, 0.0f};
-        p.name = "XZ (floor)";
-    } else if (ax >= az) {
-        // 옆에서 본다 -> YZ. 위는 -Y.
-        p.right = vec3{0.0f, 0.0f, 1.0f};
-        p.up = vec3{0.0f, -1.0f, 0.0f};
         p.normal = vec3{1.0f, 0.0f, 0.0f};
         p.name = "YZ (side)";
     } else {
-        // 정면 -> XY. 위는 -Y.
+        // 정면 -> XZ. 위는 +Z.
         p.right = vec3{1.0f, 0.0f, 0.0f};
-        p.up = vec3{0.0f, -1.0f, 0.0f};
-        p.normal = vec3{0.0f, 0.0f, 1.0f};
-        p.name = "XY (front)";
+        p.up = vec3{0.0f, 0.0f, 1.0f};
+        p.normal = vec3{0.0f, 1.0f, 0.0f};
+        p.name = "XZ (front)";
     }
     return p;
 }

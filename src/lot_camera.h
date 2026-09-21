@@ -14,8 +14,8 @@ class LotCamera {
 public:
     enum class ViewMode { Fps, Cad };
 
-    // 표준 CAD 뷰. 이 엔진의 좌표계(+X 오른쪽, +Y 아래, +Z 앞, 바닥 = XZ 평면)에서
-    // Front 는 -Z 에서 +Z 를 본다, Top 은 위(-Y)에서 내려다본다.
+    // 표준 CAD 뷰. 좌표계는 Z-up (+X 오른쪽, +Y 앞/깊이, +Z 위, 바닥 = XY 평면):
+    // Front 는 -Y 에서 +Y 를 본다, Top 은 위(+Z)에서 내려다본다. Vulkan 쪽과 같다.
     enum class CadViewType { Front, Back, Top, Bottom, Right, Left, Isometric };
 
     void setViewMode(ViewMode m) { viewMode_ = m; }
@@ -24,20 +24,20 @@ public:
 
     // ---- CAD 궤도 ----
     //
-    // orbitRotation_ 규약: forward = q * (0, 0, 1), up = q * (0, -1, 0), right = q * (1, 0, 0).
+    // orbitRotation_ 규약: forward = q * (0, 1, 0), up = q * (0, 0, 1), right = q * (1, 0, 0).
     // 카메라 위치는 target - forward * orbitDistance. 뷰 행렬은 updateCadView 가 만든다.
 
-    // 턴테이블 궤도: yaw 는 월드 위 축(-Y) 둘레, pitch 는 카메라 오른쪽 축 둘레 (라디안).
+    // 턴테이블 궤도: yaw 는 월드 위 축(+Z) 둘레, pitch 는 카메라 오른쪽 축 둘레 (라디안).
     // 자유 트랙볼과 달리 롤이 쌓이지 않아 수평선이 항상 수평이다 (AutoCAD 3DORBIT 과 같다).
     // 극점을 넘어가면 카메라가 뒤집히므로 그 직전에서 pitch 를 막는다.
     void orbitAroundTarget(float yaw, float pitch) {
-        const vec3 worldUp{0.0f, -1.0f, 0.0f};
+        const vec3 worldUp{0.0f, 0.0f, 1.0f};
         const quat qYaw = quat::angleAxis(yaw, worldUp);
         const vec3 right = rotate(orbitRotation_, vec3{1.0f, 0.0f, 0.0f});
         const quat qPitch = quat::angleAxis(pitch, right);
 
         quat next = normalize(qYaw * qPitch * orbitRotation_);
-        const vec3 nextUp = rotate(next, vec3{0.0f, -1.0f, 0.0f});
+        const vec3 nextUp = rotate(next, vec3{0.0f, 0.0f, 1.0f});
         if (dot(nextUp, worldUp) < kMinUpDot) {
             next = normalize(qYaw * orbitRotation_);  // pitch 는 버리고 yaw 만
         }
@@ -85,18 +85,19 @@ public:
     void resetCadView(CadViewType type) {
         target_ = vec3{0.0f, 0.0f, 0.0f};
         orbitDistance_ = kDefaultOrbitDistance;
+        // Vulkan 쪽 resetCadRotation 과 같은 값들이다.
         const float kHalfPi = 1.57079632679f;
-        const vec3 X{1.0f, 0.0f, 0.0f}, Y{0.0f, 1.0f, 0.0f};
+        const vec3 X{1.0f, 0.0f, 0.0f}, Z{0.0f, 0.0f, 1.0f};
         switch (type) {
-        case CadViewType::Front:  orbitRotation_ = quat::identity(); break;
-        case CadViewType::Back:   orbitRotation_ = quat::angleAxis(2.0f * kHalfPi, Y); break;
-        case CadViewType::Top:    orbitRotation_ = quat::angleAxis(-kHalfPi, X); break;
+        case CadViewType::Front:  orbitRotation_ = quat::identity(); break;                   // -Y 에서 +Y 를 본다
+        case CadViewType::Back:   orbitRotation_ = quat::angleAxis(2.0f * kHalfPi, Z); break;
+        case CadViewType::Top:    orbitRotation_ = quat::angleAxis(-kHalfPi, X); break;       // 위(+Z)에서, 화면 위 = +Y
         case CadViewType::Bottom: orbitRotation_ = quat::angleAxis(kHalfPi, X); break;
-        case CadViewType::Right:  orbitRotation_ = quat::angleAxis(-kHalfPi, Y); break;
-        case CadViewType::Left:   orbitRotation_ = quat::angleAxis(kHalfPi, Y); break;
+        case CadViewType::Right:  orbitRotation_ = quat::angleAxis(kHalfPi, Z); break;        // +X 에서 -X 를 본다
+        case CadViewType::Left:   orbitRotation_ = quat::angleAxis(-kHalfPi, Z); break;
         case CadViewType::Isometric:
             // 앞-왼쪽-위에서 내려다본다. 세 축이 같은 각으로 보이는 등각.
-            setViewFromDirection(normalize(vec3{-1.0f, -1.0f, -1.0f}));
+            setViewFromDirection(normalize(vec3{-1.0f, -1.0f, 1.0f}));
             currentViewType_ = type;
             presetView_ = true;
             return;
@@ -106,20 +107,20 @@ public:
         updateCadView();
     }
 
-    // 타깃에서 카메라를 향하는 임의 방향으로. 위쪽은 월드 -Y 기준으로 맞춘다
-    // (정확히 위/아래를 볼 때는 +Z 를 위로).
+    // 타깃에서 카메라를 향하는 임의 방향으로. 위쪽은 월드 +Z 기준으로 맞춘다
+    // (정확히 위/아래를 볼 때는 +Y 를 위로 - Top 뷰와 같은 방향).
     void setViewFromDirection(const vec3& dirFromTarget) {
         const vec3 f = normalize(dirFromTarget) * -1.0f;  // 카메라가 바라보는 방향
-        vec3 upRef{0.0f, -1.0f, 0.0f};
-        if (std::fabs(dot(f, upRef)) > 0.999f) upRef = vec3{0.0f, 0.0f, 1.0f};
+        vec3 upRef{0.0f, 0.0f, 1.0f};
+        if (std::fabs(dot(f, upRef)) > 0.999f) upRef = vec3{0.0f, 1.0f, 0.0f};
         const vec3 right = normalize(cross(f, upRef));
         const vec3 up = cross(right, f);
 
-        // 열 = 기저 벡터 (q * X = right, q * -Y = up 이므로 두 번째 열은 -up).
+        // 열 = 기저 벡터 (q * X = right, q * Y = forward, q * Z = up).
         mat4 r = mat4::identity();
         r.m[0][0] = right.x; r.m[0][1] = right.y; r.m[0][2] = right.z;
-        r.m[1][0] = -up.x;   r.m[1][1] = -up.y;   r.m[1][2] = -up.z;
-        r.m[2][0] = f.x;     r.m[2][1] = f.y;     r.m[2][2] = f.z;
+        r.m[1][0] = f.x;     r.m[1][1] = f.y;     r.m[1][2] = f.z;
+        r.m[2][0] = up.x;    r.m[2][1] = up.y;    r.m[2][2] = up.z;
         orbitRotation_ = normalize(quat::fromMatrix(r));
         currentViewType_ = CadViewType::Isometric;
         presetView_ = false;  // 임의 방향 - 등각 버튼을 켜지 않는다
@@ -137,8 +138,8 @@ public:
 
     // 궤도 상태로 뷰 행렬을 다시 만든다. 상태를 바꾸는 함수들이 알아서 부른다.
     void updateCadView() {
-        const vec3 forward = rotate(orbitRotation_, vec3{0.0f, 0.0f, 1.0f});
-        const vec3 up = rotate(orbitRotation_, vec3{0.0f, -1.0f, 0.0f});
+        const vec3 forward = rotate(orbitRotation_, vec3{0.0f, 1.0f, 0.0f});
+        const vec3 up = rotate(orbitRotation_, vec3{0.0f, 0.0f, 1.0f});
         setViewTarget(target_ - forward * orbitDistance_, target_, up);
     }
 
@@ -165,25 +166,26 @@ public:
 
     // 카메라 위치와 '바라보는 방향'
     void setViewDirection(const vec3& position, const vec3& direction,
-                          const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
+                          const vec3& up = vec3{0.0f, 0.0f, 1.0f}) {
         view_ = mat4::view(position, direction, up);
     }
 
     // 카메라 위치와 '바라보는 지점'
     void setViewTarget(const vec3& position, const vec3& target,
-                       const vec3& up = vec3{0.0f, -1.0f, 0.0f}) {
+                       const vec3& up = vec3{0.0f, 0.0f, 1.0f}) {
         view_ = mat4::lookAt(position, target, up);
     }
 
     // 위치 + 쿼터니언. 카메라를 게임 오브젝트처럼 다룰 때 쓴다 (1인칭 조작).
+    // 카메라 로컬 축: X 오른쪽, Y 앞, Z 위 (궤도 카메라와 같은 규약).
     //
     // 카메라 변환이 T * R 이므로 뷰는 R^T * T^-1 이다. R 이 직교라 전치가
     // 역행렬이므로, R 의 열 u/v/w 를 행에 넣기만 하면 된다.
     void setViewFromTransform(const vec3& position, const quat& rotation) {
         const mat4 r = rotation.toMat4();
-        const vec3 u{r.m[0][0], r.m[0][1], r.m[0][2]};
-        const vec3 v{r.m[1][0], r.m[1][1], r.m[1][2]};
-        const vec3 w{r.m[2][0], r.m[2][1], r.m[2][2]};
+        const vec3 u{r.m[0][0], r.m[0][1], r.m[0][2]};                 // 오른쪽 = 로컬 X
+        const vec3 w{r.m[1][0], r.m[1][1], r.m[1][2]};                 // 앞 = 로컬 Y
+        const vec3 v{-r.m[2][0], -r.m[2][1], -r.m[2][2]};              // 뷰 공간 아래 = -로컬 Z
 
         view_ = mat4::identity();
         view_.m[0][0] = u.x;  view_.m[1][0] = u.y;  view_.m[2][0] = u.z;
@@ -214,7 +216,7 @@ public:
     mat4 getProjectionView() const { return projection_ * view_; }
 
     // 뷰 행렬의 세 행 = 카메라의 오른쪽 / 아래 / 앞 방향 (월드).
-    // (+Y 가 아래인 규약이라 두 번째가 '아래'다.)
+    // (뷰 공간은 +Y 가 아래인 규약이라 두 번째가 '아래'다.)
     vec3 getRight() const { return vec3{view_.m[0][0], view_.m[1][0], view_.m[2][0]}; }
     vec3 getDown() const { return vec3{view_.m[0][1], view_.m[1][1], view_.m[2][1]}; }
     vec3 getForward() const { return vec3{view_.m[0][2], view_.m[1][2], view_.m[2][2]}; }
