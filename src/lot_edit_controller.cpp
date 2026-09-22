@@ -57,7 +57,13 @@ void EditController::update(const Context& ctx) {
         query.height = ctx.height;
         query.radiusPx = snapRadiusPx;
         query.exclude = (drag_.active || ctx.excludeSelectionFromSnap) ? &selection_ : nullptr;
+        query.fromPoint = ctx.snapFromPoint;
+        const lot_osnap::Kind before = snap_.kind;
         snap_ = lot_osnap::find(query, mouseRay(), ctx.objects);
+        // 종류가 바뀔 때만 한 줄 - 어떤 스냅이 잡혔는지 상태바에서 따라갈 수 있게
+        if (snap_.kind != before && snap_.valid()) {
+            LOT_LOG("snap: " << lot_osnap::kindName(snap_.kind) << " of object " << snap_.id);
+        }
     }
 
     // 2. 누름 (도구가 열려 있으면 클릭은 그 도구가 가져간다)
@@ -306,8 +312,7 @@ void EditController::endGizmoDrag(const Context& ctx) {
     }
 
     if (snap_.valid()) {
-        LOT_LOG("snap: " << (snap_.kind == lot_osnap::Kind::Endpoint ? "endpoint"
-                             : snap_.kind == lot_osnap::Kind::Center ? "center" : "midpoint")
+        LOT_LOG("snap: " << lot_osnap::kindName(snap_.kind)
                 << " of object " << snap_.id << " (" << snap_.screenDistance << "px)");
     }
     const vec3 p = pivot(ctx.objects);

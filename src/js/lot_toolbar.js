@@ -101,7 +101,7 @@ mergeInto(LibraryManager.library, {
                 ['Right', 'KeyR', 0, 'Right view (R)', 'view:4'],
                 ['Iso',   'KeyI', 0, 'Isometric view (I)', 'view:6'],
                 ['Fit',   'KeyZ', 0, 'Zoom extents - fit the whole scene (Z)', ''],
-                ['Ortho', 'KeyP', 0, 'Perspective / orthographic (P)', 'ortho'],
+                ['Parallel', 'KeyP', 0, 'Perspective / parallel (orthographic) projection (P)', 'ortho'],
                 ['FPS',   'KeyV', 0, 'CAD orbit / first-person (V)', 'fps'],
             ]],
             ['gizmo', [
@@ -124,6 +124,7 @@ mergeInto(LibraryManager.library, {
                 ['Polygon',  'KeyG', 0, 'Regular polygon: center, vertex (G; [ ] sides)', 'sketch:5'],
                 ['Finish',   'Enter', 0, 'Finish sketch (Enter)', ''],
                 ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
+                ['Ortho',    'F8', 0, 'Ortho tracking: constrain to plane axes (F8)', 'orthoTrack'],
             ]],
             ['edit', [
                 ['Dup',    'KeyD', 1, 'Duplicate selection in place (Ctrl+D)', ''],
@@ -240,8 +241,8 @@ mergeInto(LibraryManager.library, {
     //   gizmoMode 0/1/2, sketchTool -1/0/1/2, view -1 또는 CadViewType, fps 0/1,
     //   ortho 0/1, outline 0/1, canUndo/canRedo 0/1, hint = UTF-8 문자열 (빈 문자열이면 숨김)
     js_setToolbarState__deps: ['$UTF8ToString'],
-    js_setToolbarState: function(gizmoMode, sketchTool, xformMode, view, fps, ortho, outline,
-                                 canUndo, canRedo, hintPtr) {
+    js_setToolbarState: function(gizmoMode, sketchTool, xformMode, view, fps, ortho, orthoTrack,
+                                 outline, canUndo, canRedo, hintPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.toolbarButtons) return 0;  // 아직 툴바가 없다 - C++ 이 다음 프레임에 다시 보낸다
         var buttons = dom.toolbarButtons;
@@ -260,6 +261,7 @@ mergeInto(LibraryManager.library, {
         setOn('view', view);
         style(buttons['fps'], fps === 1, true);
         style(buttons['ortho'], ortho === 1, true);
+        style(buttons['orthoTrack'], orthoTrack === 1, true);
         style(buttons['outline'], outline === 1, true);
         style(buttons['undo'], false, canUndo === 1);
         style(buttons['redo'], false, canRedo === 1);

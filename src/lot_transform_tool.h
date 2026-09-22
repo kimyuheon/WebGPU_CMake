@@ -66,6 +66,12 @@ public:
     // 툴바/안내문
     std::string hint() const;
 
+    // 기준점 (미리보기 중) - 수직 스냅 / 직교 트랙킹 기준. 없으면 nullptr.
+    const vec3* referencePoint() const { return isPreviewing() ? &base_ : nullptr; }
+
+    // 직교 트랙킹 (F8). 이동/복사의 변위를 작업평면의 한 축으로 제한한다.
+    bool orthoTracking = false;
+
     // 오버레이: 기준점 마커 + 고무줄 (기준점 -> 커서).
     void drawOverlay(LineRenderSystem& lines, const Context& ctx) const;
 

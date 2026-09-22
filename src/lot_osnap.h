@@ -24,10 +24,14 @@ namespace lot_osnap {
 
 enum class Kind {
     None,
-    Endpoint,  // 꼭짓점 - 마커는 사각형
-    Midpoint,  // 모서리 중점 - 마커는 삼각형
-    Center,    // 원/호의 중심 - 마커는 원 (CAD 관례)
+    Endpoint,       // 꼭짓점 - 마커는 사각형
+    Midpoint,       // 모서리 중점 - 마커는 삼각형
+    Center,         // 원/호의 중심 - 마커는 원 (CAD 관례)
+    Intersection,   // 두 스케치 세그먼트의 교점 - 마커는 X
+    Perpendicular,  // 기준점에서 세그먼트에 내린 수선의 발 - 마커는 ⊥
 };
+
+const char* kindName(Kind kind);
 
 struct Snap {
     Kind kind = Kind::None;
@@ -48,6 +52,8 @@ struct Query {
     // 이 오브젝트들은 후보에서 뺀다 - 끌고 있는 것들이 제 정점에 붙지 않도록.
     // nullptr 이면 아무것도 빼지 않는다.
     const std::set<LotGameObject::id_t>* exclude = nullptr;
+    // 수직 스냅의 기준점 (도구의 직전 점: 선의 시작점, 변환의 기준점). nullptr 이면 수직 스냅 없음.
+    const vec3* fromPoint = nullptr;
 
     bool isExcluded(LotGameObject::id_t id) const {
         return exclude != nullptr && exclude->count(id) != 0;

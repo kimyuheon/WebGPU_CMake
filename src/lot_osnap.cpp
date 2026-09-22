@@ -6,7 +6,50 @@
 #include <limits>
 
 namespace lot_osnap {
+
+const char* kindName(Kind kind) {
+    switch (kind) {
+    case Kind::Endpoint: return "endpoint";
+    case Kind::Midpoint: return "midpoint";
+    case Kind::Center: return "center";
+    case Kind::Intersection: return "intersection";
+    case Kind::Perpendicular: return "perpendicular";
+    default: return "none";
+    }
+}
+
 namespace {
+
+// 스케치 세그먼트 하나 (월드). 교차/수직 후보를 모을 때 쓴다.
+struct Segment {
+    vec3 a, b;
+    LotGameObject::id_t id;
+};
+
+// 두 3D 선분의 최근접점 파라미터 (s 는 ab 위, t 는 cd 위, 둘 다 [0, 1] 로 자른다).
+// 평행이면 false.
+bool closestSegmentParams(const vec3& a, const vec3& b, const vec3& c, const vec3& d,
+                          float& s, float& t) {
+    const vec3 u = b - a, v = d - c, w = a - c;
+    const float uu = dot(u, u), uv = dot(u, v), vv = dot(v, v), uw = dot(u, w), vw = dot(v, w);
+    const float den = uu * vv - uv * uv;
+    if (den < 1e-12f * uu * vv || uu < 1e-12f || vv < 1e-12f) return false;
+    s = (uv * vw - vv * uw) / den;
+    t = (uu * vw - uv * uw) / den;
+    if (s < 0.0f) s = 0.0f;
+    if (s > 1.0f) s = 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return true;
+}
+
+// 세그먼트가 화면에서 커서 근처를 지나가나 (후보 전처리 - 전부 짝지어 보지 않게)
+bool segmentNearCursor(const Query& q, const vec3& a, const vec3& b, float radiusPx) {
+    float ax, ay, bx, by;
+    if (!q.camera->projectToScreen(a, q.width, q.height, ax, ay)) return false;
+    if (!q.camera->projectToScreen(b, q.width, q.height, bx, by)) return false;
+    return lot_pick::distancePointToSegment2D(q.mouseX, q.mouseY, ax, ay, bx, by) <= radiusPx;
+}
 
 // 월드 점이 커서에서 몇 픽셀 떨어져 있나. 카메라 뒤면 무한대.
 float screenDistance(const Query& q, const vec3& world) {
@@ -91,6 +134,55 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
                      entry.first, best);
         }
     }
+
+    // 1-3. 교차점 / 수직점. 커서 근처를 지나는 스케치 세그먼트만 모아 (보통 몇 개)
+    //      짝지어 본다. 세그먼트 수천 개를 매 프레임 전부 짝지으면 느려진다.
+    {
+        std::vector<Segment> near;
+        const float reach = q.radiusPx * 2.0f;
+        for (const auto& entry : objects) {
+            if (q.isExcluded(entry.first)) continue;
+            const LotGameObject& obj = entry.second;
+            if (!obj.isSketch()) continue;
+            const std::vector<vec3> pts = obj.worldPoints();
+            const size_t n = pts.size();
+            const size_t segments = obj.closed ? n : n - 1;
+            for (size_t i = 0; i < segments; ++i) {
+                const vec3& a = pts[i];
+                const vec3& b = pts[(i + 1) % n];
+                if (segmentNearCursor(q, a, b, reach)) near.push_back(Segment{a, b, entry.first});
+            }
+        }
+
+        // 교차: 두 세그먼트의 최근접점이 화면에서 한 픽셀 안에 붙어 있으면 교차로 본다
+        // (같은 평면의 선끼리는 정확히 0, 살짝 어긋난 3D 선도 잡힌다).
+        for (size_t i = 0; i < near.size(); ++i) {
+            for (size_t j = i + 1; j < near.size(); ++j) {
+                float s, t;
+                if (!closestSegmentParams(near[i].a, near[i].b, near[j].a, near[j].b, s, t)) continue;
+                // 세그먼트 끝에서 만나는 것은 끝점 스냅이 이미 잡는다 - 여기서는 내부 교차만
+                if (s < 1e-4f || s > 1.0f - 1e-4f || t < 1e-4f || t > 1.0f - 1e-4f) continue;
+                const vec3 p1 = near[i].a + (near[i].b - near[i].a) * s;
+                const vec3 p2 = near[j].a + (near[j].b - near[j].a) * t;
+                const vec3 gap = p1 - p2;
+                const float tol = q.camera->worldPerPixel(p1, q.height) * 1.0f;
+                if (dot(gap, gap) > tol * tol) continue;
+                consider(q, Kind::Intersection, (p1 + p2) * 0.5f, near[i].id, best);
+            }
+        }
+
+        // 수직: 기준점에서 세그먼트에 내린 수선의 발 (세그먼트 안에 떨어질 때만)
+        if (q.fromPoint) {
+            for (const Segment& sg : near) {
+                const vec3 u = sg.b - sg.a;
+                const float uu = dot(u, u);
+                if (uu < 1e-12f) continue;
+                const float s = dot(*q.fromPoint - sg.a, u) / uu;
+                if (s <= 1e-4f || s >= 1.0f - 1e-4f) continue;
+                consider(q, Kind::Perpendicular, sg.a + u * s, sg.id, best);
+            }
+        }
+    }
     if (best.valid()) return best;
 
     // 2. 폴백: 커서가 메시 밖. 모든 정점을 화면에 투영해 가장 가까운 끝점.
@@ -118,7 +210,17 @@ void addMarker(LineRenderSystem& lines, const Snap& snap, const LotCamera& camer
     const vec3 u = camera.getDown() * -s;  // 화면 위쪽
     const vec3& p = snap.point;
 
-    if (snap.kind == Kind::Center) {
+    if (snap.kind == Kind::Intersection) {
+        // X
+        const vec3 color{1.0f, 0.5f, 0.5f};
+        lines.addLine(p - r - u, p + r + u, color);
+        lines.addLine(p - r + u, p + r - u, color);
+    } else if (snap.kind == Kind::Perpendicular) {
+        // ⊥ : 밑변 + 세로선
+        const vec3 color{0.6f, 0.8f, 1.0f};
+        lines.addLine(p - r - u, p + r - u, color);
+        lines.addLine(p - u, p + u, color);
+    } else if (snap.kind == Kind::Center) {
         // 원 (8각형으로)
         const vec3 color{1.0f, 0.6f, 0.3f};
         vec3 prev = p + r;

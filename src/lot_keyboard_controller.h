@@ -80,6 +80,9 @@ public:
     // 전체 보기 (Z, Ctrl 없이). 누른 순간만.
     bool consumeZoomExtents();
 
+    // 직교 트랙킹 토글 (F8). 누른 순간만.
+    bool consumeOrthoToggle();
+
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
     // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXY 가 같은 키를 시선으로 쓴다.
     void orbitInput(float& yaw, float& pitch) const;
@@ -139,6 +142,7 @@ private:
         Undo,
         Redo,
         ZoomExtents,
+        OrthoTracking,
         KeyCount,
     };
 

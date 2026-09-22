@@ -41,6 +41,8 @@ public:
         bool toolActive = false;
         // 변환 도구가 선택을 끌고 있을 때 - 끌리는 것들에는 스냅이 걸리지 않게
         bool excludeSelectionFromSnap = false;
+        // 수직 스냅의 기준점 (열린 도구의 직전 점). nullptr 이면 없음.
+        const vec3* snapFromPoint = nullptr;
     };
 
     // 입력 처리. 프레임당 한 번, 카메라가 갱신되기 전에 부른다

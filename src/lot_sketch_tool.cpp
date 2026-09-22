@@ -435,6 +435,19 @@ void SketchController::finish(LotGameObject::Map& objects) {
     active_ = nullptr;
 }
 
+const vec3* SketchController::referencePoint() const {
+    if (!active_ || !active_->hasPoints()) return nullptr;
+    return &active_->points().back();
+}
+
+// 직교 트랙킹: 기준점에서 커서까지의 변위를 평면의 두 축 중 더 많이 움직인 쪽으로만.
+// 축은 매 프레임 다시 고르므로 드래그하다 방향을 틀면 자연스럽게 바뀐다.
+vec3 orthoConstrain(const vec3& from, const vec3& cursor, const SketchPlane& plane) {
+    const vec3 d = cursor - from;
+    const float dr = dot(d, plane.right), du = dot(d, plane.up);
+    return (std::fabs(dr) >= std::fabs(du)) ? from + plane.right * dr : from + plane.up * du;
+}
+
 bool SketchController::cursorPoint(const Context& ctx, vec3& out) const {
     if (ctx.snap.valid()) {
         out = ctx.snap.point;  // 스냅이 잡혔으면 평면 밖이라도 그 점 (AutoCAD 의 OSNAPZ=0)
@@ -442,7 +455,11 @@ bool SketchController::cursorPoint(const Context& ctx, vec3& out) const {
     }
     const lot_pick::Ray ray = lot_pick::screenToRay(ctx.camera, ctx.mouse.x(), ctx.mouse.y(),
                                                     ctx.width, ctx.height);
-    return plane_.intersect(ray, out);
+    if (!plane_.intersect(ray, out)) return false;
+    if (orthoTracking) {
+        if (const vec3* ref = referencePoint()) out = orthoConstrain(*ref, out, plane_);
+    }
+    return true;
 }
 
 void SketchController::update(const Context& ctx) {
@@ -524,6 +541,7 @@ std::string SketchController::hint() const {
         else s += "click next point, first point = close, Enter = open";
     }
     s += "  [Esc cancel]";
+    if (orthoTracking) s += "  ORTHO";
     return s;
 }
 

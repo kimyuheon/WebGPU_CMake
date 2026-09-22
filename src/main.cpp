@@ -38,7 +38,7 @@ extern "C" {
     extern void js_setupToolbar();
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
     extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
-                                  int ortho, int outline, int canUndo, int canRedo,
+                                  int ortho, int orthoTrack, int outline, int canUndo, int canRedo,
                                   const char* hint);
 }
 
@@ -116,6 +116,7 @@ static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 // 투영 모드. P 키로 전환한다.
 // 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
 static bool g_orthographic = false;
+static bool g_orthoTracking = false;  // F8: 도구가 직전 점에서 축 방향으로만 나가게
 static float g_orthoHalfHeight = 1.6f;
 static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
 static float g_orthoMinHalfHeight = 0.2f;
@@ -297,6 +298,7 @@ struct ToolbarState {
     int view = -1;
     int fps = 0;
     int ortho = 0;
+    int orthoTrack = 0;
     int outline = 0;
     int canUndo = 0;
     int canRedo = 0;
@@ -305,7 +307,7 @@ struct ToolbarState {
     bool operator==(const ToolbarState& o) const {
         return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && xformMode == o.xformMode
             && view == o.view
-            && fps == o.fps && ortho == o.ortho && outline == o.outline
+            && fps == o.fps && ortho == o.ortho && orthoTrack == o.orthoTrack && outline == o.outline
             && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
     }
 };
@@ -320,13 +322,14 @@ static void pushToolbarState() {
     s.view = g_camera.presetViewIndex();
     s.fps = g_camera.isCadMode() ? 0 : 1;
     s.ortho = g_orthographic ? 1 : 0;
+    s.orthoTrack = g_orthoTracking ? 1 : 0;
     s.outline = (g_postSystem->mode == PostProcessSystem::Mode::Outline) ? 1 : 0;
     s.canUndo = g_edit.history().canUndo() ? 1 : 0;
     s.canRedo = g_edit.history().canRedo() ? 1 : 0;
     s.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
     if (g_toolbarPushed && s == g_toolbarState) return;
     const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.xformMode, s.view, s.fps,
-                                            s.ortho, s.outline, s.canUndo, s.canRedo,
+                                            s.ortho, s.orthoTrack, s.outline, s.canUndo, s.canRedo,
                                             s.hint.c_str()) != 0;
     if (!applied) return;  // 툴바 DOM 이 생기기 전 - 기억하지 말고 다음 프레임에 다시
     g_toolbarState = s;
@@ -470,7 +473,9 @@ void renderLoop() {
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive(),
-                                        g_transform.isPreviewing()};
+                                        g_transform.isPreviewing(),
+                                        g_transform.isActive() ? g_transform.referencePoint()
+                                                               : g_sketch.referencePoint()};
             g_edit.update(ctx);
 
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
@@ -497,6 +502,12 @@ void renderLoop() {
         if (g_cameraController.consumeZoomExtents()) {
             zoomExtents();
         }
+        if (g_cameraController.consumeOrthoToggle()) {
+            g_orthoTracking = !g_orthoTracking;
+            LOT_LOG("ortho tracking: " << (g_orthoTracking ? "on" : "off"));
+        }
+        g_sketch.orthoTracking = g_orthoTracking;
+        g_transform.orthoTracking = g_orthoTracking;
         if (const int d = g_cameraController.consumePolygonSidesDelta(); d != 0) {
             g_sketch.changePolygonSides(d);
         }

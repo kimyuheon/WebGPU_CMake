@@ -81,7 +81,14 @@ bool TransformTool::cursorPoint(const Context& ctx, vec3& out) const {
     }
     const lot_pick::Ray ray = lot_pick::screenToRay(ctx.camera, ctx.mouse.x(), ctx.mouse.y(),
                                                     ctx.width, ctx.height);
-    return plane_.intersect(ray, out);
+    if (!plane_.intersect(ray, out)) return false;
+    // 직교 트랙킹은 이동/복사에만 - 회전 각과 축척 배율은 방향이 아니라 값이다
+    if (orthoTracking && isPreviewing() && (mode_ == Mode::Move || mode_ == Mode::Copy)) {
+        const vec3 d = out - base_;
+        const float dr = dot(d, plane_.right), du = dot(d, plane_.up);
+        out = (std::fabs(dr) >= std::fabs(du)) ? base_ + plane_.right * dr : base_ + plane_.up * du;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------- preview math
@@ -315,6 +322,7 @@ std::string TransformTool::hint() const {
         s += buf;
     }
     s += "  [Esc cancel]";
+    if (orthoTracking) s += "  ORTHO";
     return s;
 }
 
