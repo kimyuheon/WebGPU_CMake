@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lot_game_object.h"
+#include "lot_layers.h"
 
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@ struct LoadStats {
     int arcs = 0;
     int dimensions = 0;
     int texts = 0;
+    int layers = 0;
     int skipped = 0;          // 지원하지 않는 종류
     std::string skippedKinds; // 로그용: "circle, text" 처럼
     std::string error;        // 비어 있지 않으면 실패
@@ -33,12 +35,14 @@ struct LoadStats {
 
 // 씬 전체를 .lot JSON 문자열로. model 이 없고 sketch 도 아닌 오브젝트
 // (뷰어 오브젝트)는 건너뛴다.
-std::string save(const LotGameObject::Map& objects);
+std::string save(const LotGameObject::Map& objects, const LotLayers& layers);
 
 // JSON 텍스트를 읽어 objects 에 추가한다 (기존 것은 지우지 않는다 - 호출자가
 // 새 씬을 원하면 먼저 비운다). 메시는 GPU 버퍼를 만들어야 하므로 device 가 필요하고,
 // 재질은 파일에 없으므로 defaultMaterial 을 붙인다 (nullptr 이면 렌더 기본값).
+// layers 는 파일의 층으로 덮어쓴다 (파일 id -> 새 id 로 매핑해 오브젝트에 반영).
 LoadStats load(const std::string& text, lot_web_device& device,
-               std::shared_ptr<LotMaterial> defaultMaterial, LotGameObject::Map& objects);
+               std::shared_ptr<LotMaterial> defaultMaterial, LotGameObject::Map& objects,
+               LotLayers& layers);
 
 }  // namespace lot_scene

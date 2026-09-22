@@ -6,6 +6,7 @@
 #include "lot_sketch_tool.h"
 
 #include <cmath>
+#include <map>
 
 namespace lot_scene {
 namespace {
@@ -73,6 +74,7 @@ JsonValue objectJson(const LotGameObject& obj) {
     JsonValue jo = JsonValue::makeObject();
     jo.set("name", "");
     jo.set("color", j3(obj.color));
+    jo.set("layer", static_cast<double>(obj.layer));
     jo.set("transform", transformJson(obj.transform));
 
     if (obj.isText()) {
@@ -183,11 +185,12 @@ JsonValue objectJson(const LotGameObject& obj) {
 
 // 스케치 오브젝트를 만들어 넣는다. 점은 이미 웹 로컬 좌표.
 void addSketch(LotGameObject::Map& objects, std::vector<vec3> points, bool closed,
-               const TransformComponent& t, const vec3& color,
+               const TransformComponent& t, const vec3& color, uint32_t layer,
                const LotGameObject::Curve* curve = nullptr) {
     auto obj = LotGameObject::createGameObject();
     obj.transform = t;
     obj.color = color;
+    obj.layer = layer;
     obj.points = std::move(points);
     obj.closed = closed;
     if (curve) obj.curve = *curve;
@@ -214,7 +217,7 @@ LotGameObject::Curve curveFromJson(const JsonValue& jc, bool arc) {
 }
 
 bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformComponent& t,
-              const vec3& color, std::shared_ptr<LotMaterial> material,
+              const vec3& color, uint32_t layer, std::shared_ptr<LotMaterial> material,
               LotGameObject::Map& objects) {
     const JsonValue* jp = jm.find("p");
     if (!jp || !jp->isArray() || jp->array.size() < 9) return false;
@@ -250,6 +253,7 @@ bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformCompon
     auto obj = LotGameObject::createGameObject();
     obj.transform = t;
     obj.color = color;
+    obj.layer = layer;
     obj.model = std::move(model);
     obj.material = std::move(material);
     const auto id = obj.getId();
@@ -259,11 +263,26 @@ bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformCompon
 
 }  // namespace
 
-std::string save(const LotGameObject::Map& objects) {
+std::string save(const LotGameObject::Map& objects, const LotLayers& layers) {
     JsonValue root = JsonValue::makeObject();
     root.set("format", "lot");
     root.set("version", 3);
     root.set("generator", "3dengine_web");
+
+    // 층. 네이티브와 같은 키 (color 는 [r, g, b], linetype 은 아직 0 고정).
+    JsonValue jlayers = JsonValue::makeArray();
+    for (const LotLayers::Layer* l : layers.all()) {
+        JsonValue jl = JsonValue::makeObject();
+        jl.set("id", static_cast<double>(l->id));
+        jl.set("name", l->name);
+        jl.set("visible", l->visible);
+        jl.set("locked", l->locked);
+        jl.set("color", j3(l->color));
+        jl.set("linetype", 0);
+        jl.set("opacity", l->opacity);
+        jlayers.push(jl);
+    }
+    root.set("layers", jlayers);
     JsonValue arr = JsonValue::makeArray();
     int count = 0;
     for (const auto& entry : objects) {
@@ -278,7 +297,8 @@ std::string save(const LotGameObject::Map& objects) {
 }
 
 LoadStats load(const std::string& text, lot_web_device& device,
-               std::shared_ptr<LotMaterial> defaultMaterial, LotGameObject::Map& objects) {
+               std::shared_ptr<LotMaterial> defaultMaterial, LotGameObject::Map& objects,
+               LotLayers& layers) {
     LoadStats stats;
     JsonValue root;
     if (!parseJson(text, root, stats.error)) {
@@ -295,17 +315,55 @@ LoadStats load(const std::string& text, lot_web_device& device,
         return stats;
     }
 
+    // 층 먼저. 파일 id 는 우리 id 와 다를 수 있으므로 표를 만들어 오브젝트에 적용한다.
+    // 파일의 id 0 은 우리 기본층("0")에 붙인다 - 네이티브도 0 을 기본층으로 쓴다.
+    layers.clear();
+    std::map<uint32_t, uint32_t> layerMap;
+    layerMap.emplace(0u, LotLayers::kDefault);
+    if (const JsonValue* jl = root.find("layers"); jl && jl->isArray()) {
+        for (const JsonValue& entry : jl->array) {
+            if (!entry.isObject()) continue;
+            const uint32_t fileId = static_cast<uint32_t>(entry.find("id") ? entry.find("id")->numberOr(0.0) : 0.0);
+            const std::string name = entry.find("name") ? entry.find("name")->stringOr("Layer") : "Layer";
+            const vec3 color = getv3(entry.find("color"), vec3{0.8f, 0.8f, 0.85f});
+            uint32_t id;
+            if (fileId == 0 || name == "0") {
+                id = LotLayers::kDefault;  // 기본층은 만들지 않고 속성만 덮어쓴다
+            } else if (layerMap.count(fileId)) {
+                continue;
+            } else {
+                id = layers.create(name, color);
+            }
+            if (LotLayers::Layer* l = layers.find(id)) {
+                l->color = color;
+                if (id != LotLayers::kDefault) {
+                    l->visible = entry.find("visible") ? entry.find("visible")->boolOr(true) : true;
+                    l->locked = entry.find("locked") ? entry.find("locked")->boolOr(false) : false;
+                }
+                l->opacity = static_cast<float>(entry.find("opacity") ? entry.find("opacity")->numberOr(1.0) : 1.0);
+            }
+            layerMap.emplace(fileId, id);
+            ++stats.layers;
+        }
+    }
+    auto mappedLayer = [&](const JsonValue& jo) {
+        const uint32_t fileId = static_cast<uint32_t>(jo.find("layer") ? jo.find("layer")->numberOr(0.0) : 0.0);
+        auto it = layerMap.find(fileId);
+        return it == layerMap.end() ? LotLayers::kDefault : it->second;
+    };
+
     for (const JsonValue& jo : arr->array) {
         if (!jo.isObject()) continue;
         const std::string kind = jo.find("kind") ? jo.find("kind")->stringOr("mesh") : "mesh";
         const TransformComponent t = transformFromJson(jo.find("transform"));
         const vec3 color = getv3(jo.find("color"), vec3{1.0f, 1.0f, 1.0f});
+        const uint32_t layerId = mappedLayer(jo);
 
         if (kind == "line" && jo.find("line")) {
             const JsonValue* jl = jo.find("line");
             const vec3 a = fromNative(getv3(jl->find("a"), vec3{0.0f, 0.0f, 0.0f}));
             const vec3 b = fromNative(getv3(jl->find("b"), vec3{0.0f, 0.0f, 0.0f}));
-            addSketch(objects, {a, b}, false, t, color);
+            addSketch(objects, {a, b}, false, t, color, layerId);
             ++stats.lines;
         } else if (kind == "polyline" && jo.find("polyline")) {
             const JsonValue* jp = jo.find("polyline");
@@ -318,7 +376,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             }
             if (pts.size() < 2) { ++stats.skipped; continue; }
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
-            addSketch(objects, std::move(pts), closed, t, color);
+            addSketch(objects, std::move(pts), closed, t, color, layerId);
             ++stats.polylines;
         } else if (kind == "text" && jo.find("text")) {
             const JsonValue* jt = jo.find("text");
@@ -366,6 +424,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             auto obj = LotGameObject::createGameObject();
             obj.transform = t;
             obj.color = color;
+            obj.layer = layerId;
             obj.dim = d;
             const auto id = obj.getId();
             objects.emplace(id, std::move(obj));
@@ -376,10 +435,10 @@ LoadStats load(const std::string& text, lot_web_device& device,
             std::vector<vec3> pts = tessellateArc(c.center, c.radius, c.right, c.up,
                                                   c.start, c.end, /*includeEnd=*/arc);
             if (pts.size() < 2) { ++stats.skipped; continue; }
-            addSketch(objects, std::move(pts), !arc, t, color, &c);
+            addSketch(objects, std::move(pts), !arc, t, color, layerId, &c);
             arc ? ++stats.arcs : ++stats.circles;
         } else if (jo.find("mesh")) {
-            if (loadMesh(*jo.find("mesh"), device, t, color, defaultMaterial, objects)) ++stats.meshes;
+            if (loadMesh(*jo.find("mesh"), device, t, color, layerId, defaultMaterial, objects)) ++stats.meshes;
             else ++stats.skipped;
         } else {
             ++stats.skipped;
@@ -392,7 +451,8 @@ LoadStats load(const std::string& text, lot_web_device& device,
 
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
-            << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts << " texts"
+            << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts
+            << " texts, " << stats.layers << " layers"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

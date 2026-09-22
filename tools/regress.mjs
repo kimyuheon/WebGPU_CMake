@@ -172,6 +172,48 @@ const scenarios = [
     },
   },
   {
+    name: 'layers',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      t.expect((await a.layerRows()).length === 1, 'starts with layer 0 only');
+
+      // 새 층을 만들고 현재 층으로 -> 거기에 선을 그린다
+      t.expect(await a.layerButton(-1, 'New layer'), '+ creates a layer');
+      t.expect(a.has(/layer: created 1/), 'layer 1 created');
+      await a.key('KeyL'); await a.click(600, 700); await a.click(900, 700); await a.key('Enter');
+      let rows = await a.layerRows();
+      t.expect(/Layer 1 \(1\)/.test(rows[1]), 'new object goes to the current layer');
+
+      // 층을 끄면 그 선은 못 고른다
+      t.expect(await a.layerButton(1, 'Hide layer'), 'hide button');
+      await a.click(750, 700);
+      t.expect(!a.has(/pick: sketch/), 'hidden layer is not pickable');
+      t.expect(await a.layerButton(1, 'Show layer'), 'show button');
+      await a.click(750, 700);
+      t.expect(a.has(/pick: sketch/), 'visible again -> pickable');
+
+      // 잠그면 보이되 못 고른다
+      await a.key('Escape');
+      t.expect(await a.layerButton(1, 'Lock layer'), 'lock button');
+      await a.click(750, 700);
+      t.expect(a.count(/pick: sketch/) === 1, 'locked layer is not pickable');
+
+      // 선택을 다른 층으로 옮기기
+      t.expect(await a.layerButton(1, 'Unlock layer'), 'unlock button');
+      await a.click(750, 700);
+      t.expect(await a.layerMakeCurrent(0), 'name click makes layer 0 current');
+      t.expect(await a.layerButton(0, 'Move the selection'), 'assign to layer 0');
+      t.expect(a.has(/layer: moved 1 objects to layer 0/), 'object moved');
+
+      // 층 지우기 - 오브젝트는 남고 0 층으로
+      t.expect(await a.layerButton(1, 'Delete layer'), 'delete button');
+      t.expect(a.has(/layer: removed 1/), 'layer removed');
+      rows = await a.layerRows();
+      t.expect(rows.length === 1 && /0 \(4\)/.test(rows[0]), 'objects survive on layer 0');
+    },
+  },
+  {
     name: 'scene-roundtrip',
     async run(t) {
       const a = t.api;
@@ -184,7 +226,7 @@ const scenarios = [
       t.expect(text.length > 1000 && /"format": "lot"/.test(text), 'scene saved as .lot JSON');
       await a.reload();
       await a.sceneLoad(text);
-      t.expect(a.has(/scene: loaded 3 meshes, 1 lines, 0 polylines, 1 circles, 0 arcs, 1 dimensions, 1 texts/),
+      t.expect(a.has(/scene: loaded 3 meshes, 1 lines, 0 polylines, 1 circles, 0 arcs, 1 dimensions, 1 texts, 1 layers/),
                'reloaded with the same object counts');
       t.expect(a.has(/view: zoom extents/), 'auto zoom extents after load');
     },

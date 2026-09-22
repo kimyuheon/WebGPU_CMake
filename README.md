@@ -78,6 +78,7 @@ Tool : Visual Studio Code
 | 스케치 | 선 · 사각형 · 폴리라인 · 원 · 호(3점) · 정다각형, 뷰에 맞는 작업평면 | `L/B/N/C/A/G`, `[ ]` |
 | 스냅 | 끝점 □ · 중점 △ · 중심 ○ (메시 정점/모서리, 스케치) | 자동 |
 | 편집 | 제자리 복제 · 삭제 · 실행 취소/다시 실행 (100단계) | `Ctrl+D` `Del` `Ctrl+Z/Y` |
+| 레이어 | 층 만들기/삭제, 표시·잠금, 현재 층, 선택을 옮기기 | 오른쪽 패널 |
 | 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), OBJ 열기 | 툴바 |
 | 렌더 | 텍스처 재질, 점 광원, 오프스크린 + 외곽선 후처리 | `O` |
 
@@ -91,12 +92,15 @@ Tool : Visual Studio Code
 - `lot_transform_tool` — 기준점 변환. 숫자 입력은 `KeyboardMovementController::setNumberCapture`.
 - `lot_history` — 편집 전/후 스냅샷 기반 undo/redo. 도구가 늘어도 `record()` 한 줄.
 - `lot_scene_io` + `lot_json` — `.lot` 저장/열기. 외부 JSON 라이브러리 없음.
-- `src/js/lot_toolbar.js` — HTML 툴바. C++ 이 상태를 밀고, 버튼은 키 코드를 되돌린다.
+- `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.
+- `src/js/lot_toolbar.js` — HTML 툴바 + 레이어 패널. C++ 이 상태를 밀고, 버튼은 키 코드를 되돌린다.
+  ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾸므로, 바깥에 노출하거나 JSON 으로 주고받는 이름은 `obj['name']` 으로 적는다.
 
 ### 헤드리스 테스트 / 회귀
 
 ```
-.	oolsegress.ps1        (Windows)      서버 + 헤드리스 크롬을 띄우고 시나리오 10개를 돌린 뒤 정리
+.	ools
+egress.ps1        (Windows)      서버 + 헤드리스 크롬을 띄우고 시나리오 10개를 돌린 뒤 정리
 tools/regress.sh           (macOS/Linux)  같은 것. 결과 스크린샷은 build/regress/<시각>/
 ```
 빌드 뒤, 푸시 전에 한 번 돌린다. 판정은 엔진 로그("sketch: circle committed" 같은 줄)라

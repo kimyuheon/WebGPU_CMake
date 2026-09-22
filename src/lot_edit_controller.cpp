@@ -367,6 +367,7 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
 
     for (const auto& entry : ctx.objects) {
         const LotGameObject& obj = entry.second;
+        if (!lot_pick::isSelectable(obj)) continue;  // 꺼지거나 잠긴 층
         const mat4 m = obj.transform.mat4Transform();
         bool selected = false;
         if (obj.model) {
@@ -398,6 +399,8 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         auto copy = LotGameObject::createGameObject();
         copy.transform = src->transform;
         copy.color = src->color;
+        copy.layer = src->layer;
+        copy.colorByLayer = src->colorByLayer;
         copy.model = src->model;        // 공유 - GPU 버퍼 복사 없음
         copy.material = src->material;  // 공유
         copy.points = src->points;      // 스케치는 점을 복사 (GPU 자원이 아니다)

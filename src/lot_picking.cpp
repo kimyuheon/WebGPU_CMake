@@ -7,6 +7,16 @@
 
 namespace lot_pick {
 
+namespace {
+SelectableFn g_selectable = nullptr;
+}
+
+void setSelectableFilter(SelectableFn fn) { g_selectable = fn; }
+
+bool isSelectable(const LotGameObject& obj) {
+    return g_selectable == nullptr || g_selectable(obj);
+}
+
 Ray screenToRay(const LotCamera& camera, float px, float py, float width, float height) {
     // 1. 픽셀 -> NDC. WebGPU 의 NDC 는 +Y 가 위라서 y 를 뒤집는다.
     const float ndcX = (px / width) * 2.0f - 1.0f;
@@ -162,9 +172,11 @@ bool intersectObjectPrecise(const Ray& ray, const LotGameObject& object, Hit& hi
 }
 
 Hit pickObjectPrecise(const Ray& ray, const LotGameObject::Map& objects) {
+    // 꺼지거나 잠긴 층은 건너뛴다
     Hit best;
     float bestT = std::numeric_limits<float>::max();
     for (const auto& entry : objects) {
+        if (!isSelectable(entry.second)) continue;  // 꺼지거나 잠긴 층
         Hit hit;
         if (intersectObjectPrecise(ray, entry.second, hit) && hit.t < bestT) {
             bestT = hit.t;
@@ -208,6 +220,7 @@ LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mous
                                const LotGameObject::Map& objects, float& distOut) {
     LotGameObject::id_t best = LotGameObject::kInvalidId;
     distOut = radiusPx;
+    // 꺼지거나 잠긴 층은 건너뛴다
     auto testSegment = [&](const vec3& a, const vec3& b, LotGameObject::id_t id) {
         float ax, ay, bx, by;
         // 한쪽이라도 카메라 뒤면 그 세그먼트는 건너뛴다 (투영이 뒤집힌다)
@@ -221,6 +234,7 @@ LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mous
     };
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
+        if (!isSelectable(obj)) continue;  // 꺼지거나 잠긴 층
         if (obj.isSketch()) {
             const std::vector<vec3> pts = obj.worldPoints();
             const size_t n = pts.size();

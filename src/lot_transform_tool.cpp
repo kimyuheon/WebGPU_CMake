@@ -209,6 +209,8 @@ void TransformTool::confirm(const Context& ctx, EditHistory& history) {
             auto copy = LotGameObject::createGameObject();
             copy.transform = src->transform;  // 미리보기(이동된) 변환
             copy.color = src->color;
+            copy.layer = src->layer;
+            copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;
             copy.points = src->points;

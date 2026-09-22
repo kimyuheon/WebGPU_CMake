@@ -31,6 +31,8 @@ public:
         id_t id = LotGameObject::kInvalidId;
         TransformComponent transform;
         vec3 color;
+        uint32_t layer = 0;
+        bool colorByLayer = false;
         std::shared_ptr<LotModel> model;
         std::shared_ptr<LotMaterial> material;
         std::vector<vec3> points;

@@ -89,7 +89,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     lot_pick::Hit hit;
     float bestT = std::numeric_limits<float>::max();
     for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first)) continue;
+        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
         lot_pick::Hit h;
         if (lot_pick::intersectObjectPrecise(ray, entry.second, h) && h.t < bestT) {
             bestT = h.t;
@@ -117,7 +117,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     // 1-2. 스케치 오브젝트의 끝점/중점. 선은 면이 없어 '커서 아래 삼각형'이 없으므로
     //      항상 전부 대본다. 메시 후보와 같은 best 를 두고 겨루므로 더 가까운 쪽이 이긴다.
     for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first)) continue;
+        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
         const LotGameObject& obj = entry.second;
         if (!obj.isSketch()) continue;
         const std::vector<vec3> pts = obj.worldPoints();
@@ -138,7 +138,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
 
     // 1-2b. 치수의 측정점 / 치수선 끝 - 치수에 이어 치수를 달 때 필요하다
     for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first)) continue;
+        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
         if (!entry.second.isDimension()) continue;
         for (const vec3& p : lot_dim::outlinePoints(entry.second)) {
             consider(q, Kind::Endpoint, p, entry.first, best);
@@ -151,7 +151,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
         std::vector<Segment> near;
         const float reach = q.radiusPx * 2.0f;
         for (const auto& entry : objects) {
-            if (q.isExcluded(entry.first)) continue;
+            if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
             const LotGameObject& obj = entry.second;
             if (!obj.isSketch()) continue;
             const std::vector<vec3> pts = obj.worldPoints();
@@ -199,7 +199,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     //    실루엣 바로 옆에서 꼭짓점을 집을 때 필요하다. 정점 수천 개를 프레임마다
     //    투영해도 마이크로초 단위다.
     for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first)) continue;
+        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
         const LotGameObject& obj = entry.second;
         if (!obj.model) continue;
         const mat4 m = obj.transform.mat4Transform();

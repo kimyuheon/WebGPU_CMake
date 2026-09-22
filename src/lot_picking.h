@@ -26,6 +26,12 @@ Ray screenToRay(const LotCamera& camera, float px, float py, float width, float 
 // 모델이 없는 오브젝트(카메라 뷰어 등)는 항상 false.
 bool intersectObject(const Ray& ray, const LotGameObject& object, float& tOut);
 
+// 고를 수 있는 오브젝트인가 (층이 꺼졌거나 잠겼으면 아니다). 피킹/스냅이 묻는다.
+// 기본은 "전부 고를 수 있다" - main 이 층 표를 등록하면 그때부터 걸린다.
+using SelectableFn = bool (*)(const LotGameObject&);
+void setSelectableFilter(SelectableFn fn);
+bool isSelectable(const LotGameObject& obj);
+
 // 레이가 처음 맞는 오브젝트 (경계 상자 기준). 없으면 kInvalidId.
 // 빠르지만 거칠다 - 토러스의 구멍을 클릭해도 잡힌다. 후보를 거르는 데 쓴다.
 LotGameObject::id_t pickObject(const Ray& ray, const LotGameObject::Map& objects,

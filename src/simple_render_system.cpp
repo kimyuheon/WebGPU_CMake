@@ -143,6 +143,7 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
     uint32_t slot = 0;
     for (auto& entry : frame.gameObjects) {
         LotGameObject& obj = entry.second;
+        if (!frame.isVisible(obj)) continue;  // 꺼진 층
         if (slot >= kMaxObjects) {
             if (!overflowWarned_) {
                 LOT_ERR("SimpleRenderSystem: more than " << kMaxObjects

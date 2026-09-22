@@ -10,6 +10,8 @@
 #include "lot_edit_controller.h"
 #include "lot_scene_io.h"
 #include "lot_dimension.h"
+#include "lot_json.h"
+#include "lot_layers.h"
 #include "lot_sketch_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
@@ -41,6 +43,9 @@ extern "C" {
     // 문자 도구 입력창 (lot_toolbar.js). Enter 는 lot_onTextEntered, Esc 는 lot_onTextCancelled 로 온다.
     extern void js_showTextInput(const char* placeholder);
     extern void js_hideTextInput();
+    // 레이어 패널 (lot_toolbar.js). JSON 문자열로 층 목록을 밀어 넣는다.
+    // 패널이 아직 없으면 0 - 그러면 기억하지 말고 다음 프레임에 다시 보낸다.
+    extern int js_setLayers(const char* json);
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
     extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
                                   int ortho, int orthoTrack, int outline, int canUndo, int canRedo,
@@ -74,6 +79,7 @@ LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
 SketchController g_sketch;
+LotLayers g_layers;
 TransformTool g_transform;
 
 // 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
@@ -198,6 +204,115 @@ void placeObjModel() {
 
 // 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
 //
+// 층 표를 보는 콜백들. 렌더/피킹 시스템은 층을 모르고 이 함수만 부른다.
+static bool layerVisible(const LotGameObject& obj) { return g_layers.isVisible(obj.layer); }
+static bool layerSelectable(const LotGameObject& obj) { return g_layers.isSelectable(obj.layer); }
+
+// 오브젝트가 화면에 낼 색. '층 따름'이면 층 색.
+static vec3 displayColor(const LotGameObject& obj) {
+    if (!obj.colorByLayer) return obj.color;
+    const LotLayers::Layer* l = g_layers.find(obj.layer);
+    return l ? l->color : obj.color;
+}
+
+// 레이어 패널로 보내는 상태 (바뀔 때만). JSON 을 직접 엮는다 - 층 몇 개뿐이라 값싸다.
+static std::string g_layerJson;
+static void pushLayers() {
+    std::string j = "{\"current\":" + std::to_string(g_layers.current()) + ",\"layers\":[";
+    bool first = true;
+    for (const LotLayers::Layer* l : g_layers.all()) {
+        if (!first) j += ",";
+        first = false;
+        int count = 0;
+        for (const auto& entry : g_gameObjects) {
+            if (entry.second.layer == l->id) ++count;
+        }
+        char color[32];
+        std::snprintf(color, sizeof(color), "\"#%02x%02x%02x\"",
+                      static_cast<int>(l->color.x * 255.0f + 0.5f),
+                      static_cast<int>(l->color.y * 255.0f + 0.5f),
+                      static_cast<int>(l->color.z * 255.0f + 0.5f));
+        j += "{\"id\":" + std::to_string(l->id) + ",\"name\":" + dumpJson(JsonValue(l->name), 0)
+           + ",\"visible\":" + (l->visible ? "true" : "false")
+           + ",\"locked\":" + (l->locked ? "true" : "false")
+           + ",\"color\":" + color + ",\"count\":" + std::to_string(count) + "}";
+    }
+    j += "]}";
+    if (j == g_layerJson) return;
+    if (js_setLayers(j.c_str()) == 0) return;  // 패널 DOM 이 생기기 전 - 다음 프레임에 다시
+    g_layerJson = std::move(j);
+}
+
+// 레이어 패널에서 온 명령. action: "new" | "current" | "visible" | "locked" | "assign" | "delete"
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onLayerCommand(const char* action, int layerId, int value) {
+    if (action == nullptr) return;
+    const std::string what(action);
+    const uint32_t id = static_cast<uint32_t>(layerId);
+
+    if (what == "new") {
+        // 새 층 색은 돌아가며 고른다 - 손으로 고르는 UI 는 아직 없다
+        static const vec3 kPalette[] = {
+            {0.95f, 0.45f, 0.45f}, {0.45f, 0.85f, 0.55f}, {0.45f, 0.65f, 0.95f},
+            {0.95f, 0.8f, 0.4f},   {0.8f, 0.55f, 0.95f},  {0.4f, 0.9f, 0.9f},
+        };
+        const size_t n = g_layers.size() - 1;  // 기본층 빼고
+        const uint32_t newId = g_layers.create("Layer " + std::to_string(n + 1),
+                                               kPalette[n % (sizeof(kPalette) / sizeof(kPalette[0]))]);
+        g_layers.setCurrent(newId);
+    } else if (what == "current") {
+        g_layers.setCurrent(id);
+        LOT_LOG("layer: current = " << g_layers.current());
+    } else if (what == "visible" || what == "locked") {
+        if (LotLayers::Layer* l = g_layers.find(id); l && id != LotLayers::kDefault) {
+            (what == "visible" ? l->visible : l->locked) = (value != 0);
+            LOT_LOG("layer: " << l->name << " " << what << " = " << (value != 0 ? "on" : "off"));
+            if (!g_layers.isSelectable(id)) {
+                // 안 보이거나 잠긴 층의 오브젝트는 선택에서 뺀다
+                std::set<LotGameObject::id_t> keep;
+                for (LotGameObject::id_t sel : g_edit.selection()) {
+                    const auto* obj = LotGameObject::find(g_gameObjects, sel);
+                    if (obj && obj->layer != id) keep.insert(sel);
+                }
+                g_edit.setSelection(std::move(keep));
+            }
+        }
+    } else if (what == "assign") {
+        // 선택된 오브젝트를 이 층으로 (히스토리에 남는다)
+        if (!g_layers.find(id) || !g_edit.hasSelection()) return;
+        EditHistory::Edit edit;
+        edit.label = "layer";
+        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        int moved = 0;
+        for (LotGameObject::id_t sel : g_edit.selection()) {
+            if (auto* obj = LotGameObject::find(g_gameObjects, sel)) {
+                obj->layer = id;
+                ++moved;
+            }
+        }
+        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        g_edit.history().record(std::move(edit));
+        LOT_LOG("layer: moved " << moved << " objects to layer " << id);
+    } else if (what == "delete") {
+        if (id == LotLayers::kDefault) return;
+        // 그 층의 오브젝트는 기본층으로 옮긴다 (지우지 않는다 - CAD 관례)
+        std::set<LotGameObject::id_t> affected;
+        for (auto& entry : g_gameObjects) {
+            if (entry.second.layer == id) affected.insert(entry.first);
+        }
+        EditHistory::Edit edit;
+        edit.label = "layer delete";
+        edit.before = EditHistory::snapshot(g_gameObjects, affected);
+        for (LotGameObject::id_t objId : affected) {
+            if (auto* obj = LotGameObject::find(g_gameObjects, objId)) obj->layer = LotLayers::kDefault;
+        }
+        edit.after = EditHistory::snapshot(g_gameObjects, affected);
+        g_edit.history().record(std::move(edit));
+        g_layers.remove(id);
+    }
+    pushLayers();
+}
+
 // 문자 입력창에서 Enter. 내용은 JS 가 잡아 준 UTF-8 버퍼 (JS 가 해제한다).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onTextEntered(const char* text) {
@@ -205,6 +320,7 @@ void lot_onTextEntered(const char* text) {
     const std::string content(text);
     g_sketch.submitText(content, g_gameObjects);
     if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
+        if (auto* obj = LotGameObject::find(g_gameObjects, id)) obj->layer = g_layers.current();
         g_edit.history().recordCreated("text", g_gameObjects, id);
     }
 }
@@ -283,7 +399,7 @@ static void zoomExtents() {
 // 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
 char* lot_saveScene() {
-    const std::string text = lot_scene::save(g_gameObjects);
+    const std::string text = lot_scene::save(g_gameObjects, g_layers);
     char* out = static_cast<char*>(std::malloc(text.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, text.c_str(), text.size() + 1);
@@ -305,8 +421,9 @@ void lot_onLotFileLoaded(const char* data, int length) {
 
     // 파싱이 실패하면 현재 씬을 건드리지 않도록 임시 맵에 먼저 읽는다
     LotGameObject::Map loaded;
+    LotLayers loadedLayers;
     const lot_scene::LoadStats stats =
-        lot_scene::load(text, g_renderer->getDevice(), g_checkerMaterial, loaded);
+        lot_scene::load(text, g_renderer->getDevice(), g_checkerMaterial, loaded, loadedLayers);
     if (!stats.error.empty()) {
         LOT_ERR(stats.error);
         return;
@@ -317,6 +434,8 @@ void lot_onLotFileLoaded(const char* data, int length) {
     g_edit.clearSelection();
     g_edit.history().clear();
     g_gameObjects = std::move(loaded);
+    g_layers = std::move(loadedLayers);
+    pushLayers();
     g_objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
     zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
 }
@@ -416,6 +535,7 @@ void renderLoop() {
         g_mouse.init();
         // 툴바도 상태바 높이를 DOM 에서 읽으므로 같은 시점에
         js_setupToolbar();
+        pushLayers();
     }
 
     // 1-1. OBJ 모델은 네트워크로 받아오므로 요청만 보내두고 넘어간다.
@@ -468,6 +588,7 @@ void renderLoop() {
         g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_textSystem->create(device, g_globalUniform.getLayout(), color, depth);
         lot_text::setMeasurer(g_textSystem.get());  // 문자 피킹/박스 선택이 글자 폭을 물어본다
+        lot_pick::setSelectableFilter(layerSelectable);  // 꺼지거나 잠긴 층은 안 잡힌다
         g_postSystem->create(device, color);  // 화면에 그리므로 스왑체인 포맷, 뎁스 없음
         g_gridCreated = true;
     }
@@ -529,6 +650,8 @@ void renderLoop() {
                                            static_cast<float>(sc.getHeight())};
             g_sketch.update(sctx);
             if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
+                // 새로 그린 것은 현재 층에
+                if (auto* obj = LotGameObject::find(g_gameObjects, id)) obj->layer = g_layers.current();
                 g_edit.history().recordCreated("sketch", g_gameObjects, id);
             }
             // 문자 도구가 기준점을 찍었으면 브라우저 입력창을 연다 (글자 입력은 DOM 이 받는다)
@@ -678,8 +801,9 @@ void renderLoop() {
             }
         }
 
-        // 툴바 하이라이트 / 안내문 (바뀐 프레임에만 DOM 을 건드린다)
+        // 툴바 하이라이트 / 안내문 / 레이어 패널 (바뀐 프레임에만 DOM 을 건드린다)
         pushToolbarState();
+        pushLayers();
 
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.
@@ -724,6 +848,7 @@ void renderLoop() {
             g_camera,
             g_globalUniform.getBindGroup(),
             g_gameObjects,
+            layerVisible,  // 꺼진 층의 메시는 건너뛴다
         };
 
         // 이번 프레임의 보조선. 광원 위치를 십자로, 작업 영역을 상자로.
@@ -746,12 +871,14 @@ void renderLoop() {
         g_textSystem->clear();
         for (const auto& entry : g_gameObjects) {
             const LotGameObject& obj = entry.second;
+            if (!layerVisible(obj)) continue;  // 꺼진 층
+            const vec3 color = displayColor(obj);
             if (obj.isSketch()) {
-                g_polylineSystem->addPolyline(obj.worldPoints(), obj.color, obj.closed);
+                g_polylineSystem->addPolyline(obj.worldPoints(), color, obj.closed);
             } else if (obj.isDimension()) {
-                lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, obj.color);
+                lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, color);
             } else if (obj.isText()) {
-                lot_text::draw(obj, *g_textSystem, obj.color);
+                lot_text::draw(obj, *g_textSystem, color);
             }
         }
         {

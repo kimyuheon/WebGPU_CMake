@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -125,6 +125,30 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
       return ok;
     },
     async hint() { return api.evaluate(`document.getElementById('lot-hint')?.textContent ?? ''`); },
+
+    // 레이어 패널: 행 번호(0 부터)의 버튼을 title 로 찾아 누른다. row 가 -1 이면 머리글(+).
+    // title 예: 'New layer', 'Hide layer', 'Lock layer', 'Delete layer...', 'Move the selection...'
+    async layerButton(row, titlePrefix) {
+      const ok = await api.evaluate(
+        `(() => { const p = document.getElementById('lot-layers'); if (!p) return false;`
+        + ` const r = ${row} < 0 ? p.children[0] : p.children[${row} + 1]; if (!r) return false;`
+        + ` const b = [...r.querySelectorAll('button')].find(x => x.title.startsWith(${JSON.stringify(titlePrefix)}));`
+        + ` if (b) b.click(); return !!b; })()`);
+      await sleep(300);
+      return ok;
+    },
+    // 행의 이름을 눌러 현재 층으로
+    async layerMakeCurrent(row) {
+      const ok = await api.evaluate(
+        `(() => { const p = document.getElementById('lot-layers'); const r = p?.children[${row} + 1];`
+        + ` const s = r?.querySelector('span[title]'); if (s) s.click(); return !!s; })()`);
+      await sleep(300);
+      return ok;
+    },
+    async layerRows() {
+      return api.evaluate(
+        `[...document.getElementById('lot-layers').children].slice(1).map(r => r.textContent)`);
+    },
 
     // 씬 저장/열기 (파일 대화상자 없이, lot_toolbar.js 의 훅)
     async sceneSave() { return api.evaluate(`Module.lotDom.sceneSave()`); },

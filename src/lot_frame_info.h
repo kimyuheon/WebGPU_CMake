@@ -19,4 +19,12 @@ struct FrameInfo {
     WGPUBindGroup globalBindGroup;
 
     LotGameObject::Map& gameObjects;
+
+    // 이 오브젝트를 그리나 (층이 꺼졌으면 아니다). main 이 채운다 - 렌더 시스템은
+    // 층 표를 모르고 이 함수만 묻는다. 비워두면 전부 그린다.
+    bool (*visibleFilter)(const LotGameObject&) = nullptr;
+
+    bool isVisible(const LotGameObject& obj) const {
+        return visibleFilter == nullptr || visibleFilter(obj);
+    }
 };

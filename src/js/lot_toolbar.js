@@ -14,7 +14,7 @@
 mergeInto(LibraryManager.library, {
 
     js_setupToolbar__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
-                            'lot_onTextEntered', 'lot_onTextCancelled',
+                            'lot_onTextEntered', 'lot_onTextCancelled', 'lot_onLayerCommand',
                             '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
     js_setupToolbar: function() {
         if (!Module.lotDom) {
@@ -213,6 +213,34 @@ mergeInto(LibraryManager.library, {
             bar.appendChild(box);
         });
 
+        // 레이어 패널 (오른쪽 위). C++ 이 js_setLayers 로 목록을 밀어 넣는다.
+        // 행: [색] 이름 (개수)  [눈] [자물쇠] [x].  이름을 누르면 현재 층이 된다 (새 객체가 여기로).
+        var layerPanel = document.createElement('div');
+        layerPanel.id = 'lot-layers';
+        layerPanel.style.position = 'fixed';
+        layerPanel.style.right = '12px';
+        layerPanel.style.top = (statusBarHeight + 8) + 'px';
+        layerPanel.style.zIndex = '10';
+        layerPanel.style.minWidth = '210px';
+        layerPanel.style.maxHeight = 'calc(100vh - ' + (statusBarHeight + 80) + 'px)';
+        layerPanel.style.overflowY = 'auto';
+        layerPanel.style.padding = '4px';
+        layerPanel.style.border = '1px solid #333';
+        layerPanel.style.borderRadius = '4px';
+        layerPanel.style.backgroundColor = 'rgba(13, 13, 13, 0.85)';
+        layerPanel.style.fontFamily = 'monospace';
+        layerPanel.style.fontSize = '12px';
+        layerPanel.style.userSelect = 'none';
+        document.body.appendChild(layerPanel);
+        dom.layerPanel = layerPanel;
+
+        // 층 명령을 C++ 로. action 은 lot_onLayerCommand 의 것.
+        dom.layerCommand = function(action, id, value) {
+            var ptr = stringToNewUTF8(action);
+            _lot_onLayerCommand(ptr, id | 0, value | 0);
+            _free(ptr);
+        };
+
         // 안내문 (캔버스 왼쪽 아래). 열린 도구의 다음 할 일을 보여준다.
         var hint = document.createElement('div');
         hint.id = 'lot-hint';
@@ -277,6 +305,101 @@ mergeInto(LibraryManager.library, {
         dom.toolbarButtons = buttons;
         dom.toolbarStyle = styleButton;
         dom.hint = hint;
+    },
+
+    // C++ 이 층 목록을 밀어 넣는다 (바뀔 때만). json: {current, layers:[{id,name,visible,locked,color,count}]}
+    js_setLayers__deps: ['$UTF8ToString'],
+    js_setLayers: function(jsonPtr) {
+        var dom = Module.lotDom;
+        if (!dom || !dom.layerPanel) return 0;
+        // JSON.parse 결과의 속성은 아래에서 대괄호로 읽는다 - Closure 가 점 표기 이름을
+        // 바꿔버리면 JSON 키와 어긋나기 때문이다 (Module['lotDom'] 과 같은 이유).
+        var state;
+        try { state = JSON.parse(UTF8ToString(jsonPtr)); } catch (e) { return 0; }
+
+        var panel = dom.layerPanel;
+        panel.textContent = '';
+
+        var head = document.createElement('div');
+        head.style.display = 'flex';
+        head.style.justifyContent = 'space-between';
+        head.style.alignItems = 'center';
+        head.style.padding = '0 2px 4px';
+        var title = document.createElement('span');
+        title.textContent = 'layers';
+        title.style.color = '#666';
+        title.style.fontSize = '10px';
+        head.appendChild(title);
+
+        var mkButton = function(label, title, onClick) {
+            var b = document.createElement('button');
+            b.textContent = label;
+            b.title = title;
+            b.style.padding = '1px 5px';
+            b.style.marginLeft = '2px';
+            b.style.fontFamily = 'monospace';
+            b.style.fontSize = '11px';
+            b.style.color = '#00ff00';
+            b.style.backgroundColor = '#0d0d0d';
+            b.style.border = '1px solid #2a3a2a';
+            b.style.borderRadius = '3px';
+            b.style.cursor = 'pointer';
+            b.addEventListener('mousedown', function(e) { e.preventDefault(); });
+            b.addEventListener('click', onClick);
+            return b;
+        };
+
+        head.appendChild(mkButton('+', 'New layer', function() { dom.layerCommand('new', 0, 0); }));
+        panel.appendChild(head);
+
+        state['layers'].forEach(function(l) {
+            var row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.gap = '2px';
+            row.style.padding = '1px 2px';
+            row.style.borderRadius = '3px';
+            if (l['id'] === state['current']) row.style.backgroundColor = 'rgba(0, 255, 0, 0.15)';
+
+            var swatch = document.createElement('span');
+            swatch.style.width = '10px';
+            swatch.style.height = '10px';
+            swatch.style.backgroundColor = l['color'];
+            swatch.style.border = '1px solid #555';
+            swatch.style.flex = '0 0 auto';
+            row.appendChild(swatch);
+
+            // 이름: 누르면 현재 층 (새로 그리는 것이 여기로 들어간다)
+            var name = document.createElement('span');
+            name.textContent = l['name'] + ' (' + l['count'] + ')';
+            name.title = 'Make current (new objects go here)';
+            name.style.flex = '1 1 auto';
+            name.style.overflow = 'hidden';
+            name.style.textOverflow = 'ellipsis';
+            name.style.whiteSpace = 'nowrap';
+            name.style.padding = '0 4px';
+            name.style.cursor = 'pointer';
+            name.style.color = l['visible'] ? (l['id'] === state['current'] ? '#00ff00' : '#ddd') : '#666';
+            name.addEventListener('mousedown', function(e) { e.preventDefault(); });
+            name.addEventListener('click', function() { dom.layerCommand('current', l['id'], 0); });
+            row.appendChild(name);
+
+            if (l['id'] !== 0) {
+                row.appendChild(mkButton(l['visible'] ? '\u25c9' : '\u25cb',
+                                         l['visible'] ? 'Hide layer' : 'Show layer',
+                                         function() { dom.layerCommand('visible', l['id'], l['visible'] ? 0 : 1); }));
+                row.appendChild(mkButton(l['locked'] ? '\u25a0' : '\u25a1',
+                                         l['locked'] ? 'Unlock layer' : 'Lock layer',
+                                         function() { dom.layerCommand('locked', l['id'], l['locked'] ? 0 : 1); }));
+                row.appendChild(mkButton('x', 'Delete layer (objects move to layer 0)',
+                                         function() { dom.layerCommand('delete', l['id'], 0); }));
+            }
+            // 선택된 것을 이 층으로
+            row.appendChild(mkButton('\u2190', 'Move the selection to this layer',
+                                     function() { dom.layerCommand('assign', l['id'], 0); }));
+            panel.appendChild(row);
+        });
+        return 1;
     },
 
     js_showTextInput__deps: ['$UTF8ToString'],
