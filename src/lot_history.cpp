@@ -22,6 +22,8 @@ bool same(const EditHistory::Record& a, const EditHistory::Record& b) {
         && a.model == b.model
         && a.material == b.material
         && a.closed == b.closed
+        && a.text.valid == b.text.valid && a.text.content == b.text.content
+        && a.text.height == b.text.height
         && a.dim.valid == b.dim.valid
         && same(a.dim.p1, b.dim.p1) && same(a.dim.p2, b.dim.p2) && same(a.dim.dimLine, b.dim.dimLine)
         && a.points.size() == b.points.size()
@@ -54,6 +56,7 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.closed = obj.closed;
     r.curve = obj.curve;
     r.dim = obj.dim;
+    r.text = obj.text;
     return r;
 }
 
@@ -66,6 +69,7 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.closed = closed;
     obj.curve = curve;
     obj.dim = dim;
+    obj.text = text;
 }
 
 EditHistory::Record EditHistory::snapshot(const LotGameObject::Map& objects, id_t id) {

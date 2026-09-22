@@ -2,6 +2,7 @@
 
 #include "lot_math.h"
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -104,7 +105,21 @@ public:
     };
     Dim dim;
 
+    // 문자 (Vulkan 쪽 TextData). 기준점은 transform.translation (로컬 origin 은 0),
+    // right/up 은 글자가 놓이는 평면의 축 (로컬). 글리프는 TextRenderSystem 이 그린다.
+    struct Text {
+        bool valid = false;
+        std::string content;
+        float height = 0.25f;             // 글자 높이 (월드)
+        vec3 right{1.0f, 0.0f, 0.0f};     // 진행 방향
+        vec3 up{0.0f, 0.0f, 1.0f};        // 위 방향
+        int hAlign = 0;                   // 0 왼쪽, 1 가운데, 2 오른쪽
+        int vAlign = 0;                   // 0 기준선, 1 가운데, 2 위
+    };
+    Text text;
+
     bool isSketch() const { return !points.empty(); }
+    bool isText() const { return text.valid; }
     bool hasCurve() const { return curve.kind != Curve::Kind::None; }
     bool isDimension() const { return dim.valid; }
 

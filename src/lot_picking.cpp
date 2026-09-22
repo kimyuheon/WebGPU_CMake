@@ -230,6 +230,14 @@ LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mous
             // 치수는 선(보조선/치수선/화살표)으로 집는다 - 글자는 아직 아니다
             const lot_dim::Geometry g = lot_dim::build(obj.dim, obj.transform.mat4Transform(), nullptr);
             for (const auto& s : g.segments) testSegment(s.first, s.second, entry.first);
+        } else if (obj.isText()) {
+            // 문자는 사각형 테두리 + 대각선 - 글자 안쪽을 눌러도 잡히게
+            vec3 c[4];
+            if (lot_text::quadCorners(obj, c)) {
+                for (int i = 0; i < 4; ++i) testSegment(c[i], c[(i + 1) % 4], entry.first);
+                testSegment(c[0], c[2], entry.first);
+                testSegment(c[1], c[3], entry.first);
+            }
         }
     }
     return best;

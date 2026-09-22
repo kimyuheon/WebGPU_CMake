@@ -38,6 +38,9 @@ extern "C" {
     extern void js_setupObjFileInput();
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
     extern void js_setupToolbar();
+    // 문자 도구 입력창 (lot_toolbar.js). Enter 는 lot_onTextEntered, Esc 는 lot_onTextCancelled 로 온다.
+    extern void js_showTextInput(const char* placeholder);
+    extern void js_hideTextInput();
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
     extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
                                   int ortho, int orthoTrack, int outline, int canUndo, int canRedo,
@@ -195,6 +198,23 @@ void placeObjModel() {
 
 // 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
 //
+// 문자 입력창에서 Enter. 내용은 JS 가 잡아 준 UTF-8 버퍼 (JS 가 해제한다).
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onTextEntered(const char* text) {
+    if (text == nullptr) return;
+    const std::string content(text);
+    g_sketch.submitText(content, g_gameObjects);
+    if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
+        g_edit.history().recordCreated("text", g_gameObjects, id);
+    }
+}
+
+// 문자 입력창에서 Esc (또는 포커스 잃음).
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onTextCancelled() {
+    if (g_sketch.waitingForTextInput()) g_sketch.cancel();
+}
+
 // 툴바 버튼. 키보드 이벤트와 같은 경로를 타게 눌렀다 뗀 것으로 넣는다 -
 // 버튼과 단축키가 어긋날 수 없다. code 는 JS 가 잡은 버퍼라 JS 가 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -220,6 +240,9 @@ static void zoomExtents() {
             for (const vec3& p : obj.worldPoints()) grow(p);
         } else if (obj.isDimension()) {
             for (const vec3& p : lot_dim::outlinePoints(obj)) grow(p);
+        } else if (obj.isText()) {
+            vec3 c[4];
+            if (lot_text::quadCorners(obj, c)) for (int i = 0; i < 4; ++i) grow(c[i]);
         } else if (obj.model) {
             // 경계 상자 여덟 꼭짓점을 변환한다 (회전한 상자도 안전하게 덮인다)
             const mat4 m = obj.transform.mat4Transform();
@@ -251,6 +274,7 @@ static void zoomExtents() {
 
     // 치수 글자/화살표 기본 크기를 씬에 맞춘다 (mm 도면에서 0.3 짜리 글자는 안 보인다)
     g_sketch.setDimensionStyle(radius * 0.05f, radius * 0.025f);
+    g_sketch.setTextHeight(radius * 0.07f);
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
@@ -443,6 +467,7 @@ void renderLoop() {
         g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_textSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        lot_text::setMeasurer(g_textSystem.get());  // 문자 피킹/박스 선택이 글자 폭을 물어본다
         g_postSystem->create(device, color);  // 화면에 그리므로 스왑체인 포맷, 뎁스 없음
         g_gridCreated = true;
     }
@@ -506,6 +531,10 @@ void renderLoop() {
             if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
                 g_edit.history().recordCreated("sketch", g_gameObjects, id);
             }
+            // 문자 도구가 기준점을 찍었으면 브라우저 입력창을 연다 (글자 입력은 DOM 이 받는다)
+            if (g_sketch.consumeTextInputRequest()) {
+                js_showTextInput("text, Enter to place");
+            }
         }
 
         if (g_cameraController.consumeZoomExtents()) {
@@ -560,7 +589,7 @@ void renderLoop() {
         }
         if (g_cameraController.consumeEscape()) {
             if (g_transform.isActive()) g_transform.cancel(g_gameObjects);
-            else if (g_sketch.anyActive()) g_sketch.cancel();
+            else if (g_sketch.anyActive()) { g_sketch.cancel(); js_hideTextInput(); }
             else g_edit.clearSelection();
         }
 
@@ -721,6 +750,8 @@ void renderLoop() {
                 g_polylineSystem->addPolyline(obj.worldPoints(), obj.color, obj.closed);
             } else if (obj.isDimension()) {
                 lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, obj.color);
+            } else if (obj.isText()) {
+                lot_text::draw(obj, *g_textSystem, obj.color);
             }
         }
         {

@@ -17,6 +17,7 @@ const vec3 kCircleColor{1.0f, 0.85f, 0.7f};
 const vec3 kArcColor{1.0f, 0.75f, 0.85f};
 const vec3 kPolygonColor{0.85f, 0.8f, 1.0f};
 const vec3 kDimensionColor{0.95f, 0.85f, 0.55f};
+const vec3 kTextColor{0.95f, 0.95f, 0.9f};
 constexpr float kPi = 3.14159265358979f;
 constexpr float kTwoPi = 6.28318530717959f;
 const vec3 kPreviewColor{0.55f, 0.8f, 1.0f};
@@ -451,6 +452,58 @@ void DimensionTool::previewExtra(const vec3& cursor, const SketchPlane& plane, c
     if (!g.text.empty()) text.addText(g.text, g.textOrigin, g.textRight, g.textUp, g.textHeight, kPreviewColor, 1);
 }
 
+// ---------------------------------------------------------------- TextTool
+
+void TextTool::onPoint(const vec3& p, const SketchPlane&, LotGameObject::Map&) {
+    if (waiting_) return;  // 입력창이 열린 동안의 클릭은 무시
+    points_ = {p};
+    inputRequested_ = true;
+    waiting_ = true;
+}
+
+void TextTool::submit(const std::string& content, const SketchPlane& plane, LotGameObject::Map& objects) {
+    waiting_ = false;
+    if (points_.empty() || content.empty()) {
+        points_.clear();
+        return;
+    }
+    auto obj = LotGameObject::createGameObject();
+    obj.transform.translation = points_.front();
+    obj.color = kTextColor;
+    obj.text.valid = true;
+    obj.text.content = content;
+    obj.text.height = height;
+    obj.text.right = plane.right;
+    obj.text.up = plane.up;
+    obj.text.hAlign = 0;
+    obj.text.vAlign = 0;
+    const auto id = obj.getId();
+    objects.emplace(id, std::move(obj));
+    committedId_ = id;
+    LOT_LOG("sketch: text committed as object " << id << " (\"" << content << "\")");
+    points_.clear();
+}
+
+bool TextTool::onFinish(LotGameObject::Map&) {
+    points_.clear();
+    waiting_ = false;
+    return true;
+}
+
+void TextTool::preview(const vec3&, const SketchPlane&, std::vector<vec3>& out, bool& closed) const {
+    out.clear();
+    closed = false;
+}
+
+void TextTool::previewExtra(const vec3& cursor, const SketchPlane& plane, const LotCamera&,
+                            LineRenderSystem& lines, TextRenderSystem& text) const {
+    // 기준점(또는 커서)에 글자 높이만큼의 밑줄 + 자리표시 글자
+    const vec3 at = points_.empty() ? cursor : points_.front();
+    lines.addLine(at, at + plane.right * (height * 2.0f), kPreviewColor);
+    lines.addLine(at, at + plane.up * height, kPreviewColor);
+    if (waiting_) text.addText("...", at, plane.right, plane.up, height, kPreviewColor, 0, 0);
+}
+
 // ---------------------------------------------------------------- SketchController
 
 SketchController::SketchController()
@@ -460,11 +513,30 @@ SketchController::SketchController()
       circle_(std::make_unique<CircleTool>()),
       arc_(std::make_unique<ArcTool>()),
       polygon_(std::make_unique<PolygonTool>()),
-      dimension_(std::make_unique<DimensionTool>()) {}
+      dimension_(std::make_unique<DimensionTool>()),
+      textTool_(std::make_unique<TextTool>()) {}
 
 void SketchController::setDimensionStyle(float textHeight, float arrowSize) {
     dimension_->textHeight = textHeight;
     dimension_->arrowSize = arrowSize;
+}
+
+void SketchController::setTextHeight(float height) { textTool_->height = height; }
+
+bool SketchController::consumeTextInputRequest() {
+    return active_ == textTool_.get() && textTool_->consumeInputRequest();
+}
+
+bool SketchController::waitingForTextInput() const {
+    return active_ == textTool_.get() && textTool_->waitingForInput();
+}
+
+void SketchController::submitText(const std::string& content, LotGameObject::Map& objects) {
+    if (active_ != textTool_.get()) return;
+    textTool_->submit(content, plane_, objects);
+    const auto id = textTool_->consumeCommittedId();
+    if (id != LotGameObject::kInvalidId) lastCommitted_ = id;
+    active_ = nullptr;  // 문자는 하나 놓으면 끝
 }
 
 void SketchController::changePolygonSides(int delta) {
@@ -487,6 +559,7 @@ void SketchController::start(Kind kind, const LotCamera& camera) {
     case Kind::Arc:       active_ = arc_.get(); break;
     case Kind::Polygon:   active_ = polygon_.get(); break;
     case Kind::Dimension: active_ = dimension_.get(); break;
+    case Kind::Text:      active_ = textTool_.get(); break;
     }
     plane_ = SketchPlane::fromCamera(camera);
     active_->begin();
@@ -589,6 +662,7 @@ int SketchController::activeKind() const {
     if (active_ == arc_.get()) return static_cast<int>(Kind::Arc);
     if (active_ == polygon_.get()) return static_cast<int>(Kind::Polygon);
     if (active_ == dimension_.get()) return static_cast<int>(Kind::Dimension);
+    if (active_ == textTool_.get()) return static_cast<int>(Kind::Text);
     return -1;
 }
 
@@ -615,6 +689,8 @@ std::string SketchController::hint() const {
         const size_t n = active_->points().size();
         s += n == 0 ? "click first measure point" : (n == 1 ? "click second measure point"
                                                              : "click where the dimension line goes");
+    } else if (active_ == textTool_.get()) {
+        s += textTool_->waitingForInput() ? "type the text, Enter to place" : "click the text start point";
     } else {
         const size_t n = active_->points().size();
         if (n == 0) s += "click first point";

@@ -116,3 +116,39 @@ std::vector<vec3> outlinePoints(const LotGameObject& obj) {
 }
 
 }  // namespace lot_dim
+
+namespace lot_text {
+namespace {
+TextRenderSystem* g_measurer = nullptr;
+
+vec3 transformDir(const mat4& m, const vec3& d) {
+    return transformPoint(m, d) - transformPoint(m, vec3{0.0f, 0.0f, 0.0f});
+}
+}  // namespace
+
+void setMeasurer(TextRenderSystem* system) { g_measurer = system; }
+
+bool quadCorners(const LotGameObject& obj, vec3 out[4]) {
+    if (!obj.isText() || !g_measurer) return false;
+    const mat4 m = obj.transform.mat4Transform();
+    const vec3 origin = transformPoint(m, vec3{0.0f, 0.0f, 0.0f});
+    const vec3 right = normalize(transformDir(m, obj.text.right));
+    const vec3 up = normalize(transformDir(m, obj.text.up));
+    // 축척은 글자 높이에 반영한다 (right/up 은 단위로 되돌렸으므로)
+    const float scale = std::sqrt(dot(transformDir(m, obj.text.up), transformDir(m, obj.text.up)));
+    g_measurer->quadCorners(obj.text.content, origin, right, up, obj.text.height * scale,
+                            obj.text.hAlign, obj.text.vAlign, out);
+    return true;
+}
+
+void draw(const LotGameObject& obj, TextRenderSystem& text, const vec3& color) {
+    if (!obj.isText() || obj.text.content.empty()) return;
+    const mat4 m = obj.transform.mat4Transform();
+    const vec3 origin = transformPoint(m, vec3{0.0f, 0.0f, 0.0f});
+    const vec3 upScaled = transformDir(m, obj.text.up);
+    const float scale = std::sqrt(dot(upScaled, upScaled));
+    text.addText(obj.text.content, origin, normalize(transformDir(m, obj.text.right)),
+                 normalize(upScaled), obj.text.height * scale, color, obj.text.hAlign, obj.text.vAlign);
+}
+
+}  // namespace lot_text

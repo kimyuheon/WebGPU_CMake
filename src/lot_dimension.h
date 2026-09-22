@@ -47,3 +47,17 @@ std::vector<vec3> outlinePoints(const LotGameObject& obj);
 std::string formatValue(float value, int precision);
 
 }  // namespace lot_dim
+
+// 문자 오브젝트 (LotGameObject::Text) 도우미. 글자 폭은 비트맵을 구워야 알 수 있어
+// TextRenderSystem 이 필요하다 - main 이 하나를 등록해 두면 피킹/박스 선택이 쓴다.
+namespace lot_text {
+
+void setMeasurer(TextRenderSystem* system);
+
+// 월드 좌표 글자 사각형 네 꼭짓점 (왼쪽 아래부터 반시계). 등록된 시스템이 없으면 false.
+bool quadCorners(const LotGameObject& obj, vec3 out[4]);
+
+// 오브젝트의 문자를 글자 시스템에 넣는다.
+void draw(const LotGameObject& obj, TextRenderSystem& text, const vec3& color);
+
+}  // namespace lot_text

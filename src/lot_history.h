@@ -37,6 +37,7 @@ public:
         bool closed = false;
         LotGameObject::Curve curve;
         LotGameObject::Dim dim;
+        LotGameObject::Text text;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;

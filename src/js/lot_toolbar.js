@@ -14,6 +14,7 @@
 mergeInto(LibraryManager.library, {
 
     js_setupToolbar__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
+                            'lot_onTextEntered', 'lot_onTextCancelled',
                             '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
     js_setupToolbar: function() {
         if (!Module.lotDom) {
@@ -123,6 +124,7 @@ mergeInto(LibraryManager.library, {
                 ['Arc',      'KeyA', 0, 'Arc through 3 points (A, CAD mode)', 'sketch:4'],
                 ['Polygon',  'KeyG', 0, 'Regular polygon: center, vertex (G; [ ] sides)', 'sketch:5'],
                 ['Dim',      'KeyD', 0, 'Aligned dimension: two points, then line position (D, CAD mode)', 'sketch:6'],
+                ['Text',     'KeyW', 0, 'Text: click the start point, type, Enter (W, CAD mode)', 'sketch:7'],
                 ['Finish',   'Enter', 0, 'Finish sketch (Enter)', ''],
                 ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
                 ['Ortho',    'F8', 0, 'Ortho tracking: constrain to plane axes (F8)', 'orthoTrack'],
@@ -230,12 +232,69 @@ mergeInto(LibraryManager.library, {
         hint.style.pointerEvents = 'none';
         hint.style.display = 'none';
 
+        // 문자 도구 입력창. 기준점을 찍으면 C++ 이 js_showTextInput 으로 연다.
+        // 여기서 잡은 키는 window 로 올라가지 않게 (stopPropagation) - 안 그러면 C++ 키 핸들러가
+        // 글자를 단축키로 먹고 preventDefault 해서 입력창에 글자가 안 찍힌다.
+        var textInput = document.createElement('input');
+        textInput.type = 'text';
+        textInput.id = 'lot-text-input';
+        textInput.style.position = 'fixed';
+        textInput.style.left = '50%';
+        textInput.style.transform = 'translateX(-50%)';
+        textInput.style.bottom = '48px';
+        textInput.style.zIndex = '11';
+        textInput.style.width = '360px';
+        textInput.style.padding = '6px 10px';
+        textInput.style.fontFamily = 'monospace';
+        textInput.style.fontSize = '14px';
+        textInput.style.color = '#fff';
+        textInput.style.backgroundColor = '#0d0d0d';
+        textInput.style.border = '1px solid #00ff00';
+        textInput.style.borderRadius = '4px';
+        textInput.style.display = 'none';
+        textInput.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                var ptr = stringToNewUTF8(textInput.value);
+                textInput.style.display = 'none';
+                textInput.value = '';
+                _lot_onTextEntered(ptr);
+                _free(ptr);
+            } else if (e.key === 'Escape') {
+                textInput.style.display = 'none';
+                textInput.value = '';
+                _lot_onTextCancelled();
+            }
+        });
+        textInput.addEventListener('keyup', function(e) { e.stopPropagation(); });
+        textInput.addEventListener('keypress', function(e) { e.stopPropagation(); });
+        document.body.appendChild(textInput);
+        dom.textInput = textInput;
+
         document.body.appendChild(bar);
         document.body.appendChild(hint);
         dom.toolbar = bar;
         dom.toolbarButtons = buttons;
         dom.toolbarStyle = styleButton;
         dom.hint = hint;
+    },
+
+    js_showTextInput__deps: ['$UTF8ToString'],
+    js_showTextInput: function(placeholderPtr) {
+        var dom = Module.lotDom;
+        if (!dom || !dom.textInput) return;
+        dom.textInput.placeholder = UTF8ToString(placeholderPtr);
+        dom.textInput.value = '';
+        dom.textInput.style.display = 'block';
+        dom.textInput.focus();
+    },
+
+    js_hideTextInput: function() {
+        var dom = Module.lotDom;
+        if (!dom || !dom.textInput) return;
+        dom.textInput.style.display = 'none';
+        dom.textInput.value = '';
+        dom.textInput.blur();
     },
 
     // C++ 이 상태가 바뀔 때 부른다. 값은 키보드 컨트롤러/카메라의 enum 그대로.

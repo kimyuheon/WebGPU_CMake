@@ -92,22 +92,41 @@ float TextRenderSystem::measure(const std::string& text, float height) {
     return e ? e->aspect * height * e->quadPerHeight : 0.0f;
 }
 
+void TextRenderSystem::quadCorners(const std::string& text, const vec3& origin, const vec3& right,
+                                   const vec3& up, float height, int hAlign, int vAlign, vec3 out[4]) {
+    const Entry* e = lookup(text);
+    const float quadPerHeight = e ? e->quadPerHeight : 1.6f;
+    const float aspect = e ? e->aspect : 2.0f;
+    // 사각형은 비트맵 전체(여백 포함)를 덮는다. 글자(대문자 높이)는 그 가운데 height 만큼.
+    const float quadH = height * quadPerHeight;
+    const float quadW = quadH * aspect;
+    float x0 = 0.0f;
+    if (hAlign == 1) x0 = -quadW * 0.5f;
+    else if (hAlign == 2) x0 = -quadW;
+    // 세로: 가운데가 기본. 기준선이면 글자 바닥이 origin (= 가운데에서 height/2 아래),
+    // 위면 글자 꼭대기가 origin.
+    float y0 = -quadH * 0.5f;
+    if (vAlign == 0) y0 += height * 0.5f;
+    else if (vAlign == 2) y0 -= height * 0.5f;
+
+    out[0] = origin + right * x0 + up * y0;         // 왼쪽 아래
+    out[1] = out[0] + right * quadW;                // 오른쪽 아래
+    out[2] = out[1] + up * quadH;                   // 오른쪽 위
+    out[3] = out[0] + up * quadH;                   // 왼쪽 위
+}
+
 void TextRenderSystem::addText(const std::string& text, const vec3& origin, const vec3& right,
-                               const vec3& up, float height, const vec3& color, int align) {
+                               const vec3& up, float height, const vec3& color, int hAlign,
+                               int vAlign) {
     const Entry* e = lookup(text);
     if (!e || !e->material || !e->material->isReady()) return;
 
-    // 사각형은 비트맵 전체(여백 포함)를 덮는다
-    const float quadH = height * e->quadPerHeight;
-    const float quadW = quadH * e->aspect;
-    float x0 = 0.0f;
-    if (align == 1) x0 = -quadW * 0.5f;
-    else if (align == 2) x0 = -quadW;
-
-    const vec3 bl = origin + right * x0 - up * (quadH * 0.5f);
-    const vec3 br = bl + right * quadW;
-    const vec3 tl = bl + up * quadH;
-    const vec3 tr = br + up * quadH;
+    vec3 c[4];
+    quadCorners(text, origin, right, up, height, hAlign, vAlign, c);
+    const vec3& bl = c[0];
+    const vec3& br = c[1];
+    const vec3& tr = c[2];
+    const vec3& tl = c[3];
 
     // 텍스처는 왼쪽 위가 (0, 0). 두 삼각형.
     auto vtx = [&](const vec3& p, float u, float v) {

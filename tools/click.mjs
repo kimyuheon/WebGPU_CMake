@@ -8,6 +8,7 @@
 //   node tools/click.mjs out.png  ctrl KeyZ             Ctrl+키 (실행 취소)
 //   node tools/click.mjs out.png  btn Top               툴바 버튼 누르기 (글자로 찾는다)
 //   node tools/click.mjs out.png  hint                  안내문 출력
+//   node tools/click.mjs out.png  type 문자열            포커스된 입력창에 글자 (문자 도구)
 //   node tools/click.mjs out.png  savelot a.lot         씬을 .lot 로 저장
 //   node tools/click.mjs out.png  loadlot a.lot         .lot 씬 열기
 //   node tools/click.mjs out.png  wait                 그냥 캡처
@@ -177,6 +178,12 @@ while (i < args.length) {
       `Module.lotDom.sceneLoad(${JSON.stringify(text)})` });
     await sleep(500);
     console.log(`loadlot ${path} (${r?.result?.value} bytes)`);
+  } else if (cmd === 'type') {
+    // 포커스된 입력창에 글자 넣기 (문자 도구)
+    const text = args[i++];
+    await send('Input.insertText', { text });
+    await sleep(200);
+    console.log(`type "${text}"`);
   } else if (cmd === 'hold') {
     // 키를 ms 동안 누르고 있기 (이동/줌)
     const code = args[i++];

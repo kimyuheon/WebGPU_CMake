@@ -39,14 +39,14 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
     // FPS 에서는 좌/우 이동.
     if (std::strcmp(code, "KeyA") == 0) return cadMode_ ? SketchArc : MoveLeft;
     if (std::strcmp(code, "KeyD") == 0) return cadMode_ ? SketchDimension : MoveRight;
+    if (std::strcmp(code, "KeyW") == 0) return cadMode_ ? SketchText : MoveForward;  // W = write
 
     struct Entry {
         const char* code;
         KeyId id;
     };
     static const Entry kTable[] = {
-        {"KeyW", MoveForward},  {"KeyS", MoveBackward},
-        {"KeyA", MoveLeft},     {"KeyD", MoveRight},
+        {"KeyS", MoveBackward},
         {"KeyE", MoveUp},       {"KeyQ", MoveDown},
         {"ArrowLeft", LookLeft},{"ArrowRight", LookRight},
         {"ArrowUp", LookUp},    {"ArrowDown", LookDown},
@@ -191,9 +191,9 @@ int KeyboardMovementController::consumePolygonSidesDelta() {
 }
 
 int KeyboardMovementController::consumeSketchTool() {
-    const KeyId keys[7] = {SketchLine, SketchRectangle, SketchPolyline,
-                           SketchCircle, SketchArc, SketchPolygon, SketchDimension};
-    for (int i = 0; i < 7; ++i) {
+    const KeyId keys[8] = {SketchLine, SketchRectangle, SketchPolyline,
+                           SketchCircle, SketchArc, SketchPolygon, SketchDimension, SketchText};
+    for (int i = 0; i < 8; ++i) {
         if (justPressed_[keys[i]]) {
             justPressed_[keys[i]] = false;
             return i;
@@ -273,7 +273,7 @@ void KeyboardMovementController::init() {
     LOT_LOG("KeyboardMovementController: V view mode (CAD orbit / FPS), "
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, Ctrl+D duplicate, Del delete, "
-            "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G/D sketch line/rect/polyline/circle/arc/polygon/dimension, "
+            "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G/D/W sketch line/rect/polyline/circle/arc/polygon/dimension/text, "
             "[ ] polygon sides, M/U/K/X move/copy/rotate/scale by base point (type value + Enter), "
             "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents, F8 ortho");
 }

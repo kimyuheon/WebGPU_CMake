@@ -38,12 +38,18 @@ public:
     void clear() { quads_.clear(); }
 
     // origin 이 글자의 기준점, right/up 은 글자가 놓이는 평면의 단위 축, height 는
-    // 글자 높이(월드). align: 0 왼쪽, 1 가운데, 2 오른쪽 (origin 기준). 세로는 항상 가운데.
+    // 글자 높이(월드). hAlign: 0 왼쪽, 1 가운데, 2 오른쪽. vAlign: 0 기준선(글자 바닥),
+    // 1 가운데, 2 위 (origin 기준).
     void addText(const std::string& text, const vec3& origin, const vec3& right, const vec3& up,
-                 float height, const vec3& color, int align = 1);
+                 float height, const vec3& color, int hAlign = 1, int vAlign = 1);
 
     // 그 글자가 차지할 폭 (월드). 배치 계산용 - 비트맵을 굽는다 (캐시).
     float measure(const std::string& text, float height);
+
+    // 글자 사각형의 네 꼭짓점 (월드, 왼쪽 아래부터 반시계). 피킹/박스 선택용.
+    // addText 와 같은 계산이다.
+    void quadCorners(const std::string& text, const vec3& origin, const vec3& right, const vec3& up,
+                     float height, int hAlign, int vAlign, vec3 out[4]);
 
     void render(FrameInfo& frame);
     bool isReady() const;

@@ -78,7 +78,7 @@ public:
     }
 
     void begin() { points_.clear(); }
-    void cancel() { points_.clear(); }
+    virtual void cancel() { points_.clear(); }
     bool hasPoints() const { return !points_.empty(); }
     const std::vector<vec3>& points() const { return points_; }
 
@@ -199,10 +199,38 @@ public:
     int precision = 2;
 };
 
+// 문자 (W, CAD 모드 - "Write"). 기준점 클릭 -> 브라우저 입력창에 내용 -> Enter 로 확정.
+// 글자 입력은 키 컨트롤러가 아니라 HTML 입력창이 받는다 (한글 조합, IME 는 브라우저 몫).
+class TextTool : public SketchTool {
+public:
+    const char* name() const override { return "text"; }
+    void onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) override;
+    bool onFinish(LotGameObject::Map& objects) override;
+    void preview(const vec3& cursor, const SketchPlane& plane,
+                 std::vector<vec3>& outPoints, bool& outClosed) const override;
+    void previewExtra(const vec3& cursor, const SketchPlane& plane, const LotCamera& camera,
+                      LineRenderSystem& lines, TextRenderSystem& text) const override;
+
+    void cancel() override { points_.clear(); waiting_ = false; inputRequested_ = false; }
+
+    // 입력창에서 온 내용으로 확정. 비어 있으면 아무것도 만들지 않는다.
+    void submit(const std::string& content, const SketchPlane& plane, LotGameObject::Map& objects);
+
+    // 기준점을 찍어 입력창이 필요해진 순간 true (한 번 소비).
+    bool consumeInputRequest() { const bool r = inputRequested_; inputRequested_ = false; return r; }
+    bool waitingForInput() const { return waiting_; }
+
+    float height = 0.25f;
+
+private:
+    bool inputRequested_ = false;
+    bool waiting_ = false;
+};
+
 // 도구 레지스트리 + 입력. 렌더 루프가 프레임마다 update 를 부른다.
 class SketchController {
 public:
-    enum class Kind { Line, Rectangle, Polyline, Circle, Arc, Polygon, Dimension };
+    enum class Kind { Line, Rectangle, Polyline, Circle, Arc, Polygon, Dimension, Text };
 
     struct Context {
         const LotCamera& camera;
@@ -240,8 +268,14 @@ public:
     void drawPreview(PolylineRenderSystem& polylines, LineRenderSystem& lines,
                      TextRenderSystem& text, const Context& ctx) const;
 
-    // 치수 기본값 (씬 크기에 맞춰 바깥에서 조정할 수 있다)
+    // 치수/문자 기본값 (씬 크기에 맞춰 바깥에서 조정할 수 있다)
     void setDimensionStyle(float textHeight, float arrowSize);
+    void setTextHeight(float height);
+
+    // 문자 도구: 입력창을 열어야 하나 (한 번 소비) / 입력 내용 제출 / 입력 대기 중인가
+    bool consumeTextInputRequest();
+    void submitText(const std::string& content, LotGameObject::Map& objects);
+    bool waitingForTextInput() const;
 
     // 마지막으로 확정된 오브젝트 id (프레임당 한 번 소비). 실행 취소 등록용.
     LotGameObject::id_t consumeCommittedId();
@@ -271,6 +305,7 @@ private:
     std::unique_ptr<ArcTool> arc_;
     std::unique_ptr<PolygonTool> polygon_;
     std::unique_ptr<DimensionTool> dimension_;
+    std::unique_ptr<TextTool> textTool_;
     SketchTool* active_ = nullptr;
     SketchPlane plane_;
     LotGameObject::id_t lastCommitted_ = LotGameObject::kInvalidId;

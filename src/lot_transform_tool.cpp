@@ -215,6 +215,7 @@ void TransformTool::confirm(const Context& ctx, EditHistory& history) {
             copy.closed = src->closed;
             copy.curve = src->curve;
             copy.dim = src->dim;
+            copy.text = src->text;
             const auto id = copy.getId();
             ctx.objects.emplace(id, std::move(copy));
             copies.insert(id);

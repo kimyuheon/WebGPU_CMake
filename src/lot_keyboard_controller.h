@@ -132,6 +132,7 @@ private:
         SketchArc,
         SketchPolygon,
         SketchDimension,
+        SketchText,
         PolygonSidesDown,
         PolygonSidesUp,
         XformMove,

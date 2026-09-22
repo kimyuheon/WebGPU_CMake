@@ -377,6 +377,9 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
             selected = testPoints(m, obj.points);
         } else if (obj.isDimension()) {
             selected = testPoints(mat4::identity(), lot_dim::outlinePoints(obj));  // 이미 월드
+        } else if (obj.isText()) {
+            vec3 c[4];
+            if (lot_text::quadCorners(obj, c)) selected = testPoints(mat4::identity(), {c[0], c[1], c[2], c[3]});
         }
         if (selected) selection_.insert(entry.first);
     }
@@ -401,6 +404,7 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.closed = src->closed;
         copy.curve = src->curve;
         copy.dim = src->dim;
+        copy.text = src->text;
         const id_t newId = copy.getId();
         objects.emplace(newId, std::move(copy));
         copies.insert(newId);
@@ -469,6 +473,11 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
         } else if (obj->isDimension()) {
             const lot_dim::Geometry g = lot_dim::build(obj->dim, obj->transform.mat4Transform(), nullptr);
             for (const auto& s : g.segments) lines.addLine(s.first, s.second, kSelectionColor);
+        } else if (obj->isText()) {
+            vec3 c[4];
+            if (lot_text::quadCorners(*obj, c)) {
+                for (int i = 0; i < 4; ++i) lines.addLine(c[i], c[(i + 1) % 4], kSelectionColor);
+            }
         }
     }
 

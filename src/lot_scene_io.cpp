@@ -75,6 +75,25 @@ JsonValue objectJson(const LotGameObject& obj) {
     jo.set("color", j3(obj.color));
     jo.set("transform", transformJson(obj.transform));
 
+    if (obj.isText()) {
+        // 네이티브 TextData 와 같은 키. origin 은 로컬 0 (위치는 transform 이 든다).
+        const auto& t = obj.text;
+        JsonValue jt = JsonValue::makeObject();
+        jt.set("content", t.content);
+        jt.set("height", t.height);
+        jt.set("font", "sans-serif");
+        jt.set("origin", j3(vec3{0.0f, 0.0f, 0.0f}));
+        jt.set("right", j3(toNative(t.right)));
+        jt.set("up", j3(toNative(t.up)));
+        jt.set("hAlign", t.hAlign);
+        jt.set("vAlign", t.vAlign);
+        jt.set("widthFactor", 1.0f);
+        jt.set("oblique", 0.0f);
+        jo.set("kind", "text");
+        jo.set("text", jt);
+        return jo;
+    }
+
     if (obj.isDimension()) {
         // 네이티브 DimensionData 의 부분집합. type 0 = Aligned. 나머지 필드는 그쪽 기본값.
         const auto& d = obj.dim;
@@ -249,7 +268,7 @@ std::string save(const LotGameObject::Map& objects) {
     int count = 0;
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
-        if (!obj.isSketch() && !obj.model && !obj.isDimension()) continue;  // 뷰어 같은 빈 오브젝트
+        if (!obj.isSketch() && !obj.model && !obj.isDimension() && !obj.isText()) continue;  // 뷰어 같은 빈 오브젝트
         arr.push(objectJson(obj));
         ++count;
     }
@@ -301,6 +320,28 @@ LoadStats load(const std::string& text, lot_web_device& device,
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
             addSketch(objects, std::move(pts), closed, t, color);
             ++stats.polylines;
+        } else if (kind == "text" && jo.find("text")) {
+            const JsonValue* jt = jo.find("text");
+            LotGameObject::Text tx;
+            tx.valid = true;
+            tx.content = jt->find("content") ? jt->find("content")->stringOr("") : "";
+            tx.height = static_cast<float>(jt->find("height") ? jt->find("height")->numberOr(0.5) : 0.5);
+            tx.right = normalize(fromNative(getv3(jt->find("right"), vec3{1.0f, 0.0f, 0.0f})));
+            tx.up = normalize(fromNative(getv3(jt->find("up"), vec3{0.0f, 0.0f, 1.0f})));
+            tx.hAlign = static_cast<int>(jt->find("hAlign") ? jt->find("hAlign")->numberOr(0.0) : 0.0);
+            tx.vAlign = static_cast<int>(jt->find("vAlign") ? jt->find("vAlign")->numberOr(0.0) : 0.0);
+            // 네이티브는 origin 을 따로 든다 - 로컬 오프셋으로 보고 translation 에 얹는다
+            const vec3 origin = fromNative(getv3(jt->find("origin"), vec3{0.0f, 0.0f, 0.0f}));
+            if (tx.content.empty()) { ++stats.skipped; continue; }
+            auto obj = LotGameObject::createGameObject();
+            obj.transform = t;
+            obj.transform.translation = obj.transform.translation + transformPoint(t.mat4Transform(), origin)
+                                        - t.translation;
+            obj.color = color;
+            obj.text = tx;
+            const auto id = obj.getId();
+            objects.emplace(id, std::move(obj));
+            ++stats.texts;
         } else if (kind == "dimension" && jo.find("dim")) {
             const JsonValue* jd = jo.find("dim");
             const int type = static_cast<int>(jd->find("type") ? jd->find("type")->numberOr(0.0) : 0.0);
@@ -351,7 +392,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
 
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
-            << stats.arcs << " arcs, " << stats.dimensions << " dimensions"
+            << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts << " texts"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;
