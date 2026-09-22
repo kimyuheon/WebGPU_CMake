@@ -93,14 +93,23 @@ Tool : Visual Studio Code
 - `lot_scene_io` + `lot_json` — `.lot` 저장/열기. 외부 JSON 라이브러리 없음.
 - `src/js/lot_toolbar.js` — HTML 툴바. C++ 이 상태를 밀고, 버튼은 키 코드를 되돌린다.
 
-### 헤드리스 테스트
+### 헤드리스 테스트 / 회귀
 
 ```
-python -m http.server 8123   (build/ 에서)
-chrome --headless=new --remote-debugging-port=9222 --enable-unsafe-swiftshader http://localhost:8123/WebGPUApp.html
-node tools/click.mjs out.png key KeyT key KeyL click 400 300 click 600 300 key Enter
+.	oolsegress.ps1        (Windows)      서버 + 헤드리스 크롬을 띄우고 시나리오 10개를 돌린 뒤 정리
+tools/regress.sh           (macOS/Linux)  같은 것. 결과 스크린샷은 build/regress/<시각>/
 ```
-`tools/click.mjs` 는 클릭/드래그/키/휠/툴바 버튼/씬 저장·열기를 CDP 로 보내고 캡처한다.
+빌드 뒤, 푸시 전에 한 번 돌린다. 판정은 엔진 로그("sketch: circle committed" 같은 줄)라
+렌더가 깨지는 회귀는 스크린샷을 열어 봐야 한다. 시나리오는 `tools/regress.mjs` 에 있고,
+좌표는 1100x850 뷰포트의 Top 뷰 기준이다 (1 단위 ≈ 187px, 원점 = (550, 500)).
+
+손으로 한 번씩 볼 때는 서버와 크롬을 직접 띄우고 `tools/click.mjs` 로 조작한다:
+```
+python -m http.server 8123   (build/ 에서)
+chrome --headless=new --remote-debugging-port=9222 --enable-unsafe-swiftshader --window-size=1100,850 http://localhost:8123/WebGPUApp.html
+node tools/click.mjs out.png key KeyT key KeyL click 600 700 click 900 700 key Enter
+```
+클릭/드래그/키/휠/툴바 버튼/문자 입력/씬 저장·열기를 CDP 로 보내고 캡처한다. 공용 도우미는 `tools/cdp.mjs`.
 
   ---  
   - 윈도우  
