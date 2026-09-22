@@ -122,6 +122,7 @@ mergeInto(LibraryManager.library, {
                 ['Circle',   'KeyC', 0, 'Circle: center, radius (C)', 'sketch:3'],
                 ['Arc',      'KeyA', 0, 'Arc through 3 points (A, CAD mode)', 'sketch:4'],
                 ['Polygon',  'KeyG', 0, 'Regular polygon: center, vertex (G; [ ] sides)', 'sketch:5'],
+                ['Dim',      'KeyD', 0, 'Aligned dimension: two points, then line position (D, CAD mode)', 'sketch:6'],
                 ['Finish',   'Enter', 0, 'Finish sketch (Enter)', ''],
                 ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
                 ['Ortho',    'F8', 0, 'Ortho tracking: constrain to plane axes (F8)', 'orthoTrack'],

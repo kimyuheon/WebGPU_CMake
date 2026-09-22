@@ -11,8 +11,10 @@
 #include <vector>
 
 class LineRenderSystem;
+class LotCamera;
 class MouseInput;
 class PolylineRenderSystem;
+class TextRenderSystem;
 
 // 스케치 도구 - 클릭으로 선/사각형/폴리라인을 그린다.
 //
@@ -68,6 +70,12 @@ public:
     // 프리뷰: 모은 점 + 커서. 확정 전 모양을 그대로 보여준다.
     virtual void preview(const vec3& cursor, const SketchPlane& plane,
                          std::vector<vec3>& outPoints, bool& outClosed) const = 0;
+
+    // 폴리라인 하나로 표현이 안 되는 프리뷰 (치수: 선 여러 개 + 글자). 기본은 없음.
+    virtual void previewExtra(const vec3& cursor, const SketchPlane& plane, const LotCamera& camera,
+                              LineRenderSystem& lines, TextRenderSystem& text) const {
+        (void)cursor; (void)plane; (void)camera; (void)lines; (void)text;
+    }
 
     void begin() { points_.clear(); }
     void cancel() { points_.clear(); }
@@ -170,10 +178,31 @@ public:
     int sides = 6;
 };
 
+// 치수 (D, CAD 모드). 측정점 둘, 치수선 위치 한 점. 하나로 끝.
+class DimensionTool : public SketchTool {
+public:
+    const char* name() const override { return "dimension"; }
+    void onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) override;
+    bool onFinish(LotGameObject::Map& objects) override;
+    void preview(const vec3& cursor, const SketchPlane& plane,
+                 std::vector<vec3>& outPoints, bool& outClosed) const override;
+    void previewExtra(const vec3& cursor, const SketchPlane& plane, const LotCamera& camera,
+                      LineRenderSystem& lines, TextRenderSystem& text) const override;
+
+    // 세 점(월드)에서 치수 정의 (로컬 = 두 측정점의 중점 기준) 와 기준점.
+    static LotGameObject::Dim makeDim(const vec3& p1, const vec3& p2, const vec3& dimLine,
+                                      const SketchPlane& plane, float textHeight, float arrowSize,
+                                      vec3& originOut);
+
+    float textHeight = 0.22f;
+    float arrowSize = 0.12f;
+    int precision = 2;
+};
+
 // 도구 레지스트리 + 입력. 렌더 루프가 프레임마다 update 를 부른다.
 class SketchController {
 public:
-    enum class Kind { Line, Rectangle, Polyline, Circle, Arc, Polygon };
+    enum class Kind { Line, Rectangle, Polyline, Circle, Arc, Polygon, Dimension };
 
     struct Context {
         const LotCamera& camera;
@@ -209,7 +238,10 @@ public:
 
     // 프리뷰 + 커서 표시. 활성일 때만 무언가 그린다.
     void drawPreview(PolylineRenderSystem& polylines, LineRenderSystem& lines,
-                     const Context& ctx) const;
+                     TextRenderSystem& text, const Context& ctx) const;
+
+    // 치수 기본값 (씬 크기에 맞춰 바깥에서 조정할 수 있다)
+    void setDimensionStyle(float textHeight, float arrowSize);
 
     // 마지막으로 확정된 오브젝트 id (프레임당 한 번 소비). 실행 취소 등록용.
     LotGameObject::id_t consumeCommittedId();
@@ -238,6 +270,7 @@ private:
     std::unique_ptr<CircleTool> circle_;
     std::unique_ptr<ArcTool> arc_;
     std::unique_ptr<PolygonTool> polygon_;
+    std::unique_ptr<DimensionTool> dimension_;
     SketchTool* active_ = nullptr;
     SketchPlane plane_;
     LotGameObject::id_t lastCommitted_ = LotGameObject::kInvalidId;

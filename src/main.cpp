@@ -9,8 +9,10 @@
 #include "lot_render_target.h"
 #include "lot_edit_controller.h"
 #include "lot_scene_io.h"
+#include "lot_dimension.h"
 #include "lot_sketch_tool.h"
 #include "lot_transform_tool.h"
+#include "text_render_system.h"
 #include "lot_mouse_input.h"
 #include "lot_global_uniform.h"
 #include "lot_game_object.h"
@@ -54,6 +56,7 @@ std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
 // 두 패스 구조라서 색/뎁스를 다음 패스가 읽을 수 있다 (외곽선, 그림자, GPU 피킹).
 LotRenderTarget g_sceneTarget;
 std::unique_ptr<PostProcessSystem> g_postSystem = nullptr;
+std::unique_ptr<TextRenderSystem> g_textSystem = nullptr;
 
 // 카메라 + 조명 유니폼. 렌더 시스템 전부가 이 하나를 @group(0) 으로 본다.
 LotGlobalUniform g_globalUniform;
@@ -215,6 +218,8 @@ static void zoomExtents() {
         const LotGameObject& obj = entry.second;
         if (obj.isSketch()) {
             for (const vec3& p : obj.worldPoints()) grow(p);
+        } else if (obj.isDimension()) {
+            for (const vec3& p : lot_dim::outlinePoints(obj)) grow(p);
         } else if (obj.model) {
             // 경계 상자 여덟 꼭짓점을 변환한다 (회전한 상자도 안전하게 덮인다)
             const mat4 m = obj.transform.mat4Transform();
@@ -243,6 +248,9 @@ static void zoomExtents() {
     // 클립 평면: far 는 최대 궤도 거리 + 씬 반지름을 덮고, near 는 far 의 1e-5 이상.
     g_farZ = std::fmax(100.0f, g_camera.getMaxOrbitDistance() + radius * 2.0f);
     g_nearZ = std::fmax(0.01f, g_farZ * 1e-5f);
+
+    // 치수 글자/화살표 기본 크기를 씬에 맞춘다 (mm 도면에서 0.3 짜리 글자는 안 보인다)
+    g_sketch.setDimensionStyle(radius * 0.05f, radius * 0.025f);
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
@@ -434,6 +442,7 @@ void renderLoop() {
         g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
+        g_textSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_postSystem->create(device, color);  // 화면에 그리므로 스왑체인 포맷, 뎁스 없음
         g_gridCreated = true;
     }
@@ -703,18 +712,22 @@ void renderLoop() {
             g_edit.drawOverlay(*g_lineSystem, ctx);
         }
 
-        // 스케치 오브젝트 + 그리는 중인 프리뷰
+        // 스케치 오브젝트 + 치수 + 그리는 중인 프리뷰
         g_polylineSystem->clear();
+        g_textSystem->clear();
         for (const auto& entry : g_gameObjects) {
             const LotGameObject& obj = entry.second;
-            if (!obj.isSketch()) continue;
-            g_polylineSystem->addPolyline(obj.worldPoints(), obj.color, obj.closed);
+            if (obj.isSketch()) {
+                g_polylineSystem->addPolyline(obj.worldPoints(), obj.color, obj.closed);
+            } else if (obj.isDimension()) {
+                lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, obj.color);
+            }
         }
         {
             SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
                                            static_cast<float>(sc.getWidth()),
                                            static_cast<float>(sc.getHeight())};
-            g_sketch.drawPreview(*g_polylineSystem, *g_lineSystem, sctx);
+            g_sketch.drawPreview(*g_polylineSystem, *g_lineSystem, *g_textSystem, sctx);
             TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
@@ -764,6 +777,7 @@ void renderLoop() {
         g_gridSystem->render(frame);
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
+        g_textSystem->render(frame);  // 반투명 - 불투명한 것들 뒤에
         // 기즈모는 뎁스를 무시하므로 맨 마지막. 선택이 있을 때만.
         g_edit.drawGizmo(frame, *g_gizmoSystem);
         g_renderer->endRenderPass();
@@ -790,6 +804,7 @@ int main() {
     g_polylineSystem = std::make_unique<PolylineRenderSystem>();
     g_gizmoSystem = std::make_unique<GizmoRenderSystem>();
     g_postSystem = std::make_unique<PostProcessSystem>();
+    g_textSystem = std::make_unique<TextRenderSystem>();
 
     // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
     // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.

@@ -1,5 +1,6 @@
 #include "lot_edit_controller.h"
 #include "gizmo_render_system.h"
+#include "lot_dimension.h"
 #include "line_render_system.h"
 #include "lot_model.h"
 #include "lot_mouse_input.h"
@@ -374,6 +375,8 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
             selected = testPoints(m, obj.model->getPositions());
         } else if (obj.isSketch()) {
             selected = testPoints(m, obj.points);
+        } else if (obj.isDimension()) {
+            selected = testPoints(mat4::identity(), lot_dim::outlinePoints(obj));  // 이미 월드
         }
         if (selected) selection_.insert(entry.first);
     }
@@ -397,6 +400,7 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.points = src->points;      // 스케치는 점을 복사 (GPU 자원이 아니다)
         copy.closed = src->closed;
         copy.curve = src->curve;
+        copy.dim = src->dim;
         const id_t newId = copy.getId();
         objects.emplace(newId, std::move(copy));
         copies.insert(newId);
@@ -462,6 +466,9 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
             for (size_t i = 0; i < segments; ++i) {
                 lines.addLine(pts[i], pts[(i + 1) % n], kSelectionColor);
             }
+        } else if (obj->isDimension()) {
+            const lot_dim::Geometry g = lot_dim::build(obj->dim, obj->transform.mat4Transform(), nullptr);
+            for (const auto& s : g.segments) lines.addLine(s.first, s.second, kSelectionColor);
         }
     }
 

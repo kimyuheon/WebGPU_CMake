@@ -1,5 +1,6 @@
 #include "lot_osnap.h"
 #include "line_render_system.h"
+#include "lot_dimension.h"
 #include "lot_model.h"
 
 #include <cmath>
@@ -132,6 +133,15 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
             // 원/호의 중심. 쪼갠 점들의 중점이 아니라 정의된 중심이다.
             consider(q, Kind::Center, transformPoint(obj.transform.mat4Transform(), obj.curve.center),
                      entry.first, best);
+        }
+    }
+
+    // 1-2b. 치수의 측정점 / 치수선 끝 - 치수에 이어 치수를 달 때 필요하다
+    for (const auto& entry : objects) {
+        if (q.isExcluded(entry.first)) continue;
+        if (!entry.second.isDimension()) continue;
+        for (const vec3& p : lot_dim::outlinePoints(entry.second)) {
+            consider(q, Kind::Endpoint, p, entry.first, best);
         }
     }
 

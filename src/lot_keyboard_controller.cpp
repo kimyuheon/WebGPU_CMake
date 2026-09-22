@@ -35,8 +35,10 @@ bool onKeyUp(int, const EmscriptenKeyboardEvent* e, void* userData) {
 }  // namespace
 
 KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const char* code) const {
-    // A 는 모드에 따라 다르다: CAD 궤도에서는 WASD 가 놀고 있으니 호(Arc), FPS 에서는 좌이동.
+    // A/D 는 모드에 따라 다르다: CAD 궤도에서는 WASD 가 놀고 있으니 호(Arc)/치수(Dimension),
+    // FPS 에서는 좌/우 이동.
     if (std::strcmp(code, "KeyA") == 0) return cadMode_ ? SketchArc : MoveLeft;
+    if (std::strcmp(code, "KeyD") == 0) return cadMode_ ? SketchDimension : MoveRight;
 
     struct Entry {
         const char* code;
@@ -189,9 +191,9 @@ int KeyboardMovementController::consumePolygonSidesDelta() {
 }
 
 int KeyboardMovementController::consumeSketchTool() {
-    const KeyId keys[6] = {SketchLine, SketchRectangle, SketchPolyline,
-                           SketchCircle, SketchArc, SketchPolygon};
-    for (int i = 0; i < 6; ++i) {
+    const KeyId keys[7] = {SketchLine, SketchRectangle, SketchPolyline,
+                           SketchCircle, SketchArc, SketchPolygon, SketchDimension};
+    for (int i = 0; i < 7; ++i) {
         if (justPressed_[keys[i]]) {
             justPressed_[keys[i]] = false;
             return i;
@@ -271,7 +273,7 @@ void KeyboardMovementController::init() {
     LOT_LOG("KeyboardMovementController: V view mode (CAD orbit / FPS), "
             "F/T/R/I front/top/right/iso, arrows orbit or look, WASD+QE move (FPS), "
             "P projection, -/= ortho zoom, O outline, Ctrl+D duplicate, Del delete, "
-            "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G sketch line/rect/polyline/circle/arc/polygon, "
+            "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G/D sketch line/rect/polyline/circle/arc/polygon/dimension, "
             "[ ] polygon sides, M/U/K/X move/copy/rotate/scale by base point (type value + Enter), "
             "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents, F8 ortho");
 }

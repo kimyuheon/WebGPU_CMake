@@ -89,8 +89,24 @@ public:
     };
     Curve curve;
 
+    // 치수 (정렬 치수). 점은 로컬 - transform 으로 월드에 놓인다 (스케치와 같은 규칙,
+    // 만들 때 두 측정점의 중점을 translation 으로 잡는다). Vulkan 쪽 DimensionData 와 같은 정의.
+    struct Dim {
+        bool valid = false;
+        vec3 p1{0.0f, 0.0f, 0.0f};        // 측정점 1
+        vec3 p2{0.0f, 0.0f, 0.0f};        // 측정점 2
+        vec3 dimLine{0.0f, 0.0f, 0.0f};   // 치수선이 지나는 점 (오프셋 방향/거리)
+        vec3 normal{0.0f, 0.0f, 1.0f};    // 작업평면 법선
+        float textHeight = 0.22f;
+        float arrowSize = 0.12f;
+        int precision = 2;
+        bool arrowsOutside = false;
+    };
+    Dim dim;
+
     bool isSketch() const { return !points.empty(); }
     bool hasCurve() const { return curve.kind != Curve::Kind::None; }
+    bool isDimension() const { return dim.valid; }
 
     // 점들을 월드 좌표로.
     std::vector<vec3> worldPoints() const {

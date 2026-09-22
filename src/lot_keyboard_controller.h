@@ -131,6 +131,7 @@ private:
         SketchCircle,
         SketchArc,
         SketchPolygon,
+        SketchDimension,
         PolygonSidesDown,
         PolygonSidesUp,
         XformMove,

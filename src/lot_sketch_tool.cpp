@@ -1,8 +1,10 @@
 #include "lot_sketch_tool.h"
 #include "line_render_system.h"
+#include "lot_dimension.h"
 #include "lot_log.h"
 #include "lot_mouse_input.h"
 #include "polyline_render_system.h"
+#include "text_render_system.h"
 
 #include <cmath>
 
@@ -14,6 +16,7 @@ const vec3 kPolylineColor{0.8f, 1.0f, 0.8f};
 const vec3 kCircleColor{1.0f, 0.85f, 0.7f};
 const vec3 kArcColor{1.0f, 0.75f, 0.85f};
 const vec3 kPolygonColor{0.85f, 0.8f, 1.0f};
+const vec3 kDimensionColor{0.95f, 0.85f, 0.55f};
 constexpr float kPi = 3.14159265358979f;
 constexpr float kTwoPi = 6.28318530717959f;
 const vec3 kPreviewColor{0.55f, 0.8f, 1.0f};
@@ -383,6 +386,71 @@ void PolygonTool::preview(const vec3& cursor, const SketchPlane& plane,
     out = vertices(points_.front(), cursor, plane, sides);
 }
 
+// ---------------------------------------------------------------- DimensionTool
+
+LotGameObject::Dim DimensionTool::makeDim(const vec3& p1, const vec3& p2, const vec3& dimLine,
+                                          const SketchPlane& plane, float textHeight,
+                                          float arrowSize, vec3& originOut) {
+    originOut = (p1 + p2) * 0.5f;
+    LotGameObject::Dim d;
+    d.valid = true;
+    d.p1 = p1 - originOut;
+    d.p2 = p2 - originOut;
+    d.dimLine = dimLine - originOut;
+    d.normal = plane.normal;
+    d.textHeight = textHeight;
+    d.arrowSize = arrowSize;
+    return d;
+}
+
+void DimensionTool::onPoint(const vec3& p, const SketchPlane& plane, LotGameObject::Map& objects) {
+    if (!points_.empty() && samePoint(points_.back(), p)) return;
+    points_.push_back(p);
+    if (points_.size() < 3) return;
+
+    vec3 origin;
+    LotGameObject::Dim d = makeDim(points_[0], points_[1], points_[2], plane, textHeight, arrowSize, origin);
+    d.precision = precision;
+
+    auto obj = LotGameObject::createGameObject();
+    obj.transform.translation = origin;
+    obj.color = kDimensionColor;
+    obj.dim = d;
+    const auto id = obj.getId();
+    objects.emplace(id, std::move(obj));
+    committedId_ = id;
+    LOT_LOG("sketch: dimension committed as object " << id << " (value "
+            << lot_dim::formatValue(std::sqrt(dot(points_[1] - points_[0], points_[1] - points_[0])),
+                                    precision) << ")");
+    points_.clear();
+}
+
+bool DimensionTool::onFinish(LotGameObject::Map&) {
+    points_.clear();
+    return true;
+}
+
+void DimensionTool::preview(const vec3& cursor, const SketchPlane&,
+                            std::vector<vec3>& out, bool& closed) const {
+    // 측정점 둘을 잡기 전까지는 고무줄 하나. 그 뒤는 previewExtra 가 치수 전체를 그린다.
+    out.clear();
+    closed = false;
+    if (points_.size() == 1) out = {points_[0], cursor};
+}
+
+void DimensionTool::previewExtra(const vec3& cursor, const SketchPlane& plane, const LotCamera& camera,
+                                 LineRenderSystem& lines, TextRenderSystem& text) const {
+    if (points_.size() < 2) return;
+    vec3 origin;
+    LotGameObject::Dim d = makeDim(points_[0], points_[1], cursor, plane, textHeight, arrowSize, origin);
+    d.precision = precision;
+    mat4 m = mat4::identity();
+    m.m[3][0] = origin.x; m.m[3][1] = origin.y; m.m[3][2] = origin.z;
+    const lot_dim::Geometry g = lot_dim::build(d, m, &camera);
+    for (const auto& s : g.segments) lines.addLine(s.first, s.second, kPreviewColor);
+    if (!g.text.empty()) text.addText(g.text, g.textOrigin, g.textRight, g.textUp, g.textHeight, kPreviewColor, 1);
+}
+
 // ---------------------------------------------------------------- SketchController
 
 SketchController::SketchController()
@@ -391,7 +459,13 @@ SketchController::SketchController()
       polyline_(std::make_unique<PolylineTool>()),
       circle_(std::make_unique<CircleTool>()),
       arc_(std::make_unique<ArcTool>()),
-      polygon_(std::make_unique<PolygonTool>()) {}
+      polygon_(std::make_unique<PolygonTool>()),
+      dimension_(std::make_unique<DimensionTool>()) {}
+
+void SketchController::setDimensionStyle(float textHeight, float arrowSize) {
+    dimension_->textHeight = textHeight;
+    dimension_->arrowSize = arrowSize;
+}
 
 void SketchController::changePolygonSides(int delta) {
     int n = polygon_->sides + delta;
@@ -412,6 +486,7 @@ void SketchController::start(Kind kind, const LotCamera& camera) {
     case Kind::Circle:    active_ = circle_.get(); break;
     case Kind::Arc:       active_ = arc_.get(); break;
     case Kind::Polygon:   active_ = polygon_.get(); break;
+    case Kind::Dimension: active_ = dimension_.get(); break;
     }
     plane_ = SketchPlane::fromCamera(camera);
     active_->begin();
@@ -488,7 +563,7 @@ void SketchController::update(const Context& ctx) {
 }
 
 void SketchController::drawPreview(PolylineRenderSystem& polylines, LineRenderSystem& lines,
-                                   const Context& ctx) const {
+                                   TextRenderSystem& text, const Context& ctx) const {
     if (!active_) return;
 
     vec3 cursor;
@@ -503,6 +578,7 @@ void SketchController::drawPreview(PolylineRenderSystem& polylines, LineRenderSy
     bool closed = false;
     active_->preview(cursor, plane_, pts, closed);
     if (pts.size() >= 2) polylines.addPolyline(pts, kPreviewColor, closed);
+    active_->previewExtra(cursor, plane_, ctx.camera, lines, text);
 }
 
 int SketchController::activeKind() const {
@@ -512,6 +588,7 @@ int SketchController::activeKind() const {
     if (active_ == circle_.get()) return static_cast<int>(Kind::Circle);
     if (active_ == arc_.get()) return static_cast<int>(Kind::Arc);
     if (active_ == polygon_.get()) return static_cast<int>(Kind::Polygon);
+    if (active_ == dimension_.get()) return static_cast<int>(Kind::Dimension);
     return -1;
 }
 
@@ -534,6 +611,10 @@ std::string SketchController::hint() const {
     } else if (active_ == polygon_.get()) {
         s += std::to_string(polygon_->sides) + " sides ([ / ] to change): ";
         s += active_->hasPoints() ? "click a vertex (radius)" : "click center";
+    } else if (active_ == dimension_.get()) {
+        const size_t n = active_->points().size();
+        s += n == 0 ? "click first measure point" : (n == 1 ? "click second measure point"
+                                                             : "click where the dimension line goes");
     } else {
         const size_t n = active_->points().size();
         if (n == 0) s += "click first point";

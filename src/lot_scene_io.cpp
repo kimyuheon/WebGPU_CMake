@@ -75,6 +75,26 @@ JsonValue objectJson(const LotGameObject& obj) {
     jo.set("color", j3(obj.color));
     jo.set("transform", transformJson(obj.transform));
 
+    if (obj.isDimension()) {
+        // 네이티브 DimensionData 의 부분집합. type 0 = Aligned. 나머지 필드는 그쪽 기본값.
+        const auto& d = obj.dim;
+        JsonValue jd = JsonValue::makeObject();
+        jd.set("type", 0);
+        jd.set("p1", j3(toNative(d.p1)));
+        jd.set("p2", j3(toNative(d.p2)));
+        jd.set("p3", j3(vec3{0.0f, 0.0f, 0.0f}));
+        jd.set("linearAxis", 0);
+        jd.set("dimLine", j3(toNative(d.dimLine)));
+        jd.set("normal", j3(toNative(d.normal)));
+        jd.set("textHeight", d.textHeight);
+        jd.set("arrowSize", d.arrowSize);
+        jd.set("precision", d.precision);
+        jd.set("arrowsOutside", d.arrowsOutside);
+        jo.set("kind", "dimension");
+        jo.set("dim", jd);
+        return jo;
+    }
+
     if (obj.isSketch()) {
         // 원/호는 정의로 저장한다 (점 목록은 파생물). 네이티브 CircleData/ArcData 와 같은 키.
         if (obj.hasCurve()) {
@@ -229,7 +249,7 @@ std::string save(const LotGameObject::Map& objects) {
     int count = 0;
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
-        if (!obj.isSketch() && !obj.model) continue;  // 뷰어 같은 빈 오브젝트
+        if (!obj.isSketch() && !obj.model && !obj.isDimension()) continue;  // 뷰어 같은 빈 오브젝트
         arr.push(objectJson(obj));
         ++count;
     }
@@ -281,6 +301,34 @@ LoadStats load(const std::string& text, lot_web_device& device,
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
             addSketch(objects, std::move(pts), closed, t, color);
             ++stats.polylines;
+        } else if (kind == "dimension" && jo.find("dim")) {
+            const JsonValue* jd = jo.find("dim");
+            const int type = static_cast<int>(jd->find("type") ? jd->find("type")->numberOr(0.0) : 0.0);
+            if (type != 0) {  // Linear/Angular/Radius 는 아직 - 건너뛰고 센다
+                ++stats.skipped;
+                if (stats.skippedKinds.find("dimension(type)") == std::string::npos) {
+                    if (!stats.skippedKinds.empty()) stats.skippedKinds += ", ";
+                    stats.skippedKinds += "dimension(type)";
+                }
+                continue;
+            }
+            LotGameObject::Dim d;
+            d.valid = true;
+            d.p1 = fromNative(getv3(jd->find("p1"), vec3{0.0f, 0.0f, 0.0f}));
+            d.p2 = fromNative(getv3(jd->find("p2"), vec3{1.0f, 0.0f, 0.0f}));
+            d.dimLine = fromNative(getv3(jd->find("dimLine"), vec3{0.0f, 0.0f, 0.0f}));
+            d.normal = normalize(fromNative(getv3(jd->find("normal"), vec3{0.0f, 0.0f, 1.0f})));
+            d.textHeight = static_cast<float>(jd->find("textHeight") ? jd->find("textHeight")->numberOr(0.3) : 0.3);
+            d.arrowSize = static_cast<float>(jd->find("arrowSize") ? jd->find("arrowSize")->numberOr(0.15) : 0.15);
+            d.precision = static_cast<int>(jd->find("precision") ? jd->find("precision")->numberOr(2.0) : 2.0);
+            d.arrowsOutside = jd->find("arrowsOutside") ? jd->find("arrowsOutside")->boolOr(false) : false;
+            auto obj = LotGameObject::createGameObject();
+            obj.transform = t;
+            obj.color = color;
+            obj.dim = d;
+            const auto id = obj.getId();
+            objects.emplace(id, std::move(obj));
+            ++stats.dimensions;
         } else if ((kind == "circle" && jo.find("circle")) || (kind == "arc" && jo.find("arc"))) {
             const bool arc = kind == "arc";
             const LotGameObject::Curve c = curveFromJson(*jo.find(arc ? "arc" : "circle"), arc);
@@ -303,7 +351,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
 
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
-            << stats.arcs << " arcs"
+            << stats.arcs << " arcs, " << stats.dimensions << " dimensions"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

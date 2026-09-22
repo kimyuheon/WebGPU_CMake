@@ -36,6 +36,7 @@ public:
         std::vector<vec3> points;
         bool closed = false;
         LotGameObject::Curve curve;
+        LotGameObject::Dim dim;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;

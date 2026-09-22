@@ -1,4 +1,5 @@
 #include "lot_picking.h"
+#include "lot_dimension.h"
 #include "lot_model.h"
 
 #include <cmath>
@@ -207,22 +208,28 @@ LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mous
                                const LotGameObject::Map& objects, float& distOut) {
     LotGameObject::id_t best = LotGameObject::kInvalidId;
     distOut = radiusPx;
+    auto testSegment = [&](const vec3& a, const vec3& b, LotGameObject::id_t id) {
+        float ax, ay, bx, by;
+        // 한쪽이라도 카메라 뒤면 그 세그먼트는 건너뛴다 (투영이 뒤집힌다)
+        if (!camera.projectToScreen(a, width, height, ax, ay)) return;
+        if (!camera.projectToScreen(b, width, height, bx, by)) return;
+        const float d = distancePointToSegment2D(mouseX, mouseY, ax, ay, bx, by);
+        if (d < distOut) {
+            distOut = d;
+            best = id;
+        }
+    };
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
-        if (!obj.isSketch()) continue;
-        const std::vector<vec3> pts = obj.worldPoints();
-        const size_t n = pts.size();
-        const size_t segments = obj.closed ? n : n - 1;
-        for (size_t i = 0; i < segments; ++i) {
-            float ax, ay, bx, by;
-            // 한쪽이라도 카메라 뒤면 그 세그먼트는 건너뛴다 (투영이 뒤집힌다)
-            if (!camera.projectToScreen(pts[i], width, height, ax, ay)) continue;
-            if (!camera.projectToScreen(pts[(i + 1) % n], width, height, bx, by)) continue;
-            const float d = distancePointToSegment2D(mouseX, mouseY, ax, ay, bx, by);
-            if (d < distOut) {
-                distOut = d;
-                best = entry.first;
-            }
+        if (obj.isSketch()) {
+            const std::vector<vec3> pts = obj.worldPoints();
+            const size_t n = pts.size();
+            const size_t segments = obj.closed ? n : n - 1;
+            for (size_t i = 0; i < segments; ++i) testSegment(pts[i], pts[(i + 1) % n], entry.first);
+        } else if (obj.isDimension()) {
+            // 치수는 선(보조선/치수선/화살표)으로 집는다 - 글자는 아직 아니다
+            const lot_dim::Geometry g = lot_dim::build(obj.dim, obj.transform.mat4Transform(), nullptr);
+            for (const auto& s : g.segments) testSegment(s.first, s.second, entry.first);
         }
     }
     return best;
