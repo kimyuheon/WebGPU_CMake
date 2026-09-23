@@ -12,6 +12,7 @@
 #include "lot_dimension.h"
 #include "lot_json.h"
 #include "lot_layers.h"
+#include "lot_linetype.h"
 #include "lot_sketch_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
@@ -46,6 +47,8 @@ extern "C" {
     // 레이어 패널 (lot_toolbar.js). JSON 문자열로 층 목록을 밀어 넣는다.
     // 패널이 아직 없으면 0 - 그러면 기억하지 말고 다음 프레임에 다시 보낸다.
     extern int js_setLayers(const char* json);
+    // 선종류 목록 (한 번). [{id, name, sample}, ...]
+    extern void js_setLinetypes(const char* json);
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
     extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
                                   int ortho, int orthoTrack, int outline, int canUndo, int canRedo,
@@ -128,7 +131,9 @@ static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 // 투영 모드. P 키로 전환한다.
 // 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
 static bool g_orthographic = false;
-static bool g_orthoTracking = false;  // F8: 도구가 직전 점에서 축 방향으로만 나가게
+static bool g_orthoTracking = false;
+// 전역 선종류 축척 (AutoCAD 의 LTSCALE). 씬을 열 때 크기에 맞춰 잡는다.
+static float g_linetypeScale = 1.0f;  // F8: 도구가 직전 점에서 축 방향으로만 나가게
 static float g_orthoHalfHeight = 1.6f;
 static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
 static float g_orthoMinHalfHeight = 0.2f;
@@ -208,6 +213,13 @@ void placeObjModel() {
 static bool layerVisible(const LotGameObject& obj) { return g_layers.isVisible(obj.layer); }
 static bool layerSelectable(const LotGameObject& obj) { return g_layers.isSelectable(obj.layer); }
 
+// 오브젝트가 쓸 선종류. '층 따름'이면 층의 것.
+static uint32_t displayLinetype(const LotGameObject& obj) {
+    if (obj.linetype != lot_linetype::kByLayer) return obj.linetype;
+    const LotLayers::Layer* l = g_layers.find(obj.layer);
+    return l ? l->linetype : lot_linetype::kContinuous;
+}
+
 // 오브젝트가 화면에 낼 색. '층 따름'이면 층 색.
 static vec3 displayColor(const LotGameObject& obj) {
     if (!obj.colorByLayer) return obj.color;
@@ -218,7 +230,17 @@ static vec3 displayColor(const LotGameObject& obj) {
 // 레이어 패널로 보내는 상태 (바뀔 때만). JSON 을 직접 엮는다 - 층 몇 개뿐이라 값싸다.
 static std::string g_layerJson;
 static void pushLayers() {
-    std::string j = "{\"current\":" + std::to_string(g_layers.current()) + ",\"layers\":[";
+    // 선택의 선종류: 전부 같으면 그 값, 섞였으면 -2, 선택이 없으면 -3 (패널이 회색으로)
+    int selLt = -3;
+    for (LotGameObject::id_t sel : g_edit.selection()) {
+        const auto* obj = LotGameObject::find(g_gameObjects, sel);
+        if (!obj) continue;
+        const int v = (obj->linetype == lot_linetype::kByLayer) ? -1 : static_cast<int>(obj->linetype);
+        if (selLt == -3) selLt = v;
+        else if (selLt != v) { selLt = -2; break; }
+    }
+    std::string j = "{\"current\":" + std::to_string(g_layers.current())
+                  + ",\"selectionLinetype\":" + std::to_string(selLt) + ",\"layers\":[";
     bool first = true;
     for (const LotLayers::Layer* l : g_layers.all()) {
         if (!first) j += ",";
@@ -235,6 +257,7 @@ static void pushLayers() {
         j += "{\"id\":" + std::to_string(l->id) + ",\"name\":" + dumpJson(JsonValue(l->name), 0)
            + ",\"visible\":" + (l->visible ? "true" : "false")
            + ",\"locked\":" + (l->locked ? "true" : "false")
+           + ",\"linetype\":" + std::to_string(l->linetype)
            + ",\"color\":" + color + ",\"count\":" + std::to_string(count) + "}";
     }
     j += "]}";
@@ -243,7 +266,23 @@ static void pushLayers() {
     g_layerJson = std::move(j);
 }
 
+// 선종류 목록을 패널에 한 번 밀어 넣는다 (표준 8종 + Continuous).
+static void pushLinetypes() {
+    std::string j = "[";
+    bool first = true;
+    for (const lot_linetype::Definition& d : lot_linetype::standard()) {
+        if (!first) j += ",";
+        first = false;
+        j += "{\"id\":" + std::to_string(d.id)
+           + ",\"name\":" + dumpJson(JsonValue(std::string(d.name)), 0)
+           + ",\"sample\":" + dumpJson(JsonValue(std::string(d.sample)), 0) + "}";
+    }
+    j += "]";
+    js_setLinetypes(j.c_str());
+}
+
 // 레이어 패널에서 온 명령. action: "new" | "current" | "visible" | "locked" | "assign" | "delete"
+//                                | "layerLinetype" (value = 선종류 id) | "objectLinetype" (선택에)
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onLayerCommand(const char* action, int layerId, int value) {
     if (action == nullptr) return;
@@ -277,6 +316,24 @@ void lot_onLayerCommand(const char* action, int layerId, int value) {
                 g_edit.setSelection(std::move(keep));
             }
         }
+    } else if (what == "layerLinetype") {
+        if (LotLayers::Layer* l = g_layers.find(id)) {
+            l->linetype = static_cast<uint32_t>(value);
+            LOT_LOG("layer: " << l->name << " linetype = " << lot_linetype::name(l->linetype));
+        }
+    } else if (what == "objectLinetype") {
+        // 선택된 오브젝트의 선종류. value < 0 이면 '층 따름'.
+        if (!g_edit.hasSelection()) return;
+        const uint32_t lt = (value < 0) ? lot_linetype::kByLayer : static_cast<uint32_t>(value);
+        EditHistory::Edit edit;
+        edit.label = "linetype";
+        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        for (LotGameObject::id_t sel : g_edit.selection()) {
+            if (auto* obj = LotGameObject::find(g_gameObjects, sel)) obj->linetype = lt;
+        }
+        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        g_edit.history().record(std::move(edit));
+        LOT_LOG("linetype: selection -> " << lot_linetype::name(lt));
     } else if (what == "assign") {
         // 선택된 오브젝트를 이 층으로 (히스토리에 남는다)
         if (!g_layers.find(id) || !g_edit.hasSelection()) return;
@@ -391,6 +448,8 @@ static void zoomExtents() {
     // 치수 글자/화살표 기본 크기를 씬에 맞춘다 (mm 도면에서 0.3 짜리 글자는 안 보인다)
     g_sketch.setDimensionStyle(radius * 0.05f, radius * 0.025f);
     g_sketch.setTextHeight(radius * 0.07f);
+    // 선종류 무늬도 씬 크기에 맞춘다 (mm 도면에서 0.5 짜리 파선은 실선처럼 보인다)
+    g_linetypeScale = std::fmax(0.01f, radius * 0.25f);
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
@@ -535,6 +594,7 @@ void renderLoop() {
         g_mouse.init();
         // 툴바도 상태바 높이를 DOM 에서 읽으므로 같은 시점에
         js_setupToolbar();
+        pushLinetypes();
         pushLayers();
     }
 
@@ -874,7 +934,17 @@ void renderLoop() {
             if (!layerVisible(obj)) continue;  // 꺼진 층
             const vec3 color = displayColor(obj);
             if (obj.isSketch()) {
-                g_polylineSystem->addPolyline(obj.worldPoints(), color, obj.closed);
+                const uint32_t lt = displayLinetype(obj);
+                if (lt == lot_linetype::kContinuous) {
+                    g_polylineSystem->addPolyline(obj.worldPoints(), color, obj.closed);
+                } else {
+                    // 무늬가 있으면 선분으로 잘라 낸다. 화면에서 한 주기가 4px 보다
+                    // 짧아지면 (줌 아웃) 실선으로 떨어뜨려 뭉개지지 않게.
+                    const float minDash = g_camera.worldPerPixel(obj.transform.translation,
+                                                                 static_cast<float>(sc.getHeight())) * 4.0f;
+                    lot_linetype::emit(*g_lineSystem, obj.worldPoints(), obj.closed, color, lt,
+                                       g_linetypeScale, minDash);
+                }
             } else if (obj.isDimension()) {
                 lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, color);
             } else if (obj.isText()) {

@@ -32,6 +32,7 @@ public:
         TransformComponent transform;
         vec3 color;
         uint32_t layer = 0;
+        uint32_t linetype = 0xFFFFFFFFu;
         bool colorByLayer = false;
         std::shared_ptr<LotModel> model;
         std::shared_ptr<LotMaterial> material;

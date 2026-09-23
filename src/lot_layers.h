@@ -24,6 +24,7 @@ public:
         bool visible = true;
         bool locked = false;
         vec3 color{0.8f, 0.8f, 0.85f};
+        uint32_t linetype = 0;  // lot_linetype::kContinuous
         float opacity = 1.0f;
     };
 

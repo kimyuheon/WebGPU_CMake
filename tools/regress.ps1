@@ -15,6 +15,17 @@ if (-not (Test-Path (Join-Path $build "WebGPUApp.html"))) {
     exit 1
 }
 
+# 빌드가 소스보다 오래됐으면 멈춘다. 옛 빌드로 통과/실패를 보면 시간을 통째로 날린다
+# (JS 만 고쳤을 때 재링크가 안 되는 경우가 있었다).
+$out = Get-Item (Join-Path $build "WebGPUApp.js")
+$newest = Get-ChildItem (Join-Path $root "src"), (Join-Path $root "shaders") -Recurse -File |
+          Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($newest -and $newest.LastWriteTime -gt $out.LastWriteTime) {
+    Write-Host "빌드가 소스보다 오래됐습니다: $($newest.Name) > WebGPUApp.js" -ForegroundColor Yellow
+    Write-Host "  .uild.ps1 을 먼저 돌리세요 (JS 만 고쳤다면 build\WebGPUApp.js 를 지우고 다시)" -ForegroundColor Yellow
+    exit 1
+}
+
 # node
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $node) {

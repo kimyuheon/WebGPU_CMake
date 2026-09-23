@@ -210,6 +210,7 @@ void TransformTool::confirm(const Context& ctx, EditHistory& history) {
             copy.transform = src->transform;  // 미리보기(이동된) 변환
             copy.color = src->color;
             copy.layer = src->layer;
+            copy.linetype = src->linetype;
             copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;

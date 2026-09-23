@@ -19,7 +19,7 @@ bool same(const EditHistory::Record& a, const EditHistory::Record& b) {
         && same(a.transform.scale, b.transform.scale)
         && same(a.transform.rotation, b.transform.rotation)
         && same(a.color, b.color)
-        && a.layer == b.layer && a.colorByLayer == b.colorByLayer
+        && a.layer == b.layer && a.linetype == b.linetype && a.colorByLayer == b.colorByLayer
         && a.model == b.model
         && a.material == b.material
         && a.closed == b.closed
@@ -52,6 +52,7 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.transform = obj.transform;
     r.color = obj.color;
     r.layer = obj.layer;
+    r.linetype = obj.linetype;
     r.colorByLayer = obj.colorByLayer;
     r.model = obj.model;
     r.material = obj.material;
@@ -67,6 +68,7 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.transform = transform;
     obj.color = color;
     obj.layer = layer;
+    obj.linetype = linetype;
     obj.colorByLayer = colorByLayer;
     obj.model = model;
     obj.material = material;

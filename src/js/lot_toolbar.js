@@ -307,6 +307,13 @@ mergeInto(LibraryManager.library, {
         dom.hint = hint;
     },
 
+    // 선종류 목록 (한 번). 드롭다운을 채우는 데 쓴다.
+    js_setLinetypes__deps: ['$UTF8ToString'],
+    js_setLinetypes: function(jsonPtr) {
+        if (!Module.lotDom) Module.lotDom = {};
+        try { Module.lotDom.linetypes = JSON.parse(UTF8ToString(jsonPtr)); } catch (e) {}
+    },
+
     // C++ 이 층 목록을 밀어 넣는다 (바뀔 때만). json: {current, layers:[{id,name,visible,locked,color,count}]}
     js_setLayers__deps: ['$UTF8ToString'],
     js_setLayers: function(jsonPtr) {
@@ -330,6 +337,33 @@ mergeInto(LibraryManager.library, {
         title.style.color = '#666';
         title.style.fontSize = '10px';
         head.appendChild(title);
+
+        // 선종류 드롭다운. byLayer 를 주면 맨 위에 'ByLayer' (값 -1) 를 넣는다.
+        var mkLinetypeSelect = function(value, byLayer, title, onChange) {
+            var sel = document.createElement('select');
+            sel.title = title;
+            sel.style.fontFamily = 'monospace';
+            sel.style.fontSize = '10px';
+            sel.style.color = '#00ff00';
+            sel.style.backgroundColor = '#0d0d0d';
+            sel.style.border = '1px solid #2a3a2a';
+            sel.style.borderRadius = '3px';
+            sel.style.maxWidth = '92px';
+            var add = function(v, text) {
+                var o = document.createElement('option');
+                o.value = String(v);
+                o.textContent = text;
+                sel.appendChild(o);
+            };
+            if (byLayer) add(-1, 'ByLayer');
+            (dom.linetypes || []).forEach(function(lt) { add(lt['id'], lt['name']); });
+            if (value === -2) { add(-2, '--'); }          // 섞여 있음
+            sel.value = String(value);
+            sel.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+            sel.addEventListener('keydown', function(e) { e.stopPropagation(); });
+            sel.addEventListener('change', function() { onChange(parseInt(sel.value, 10)); });
+            return sel;
+        };
 
         var mkButton = function(label, title, onClick) {
             var b = document.createElement('button');
@@ -384,6 +418,9 @@ mergeInto(LibraryManager.library, {
             name.addEventListener('click', function() { dom.layerCommand('current', l['id'], 0); });
             row.appendChild(name);
 
+            row.appendChild(mkLinetypeSelect(l['linetype'], false, 'Layer linetype',
+                function(v) { dom.layerCommand('layerLinetype', l['id'], v); }));
+
             if (l['id'] !== 0) {
                 row.appendChild(mkButton(l['visible'] ? '\u25c9' : '\u25cb',
                                          l['visible'] ? 'Hide layer' : 'Show layer',
@@ -399,6 +436,27 @@ mergeInto(LibraryManager.library, {
                                      function() { dom.layerCommand('assign', l['id'], 0); }));
             panel.appendChild(row);
         });
+
+        // 선택의 선종류 (선택이 있을 때만)
+        if (state['selectionLinetype'] !== -3) {
+            var selRow = document.createElement('div');
+            selRow.id = 'lot-layer-selection';  // 층 행이 아니다 - 테스트 도우미가 걸러낸다
+            selRow.style.display = 'flex';
+            selRow.style.alignItems = 'center';
+            selRow.style.gap = '4px';
+            selRow.style.marginTop = '4px';
+            selRow.style.paddingTop = '4px';
+            selRow.style.borderTop = '1px solid #333';
+            var label = document.createElement('span');
+            label.textContent = 'selection';
+            label.style.color = '#888';
+            label.style.fontSize = '10px';
+            selRow.appendChild(label);
+            selRow.appendChild(mkLinetypeSelect(state['selectionLinetype'], true,
+                'Linetype of the selected objects',
+                function(v) { dom.layerCommand('objectLinetype', 0, v); }));
+            panel.appendChild(selRow);
+        }
         return 1;
     },
 

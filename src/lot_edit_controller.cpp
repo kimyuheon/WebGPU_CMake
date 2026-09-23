@@ -400,6 +400,7 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.transform = src->transform;
         copy.color = src->color;
         copy.layer = src->layer;
+        copy.linetype = src->linetype;
         copy.colorByLayer = src->colorByLayer;
         copy.model = src->model;        // 공유 - GPU 버퍼 복사 없음
         copy.material = src->material;  // 공유

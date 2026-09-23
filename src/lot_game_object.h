@@ -58,6 +58,9 @@ public:
 
     // 도면층 (LotLayers). 0 = 기본층. 층을 끄면 안 보이고, 잠그면 골라지지 않는다.
     uint32_t layer = 0;
+    // 선종류 (lot_linetype). 기본은 '층 따름' - 층의 선종류를 쓴다.
+    uint32_t linetype = 0xFFFFFFFFu;  // kByLayer
+
     // 색이 '층 따름'(ByLayer)인가. 참이면 층 색으로 그린다 - 층 색을 바꾸면 따라 바뀐다.
     // 스케치/치수/문자처럼 색이 곧 의미인 것들은 자기 색을 들고 시작한다.
     bool colorByLayer = false;

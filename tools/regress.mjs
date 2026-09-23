@@ -214,6 +214,31 @@ const scenarios = [
     },
   },
   {
+    name: 'linetypes',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      // 층 0 의 선종류를 Dashed 로 -> 그 층에 그린 선이 따라간다 (ByLayer)
+      t.expect(await a.setLinetype(0, 1) === '1', 'layer 0 linetype dropdown');
+      t.expect(a.has(/layer: 0 linetype = Dashed/), 'layer linetype changed');
+      await a.key('KeyL'); await a.click(300, 700); await a.click(900, 700); await a.key('Enter');
+      // 그 선만 Center 로 (객체가 층을 덮어쓴다)
+      await a.click(600, 700);
+      t.expect(a.has(/pick: sketch/), 'pick the line');
+      t.expect(await a.setLinetype('selection', 3) === '3', 'selection linetype dropdown');
+      t.expect(a.has(/linetype: selection -> Center/), 'object linetype set');
+      // 되돌리면 ByLayer 로
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo linetype/), 'undo restores the linetype');
+      // 저장/열기로 살아남나
+      const text = await a.sceneSave();
+      t.expect(/"linetype"/.test(text), 'linetype written to .lot');
+      await a.reload();
+      await a.sceneLoad(text);
+      t.expect(a.has(/scene: loaded .* 1 layers/), 'scene with layers reloaded');
+    },
+  },
+  {
     name: 'scene-roundtrip',
     async run(t) {
       const a = t.api;

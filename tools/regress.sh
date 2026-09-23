@@ -13,6 +13,12 @@ if [ ! -f "$BUILD/WebGPUApp.html" ]; then
     exit 1
 fi
 
+# 빌드가 소스보다 오래됐으면 멈춘다 (옛 빌드로 시험하면 시간을 통째로 날린다)
+if [ -n "$(find "$ROOT/src" "$ROOT/shaders" -type f -newer "$BUILD/WebGPUApp.js" -print -quit 2>/dev/null)" ]; then
+    echo "빌드가 소스보다 오래됐습니다 - ./build.sh 를 먼저 돌리세요" >&2
+    exit 1
+fi
+
 NODE="${NODE:-$(command -v node || ls "$ROOT"/../emsdk/node/*/bin/node 2>/dev/null | head -1)}"
 PYTHON="${PYTHON:-$(command -v python3 || command -v python)}"
 CHROME="${CHROME:-}"

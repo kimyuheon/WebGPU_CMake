@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -131,7 +131,8 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
     async layerButton(row, titlePrefix) {
       const ok = await api.evaluate(
         `(() => { const p = document.getElementById('lot-layers'); if (!p) return false;`
-        + ` const r = ${row} < 0 ? p.children[0] : p.children[${row} + 1]; if (!r) return false;`
+        + ` const rows = [...p.children].slice(1).filter(x => x.id !== 'lot-layer-selection');`
+        + ` const r = ${row} < 0 ? p.children[0] : rows[${row}]; if (!r) return false;`
         + ` const b = [...r.querySelectorAll('button')].find(x => x.title.startsWith(${JSON.stringify(titlePrefix)}));`
         + ` if (b) b.click(); return !!b; })()`);
       await sleep(300);
@@ -140,14 +141,27 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
     // 행의 이름을 눌러 현재 층으로
     async layerMakeCurrent(row) {
       const ok = await api.evaluate(
-        `(() => { const p = document.getElementById('lot-layers'); const r = p?.children[${row} + 1];`
-        + ` const s = r?.querySelector('span[title]'); if (s) s.click(); return !!s; })()`);
+        `(() => { const p = document.getElementById('lot-layers'); if (!p) return false;`
+        + ` const rows = [...p.children].slice(1).filter(x => x.id !== 'lot-layer-selection');`
+        + ` const s = rows[${row}]?.querySelector('span[title]'); if (s) s.click(); return !!s; })()`);
       await sleep(300);
       return ok;
     },
+    // 선종류 드롭다운. which: 'selection' 이면 맨 아래(선택용), 숫자면 그 행의 층 드롭다운.
+    async setLinetype(which, value) {
+      const sel = which === 'selection'
+        ? `document.querySelector('#lot-layer-selection select')`
+        : `[...document.getElementById('lot-layers').children].slice(1)`
+          + `.filter(x => x.id !== 'lot-layer-selection')[${which}]?.querySelector('select')`;
+      return api.evaluate(
+        `(() => { const s = ${sel};`
+        + ` if (!s) return null; s.value = String(${value}); s.dispatchEvent(new Event('change')); return s.value; })()`);
+    },
+    // 층 행만 (머리글과 'selection' 줄은 뺀다)
     async layerRows() {
       return api.evaluate(
-        `[...document.getElementById('lot-layers').children].slice(1).map(r => r.textContent)`);
+        `[...document.getElementById('lot-layers').children].slice(1)`
+        + `.filter(r => r.id !== 'lot-layer-selection').map(r => r.textContent)`);
     },
 
     // 씬 저장/열기 (파일 대화상자 없이, lot_toolbar.js 의 훅)
