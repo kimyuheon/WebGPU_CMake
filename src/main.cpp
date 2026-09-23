@@ -12,6 +12,8 @@
 #include "lot_dimension.h"
 #include "lot_json.h"
 #include "lot_layers.h"
+#include "lot_cursor_snap.h"
+#include "lot_cursor_snap.h"
 #include "lot_linetype.h"
 #include "lot_sketch_tool.h"
 #include "lot_transform_tool.h"
@@ -51,8 +53,8 @@ extern "C" {
     extern void js_setLinetypes(const char* json);
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
     extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
-                                  int ortho, int orthoTrack, int outline, int canUndo, int canRedo,
-                                  const char* hint);
+                                  int ortho, int orthoTrack, int gridSnap, int outline,
+                                  int canUndo, int canRedo, const char* hint);
 }
 
 // 전역 객체들
@@ -131,9 +133,11 @@ static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 // 투영 모드. P 키로 전환한다.
 // 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
 static bool g_orthographic = false;
-static bool g_orthoTracking = false;
+// F8 직교 / F9 그리드 스냅. 실제 값은 lot_cursor::settings() 한 벌 - 도구들이 그걸 읽는다.
+// 그리드 간격은 씬 크기에 맞춰 정한다 (zoomExtents).
+static float g_gridSpacing = 0.5f;
 // 전역 선종류 축척 (AutoCAD 의 LTSCALE). 씬을 열 때 크기에 맞춰 잡는다.
-static float g_linetypeScale = 1.0f;  // F8: 도구가 직전 점에서 축 방향으로만 나가게
+static float g_linetypeScale = 1.0f;
 static float g_orthoHalfHeight = 1.6f;
 static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
 static float g_orthoMinHalfHeight = 0.2f;
@@ -450,6 +454,9 @@ static void zoomExtents() {
     g_sketch.setTextHeight(radius * 0.07f);
     // 선종류 무늬도 씬 크기에 맞춘다 (mm 도면에서 0.5 짜리 파선은 실선처럼 보인다)
     g_linetypeScale = std::fmax(0.01f, radius * 0.25f);
+    // 그리드 스냅 간격도 - 화면 가로에 눈금이 20 개쯤 되게 '보기 좋은' 값으로
+    g_gridSpacing = lot_cursor::niceSpacing(radius * 0.1f);
+    if (lot_cursor::settings().gridSpacing > 0.0f) lot_cursor::settings().gridSpacing = g_gridSpacing;
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
@@ -509,6 +516,7 @@ struct ToolbarState {
     int fps = 0;
     int ortho = 0;
     int orthoTrack = 0;
+    int gridSnap = 0;
     int outline = 0;
     int canUndo = 0;
     int canRedo = 0;
@@ -517,7 +525,8 @@ struct ToolbarState {
     bool operator==(const ToolbarState& o) const {
         return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && xformMode == o.xformMode
             && view == o.view
-            && fps == o.fps && ortho == o.ortho && orthoTrack == o.orthoTrack && outline == o.outline
+            && fps == o.fps && ortho == o.ortho && orthoTrack == o.orthoTrack
+            && gridSnap == o.gridSnap && outline == o.outline
             && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
     }
 };
@@ -532,15 +541,16 @@ static void pushToolbarState() {
     s.view = g_camera.presetViewIndex();
     s.fps = g_camera.isCadMode() ? 0 : 1;
     s.ortho = g_orthographic ? 1 : 0;
-    s.orthoTrack = g_orthoTracking ? 1 : 0;
+    s.orthoTrack = lot_cursor::settings().ortho ? 1 : 0;
+    s.gridSnap = lot_cursor::settings().gridSpacing > 0.0f ? 1 : 0;
     s.outline = (g_postSystem->mode == PostProcessSystem::Mode::Outline) ? 1 : 0;
     s.canUndo = g_edit.history().canUndo() ? 1 : 0;
     s.canRedo = g_edit.history().canRedo() ? 1 : 0;
     s.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
     if (g_toolbarPushed && s == g_toolbarState) return;
     const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.xformMode, s.view, s.fps,
-                                            s.ortho, s.orthoTrack, s.outline, s.canUndo, s.canRedo,
-                                            s.hint.c_str()) != 0;
+                                            s.ortho, s.orthoTrack, s.gridSnap, s.outline,
+                                            s.canUndo, s.canRedo, s.hint.c_str()) != 0;
     if (!applied) return;  // 툴바 DOM 이 생기기 전 - 기억하지 말고 다음 프레임에 다시
     g_toolbarState = s;
     g_toolbarPushed = true;
@@ -724,11 +734,16 @@ void renderLoop() {
             zoomExtents();
         }
         if (g_cameraController.consumeOrthoToggle()) {
-            g_orthoTracking = !g_orthoTracking;
-            LOT_LOG("ortho tracking: " << (g_orthoTracking ? "on" : "off"));
+            auto& s = lot_cursor::settings();
+            s.ortho = !s.ortho;
+            LOT_LOG("ortho tracking: " << (s.ortho ? "on" : "off"));
         }
-        g_sketch.orthoTracking = g_orthoTracking;
-        g_transform.orthoTracking = g_orthoTracking;
+        if (g_cameraController.consumeGridSnapToggle()) {
+            auto& s = lot_cursor::settings();
+            s.gridSpacing = (s.gridSpacing > 0.0f) ? 0.0f : g_gridSpacing;
+            LOT_LOG("grid snap: " << (s.gridSpacing > 0.0f ? "on" : "off")
+                    << " (spacing " << g_gridSpacing << ")");
+        }
         if (const int d = g_cameraController.consumePolygonSidesDelta(); d != 0) {
             g_sketch.changePolygonSides(d);
         }

@@ -1,4 +1,5 @@
 #include "lot_transform_tool.h"
+#include "lot_cursor_snap.h"
 #include "line_render_system.h"
 #include "lot_log.h"
 #include "lot_mouse_input.h"
@@ -82,11 +83,11 @@ bool TransformTool::cursorPoint(const Context& ctx, vec3& out) const {
     const lot_pick::Ray ray = lot_pick::screenToRay(ctx.camera, ctx.mouse.x(), ctx.mouse.y(),
                                                     ctx.width, ctx.height);
     if (!plane_.intersect(ray, out)) return false;
-    // 직교 트랙킹은 이동/복사에만 - 회전 각과 축척 배율은 방향이 아니라 값이다
-    if (orthoTracking && isPreviewing() && (mode_ == Mode::Move || mode_ == Mode::Copy)) {
-        const vec3 d = out - base_;
-        const float dr = dot(d, plane_.right), du = dot(d, plane_.up);
-        out = (std::fabs(dr) >= std::fabs(du)) ? base_ + plane_.right * dr : base_ + plane_.up * du;
+    // 보정은 이동/복사에만 - 회전 각과 축척 배율은 방향이 아니라 값이라 눈금이 의미 없다.
+    if (isPreviewing() && (mode_ == Mode::Move || mode_ == Mode::Copy)) {
+        out = lot_cursor::apply(out, plane_, &base_);
+    } else if (state_ == State::WaitingBase) {
+        out = lot_cursor::apply(out, plane_, nullptr);  // 기준점은 눈금에 맞출 수 있다
     }
     return true;
 }
@@ -327,7 +328,7 @@ std::string TransformTool::hint() const {
         s += buf;
     }
     s += "  [Esc cancel]";
-    if (orthoTracking) s += "  ORTHO";
+    s += lot_cursor::statusSuffix();
     return s;
 }
 

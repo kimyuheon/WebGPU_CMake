@@ -290,9 +290,6 @@ public:
     // 열린 도구의 직전 점 (수직 스냅 기준, 직교 트랙킹 기준). 없으면 nullptr.
     const vec3* referencePoint() const;
 
-    // 직교 트랙킹 (F8): 직전 점에서 작업평면의 한 축으로만 나가게 커서를 묶는다.
-    // 스냅이 잡혔으면 스냅이 이긴다 (AutoCAD 와 같다).
-    bool orthoTracking = false;
 
 private:
     // 커서의 월드 점: 스냅이 있으면 스냅 점, 없으면 평면 교점. 평행이면 false.

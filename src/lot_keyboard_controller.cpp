@@ -64,7 +64,7 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"BracketLeft", PolygonSidesDown}, {"BracketRight", PolygonSidesUp},
         {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
         {"KeyZ", ZoomExtents},
-        {"F8", OrthoTracking},
+        {"F8", OrthoTracking}, {"F9", GridSnap},
     };
 
     for (const auto& entry : kTable) {
@@ -220,6 +220,12 @@ bool KeyboardMovementController::consumeOrthoToggle() {
     return was;
 }
 
+bool KeyboardMovementController::consumeGridSnapToggle() {
+    const bool was = justPressed_[GridSnap];
+    justPressed_[GridSnap] = false;
+    return was;
+}
+
 bool KeyboardMovementController::consumeZoomExtents() {
     const bool was = justPressed_[ZoomExtents];
     justPressed_[ZoomExtents] = false;
@@ -275,7 +281,7 @@ void KeyboardMovementController::init() {
             "P projection, -/= ortho zoom, O outline, Ctrl+D duplicate, Del delete, "
             "1/2/3 gizmo move/rotate/scale, L/B/N/C/A/G/D/W sketch line/rect/polyline/circle/arc/polygon/dimension/text, "
             "[ ] polygon sides, M/U/K/X move/copy/rotate/scale by base point (type value + Enter), "
-            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents, F8 ortho");
+            "Enter finish, Esc cancel, Ctrl+Z undo, Ctrl+Y redo, Z zoom extents, F8 ortho, F9 grid snap");
 }
 
 void KeyboardMovementController::moveInPlaneXY(float dt, LotGameObject& viewerObject) {

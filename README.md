@@ -76,7 +76,8 @@ Tool : Visual Studio Code
 | 기즈모 | 이동 / 회전 / 축척 (축·평면·균등 핸들) | `1/2/3` |
 | 변환 | 기준점 방식 이동 / 복사 / 회전 / 축척, 숫자 입력 | `M/U/K/X` + 값 + `Enter` |
 | 스케치 | 선 · 사각형 · 폴리라인 · 원 · 호(3점) · 정다각형, 뷰에 맞는 작업평면 | `L/B/N/C/A/G`, `[ ]` |
-| 스냅 | 끝점 □ · 중점 △ · 중심 ○ (메시 정점/모서리, 스케치) | 자동 |
+| 스냅 | 끝점 □ · 중점 △ · 중심 ○ · 교차 × · 수직 ⊥ | 자동 |
+| 커서 보정 | 직교 트랙킹, 그리드 스냅 (간격은 씬 크기에 맞춰 자동) | `F8` `F9` |
 | 편집 | 제자리 복제 · 삭제 · 실행 취소/다시 실행 (100단계) | `Ctrl+D` `Del` `Ctrl+Z/Y` |
 | 레이어 | 층 만들기/삭제, 표시·잠금, 현재 층, 선택을 옮기기 | 오른쪽 패널 |
 | 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), OBJ 열기 | 툴바 |
@@ -92,6 +93,8 @@ Tool : Visual Studio Code
 - `lot_transform_tool` — 기준점 변환. 숫자 입력은 `KeyboardMovementController::setNumberCapture`.
 - `lot_history` — 편집 전/후 스냅샷 기반 undo/redo. 도구가 늘어도 `record()` 한 줄.
 - `lot_scene_io` + `lot_json` — `.lot` 저장/열기. 외부 JSON 라이브러리 없음.
+- `lot_cursor_snap` — 커서 보정 한 곳 (osnap > 직교 > 그리드). 도구가 각자 들면 둘이 어긋난다.
+- `lot_linetype` — 선종류. 무늬를 CPU 에서 잘라 선분으로 낸다 (폴리라인 전체가 한 누적 길이).
 - `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.
 - `src/js/lot_toolbar.js` — HTML 툴바 + 레이어 패널. C++ 이 상태를 밀고, 버튼은 키 코드를 되돌린다.
   ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾸므로, 바깥에 노출하거나 JSON 으로 주고받는 이름은 `obj['name']` 으로 적는다.

@@ -128,6 +128,7 @@ mergeInto(LibraryManager.library, {
                 ['Finish',   'Enter', 0, 'Finish sketch (Enter)', ''],
                 ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
                 ['Ortho',    'F8', 0, 'Ortho tracking: constrain to plane axes (F8)', 'orthoTrack'],
+                ['Snap',     'F9', 0, 'Grid snap: snap the cursor to grid steps (F9)', 'gridSnap'],
             ]],
             ['edit', [
                 ['Dup',    'KeyD', 1, 'Duplicate selection in place (Ctrl+D)', ''],
@@ -483,7 +484,7 @@ mergeInto(LibraryManager.library, {
     //   ortho 0/1, outline 0/1, canUndo/canRedo 0/1, hint = UTF-8 문자열 (빈 문자열이면 숨김)
     js_setToolbarState__deps: ['$UTF8ToString'],
     js_setToolbarState: function(gizmoMode, sketchTool, xformMode, view, fps, ortho, orthoTrack,
-                                 outline, canUndo, canRedo, hintPtr) {
+                                 gridSnap, outline, canUndo, canRedo, hintPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.toolbarButtons) return 0;  // 아직 툴바가 없다 - C++ 이 다음 프레임에 다시 보낸다
         var buttons = dom.toolbarButtons;
@@ -503,6 +504,7 @@ mergeInto(LibraryManager.library, {
         style(buttons['fps'], fps === 1, true);
         style(buttons['ortho'], ortho === 1, true);
         style(buttons['orthoTrack'], orthoTrack === 1, true);
+        style(buttons['gridSnap'], gridSnap === 1, true);
         style(buttons['outline'], outline === 1, true);
         style(buttons['undo'], false, canUndo === 1);
         style(buttons['redo'], false, canRedo === 1);

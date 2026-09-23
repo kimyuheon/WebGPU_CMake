@@ -214,6 +214,33 @@ const scenarios = [
     },
   },
   {
+    name: 'grid-snap',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyZ');  // zoom extents 가 간격을 씬 크기에 맞춘다
+      await a.key('F9');
+      t.expect(a.has(/grid snap: on/), 'F9 turns grid snap on');
+      const hintOn = await (async () => { await a.key('KeyL'); return a.hint(); })();
+      t.expect(/SNAP/.test(hintOn), 'hint shows SNAP');
+
+      // 눈금에서 살짝 벗어난 곳을 두 번 찍고, 길이가 간격의 배수인지 본다.
+      // 간격 = niceSpacing(radius * 0.1); radius ~2.2 -> 0.2. 화면 187px/단위.
+      await a.click(400, 700); await a.click(777, 700); await a.key('Enter');
+      const len = await a.evaluate(
+        `(() => { const s = JSON.parse(Module.lotDom.sceneSave());`
+        + ` const o = s['objects'].filter(o => o['kind'] === 'line').pop();`
+        + ` const a = o['line']['a'], b = o['line']['b'];`
+        + ` return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); })()`);
+      const step = 0.2;
+      t.expect(Math.abs(len / step - Math.round(len / step)) < 0.01,
+               `line length ${len.toFixed(4)} is a multiple of the grid step`);
+
+      await a.key('F9');
+      t.expect(a.has(/grid snap: off/), 'F9 turns it off again');
+    },
+  },
+  {
     name: 'linetypes',
     async run(t) {
       const a = t.api;
