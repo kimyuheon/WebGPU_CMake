@@ -1,6 +1,6 @@
 #include "lot_web_renderer.h"
 #include "simple_render_system.h"
-#include "grid_render_system.h"
+#include "lot_grid.h"
 #include "line_render_system.h"
 #include "polyline_render_system.h"
 #include "gizmo_render_system.h"
@@ -60,7 +60,6 @@ extern "C" {
 // 전역 객체들
 std::unique_ptr<LotWebRenderer> g_renderer = nullptr;
 std::unique_ptr<SimpleRenderSystem> g_renderSystem = nullptr;
-std::unique_ptr<GridRenderSystem> g_gridSystem = nullptr;
 std::unique_ptr<LineRenderSystem> g_lineSystem = nullptr;
 std::unique_ptr<PolylineRenderSystem> g_polylineSystem = nullptr;
 std::unique_ptr<GizmoRenderSystem> g_gizmoSystem = nullptr;
@@ -114,7 +113,7 @@ static const float kObjHeight = 0.6f;       // 가운데 모델의 중심 높이
 static const float kCubeHalf = 0.3f;        // 큐브 반 변 (scale 0.6) - 바닥에 딱 얹히게
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
-static bool g_gridCreated = false;
+static bool g_overlayCreated = false;
 static bool g_gameObjectsCreated = false;
 
 // 카메라 설정
@@ -648,11 +647,11 @@ void renderLoop() {
         g_pipelineCreated = true;
     }
 
-    // 3-1. 격자/선 렌더 시스템. 글로벌 레이아웃만 있으면 되므로 메시 쪽과 독립이다.
-    if (!g_gridCreated && g_uniformCreated) {
+    // 3-1. 선/폴리라인/기즈모/글자 렌더 시스템. 글로벌 레이아웃만 있으면 되므로 메시 쪽과 독립이다.
+    // (격자는 시스템이 아니라 lot_grid 가 프레임마다 선 시스템에 넣는다.)
+    if (!g_overlayCreated && g_uniformCreated) {
         const WGPUTextureFormat color = g_renderer->getSwapchain().getFormat();
         const WGPUTextureFormat depth = g_renderer->getSwapchain().getDepthFormat();
-        g_gridSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_lineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_polylineSystem->create(device, g_globalUniform.getLayout(), color, depth);
         g_gizmoSystem->create(device, g_globalUniform.getLayout(), color, depth);
@@ -660,7 +659,7 @@ void renderLoop() {
         lot_text::setMeasurer(g_textSystem.get());  // 문자 피킹/박스 선택이 글자 폭을 물어본다
         lot_pick::setSelectableFilter(layerSelectable);  // 꺼지거나 잠긴 층은 안 잡힌다
         g_postSystem->create(device, color);  // 화면에 그리므로 스왑체인 포맷, 뎁스 없음
-        g_gridCreated = true;
+        g_overlayCreated = true;
     }
 
     // 4. 게임 오브젝트 생성 (한 번만)
@@ -929,6 +928,8 @@ void renderLoop() {
         // 이번 프레임의 보조선. 광원 위치를 십자로, 작업 영역을 상자로.
         // 프레임마다 다시 채우므로 광원이 움직이면 십자도 따라간다.
         g_lineSystem->clear();
+        // 바닥 격자. 그리드 스냅(F9) 과 같은 간격으로, 카메라를 따라다닌다.
+        lot_grid::draw(*g_lineSystem, g_camera, g_gridSpacing, static_cast<float>(sc.getHeight()));
         g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, 0.0f), vec3(2.4f, 0.9f, 1.5f),
                              vec3(0.45f, 0.45f, 0.5f));
@@ -1017,7 +1018,6 @@ void renderLoop() {
         // 뎁스는 장면 것을 그대로 쓰므로 격자가 메시 뒤로 제대로 가려진다.
         g_renderer->beginOverlayPass(g_sceneTarget.getDepthView());
         frame.pass = g_renderer->getCurrentRenderPass();
-        g_gridSystem->render(frame);
         g_lineSystem->render(frame);
         g_polylineSystem->render(frame);
         g_textSystem->render(frame);  // 반투명 - 불투명한 것들 뒤에
@@ -1042,7 +1042,6 @@ int main() {
 
     // Render System 생성 (Pipeline + Uniform 관리)
     g_renderSystem = std::make_unique<SimpleRenderSystem>("shaders/triangle.wgsl");
-    g_gridSystem = std::make_unique<GridRenderSystem>();
     g_lineSystem = std::make_unique<LineRenderSystem>();
     g_polylineSystem = std::make_unique<PolylineRenderSystem>();
     g_gizmoSystem = std::make_unique<GizmoRenderSystem>();
