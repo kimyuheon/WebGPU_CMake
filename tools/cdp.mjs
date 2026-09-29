@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -158,6 +158,25 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
         + ` if (!s) return null; s.value = String(${value}); s.dispatchEvent(new Event('change')); return s.value; })()`);
     },
     // 층 행만 (머리글과 'selection' 줄은 뺀다)
+    // 색 입력. which: 'selection' 또는 층 행 번호. value 는 0xRRGGBB.
+    async setColor(which, value) {
+      const hex = '#' + value.toString(16).padStart(6, '0');
+      const sel = which === 'selection'
+        ? `document.querySelector('#lot-layer-selection input[type=color]')`
+        : `[...document.getElementById('lot-layers').children].slice(1)`
+          + `.filter(x => x.id !== 'lot-layer-selection')[${which}]?.querySelector('input[type=color]')`;
+      return api.evaluate(
+        `(() => { const c = ${sel}; if (!c) return null;`
+        + ` c.value = ${JSON.stringify(hex)}; c.dispatchEvent(new Event('input')); return c.value; })()`);
+    },
+    // 선택 줄의 ByLayer 단추
+    async toggleByLayer() {
+      const ok = await api.evaluate(
+        `(() => { const b = [...document.querySelectorAll('#lot-layer-selection button')]`
+        + `.find(x => x.textContent.indexOf('ByLayer') >= 0); if (b) b.click(); return !!b; })()`);
+      await sleep(300);
+      return ok;
+    },
     async layerRows() {
       return api.evaluate(
         `[...document.getElementById('lot-layers').children].slice(1)`

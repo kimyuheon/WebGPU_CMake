@@ -339,6 +339,25 @@ mergeInto(LibraryManager.library, {
         title.style.fontSize = '10px';
         head.appendChild(title);
 
+        // 색 입력 (네이티브 색 고르개). value 는 '#rrggbb'.
+        var mkColorInput = function(value, title, onChange) {
+            var c = document.createElement('input');
+            c.type = 'color';
+            c.value = value;
+            c.title = title;
+            c.style.width = '18px';
+            c.style.height = '14px';
+            c.style.padding = '0';
+            c.style.border = '1px solid #555';
+            c.style.background = 'none';
+            c.style.cursor = 'pointer';
+            c.style.flex = '0 0 auto';
+            c.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+            c.addEventListener('keydown', function(e) { e.stopPropagation(); });
+            c.addEventListener('input', function() { onChange(parseInt(c.value.slice(1), 16)); });
+            return c;
+        };
+
         // 선종류 드롭다운. byLayer 를 주면 맨 위에 'ByLayer' (값 -1) 를 넣는다.
         var mkLinetypeSelect = function(value, byLayer, title, onChange) {
             var sel = document.createElement('select');
@@ -396,13 +415,8 @@ mergeInto(LibraryManager.library, {
             row.style.borderRadius = '3px';
             if (l['id'] === state['current']) row.style.backgroundColor = 'rgba(0, 255, 0, 0.15)';
 
-            var swatch = document.createElement('span');
-            swatch.style.width = '10px';
-            swatch.style.height = '10px';
-            swatch.style.backgroundColor = l['color'];
-            swatch.style.border = '1px solid #555';
-            swatch.style.flex = '0 0 auto';
-            row.appendChild(swatch);
+            row.appendChild(mkColorInput(l['color'], 'Layer colour (objects set to ByLayer follow it)',
+                function(v) { dom.layerCommand('layerColor', l['id'], v); }));
 
             // 이름: 누르면 현재 층 (새로 그리는 것이 여기로 들어간다)
             var name = document.createElement('span');
@@ -456,6 +470,19 @@ mergeInto(LibraryManager.library, {
             selRow.appendChild(mkLinetypeSelect(state['selectionLinetype'], true,
                 'Linetype of the selected objects',
                 function(v) { dom.layerCommand('objectLinetype', 0, v); }));
+
+            var rgb = state['selectionColor'];
+            var hex = '#' + (rgb >= 0 ? rgb : 0xcccccc).toString(16).padStart(6, '0');
+            selRow.appendChild(mkColorInput(hex,
+                rgb === -2 ? 'Colour of the selected objects (mixed)' : 'Colour of the selected objects',
+                function(v) { dom.layerCommand('objectColor', 0, v); }));
+
+            var byLayer = state['selectionByLayer'] === 1;
+            var bl = mkButton(byLayer ? '\u25c9 ByLayer' : '\u25cb ByLayer',
+                'Follow the layer colour',
+                function() { dom.layerCommand('objectByLayer', 0, byLayer ? 0 : 1); });
+            if (byLayer) { bl.style.color = '#0d0d0d'; bl.style.backgroundColor = '#00ff00'; }
+            selRow.appendChild(bl);
             panel.appendChild(selRow);
         }
         return 1;

@@ -233,17 +233,31 @@ static vec3 displayColor(const LotGameObject& obj) {
 // 레이어 패널로 보내는 상태 (바뀔 때만). JSON 을 직접 엮는다 - 층 몇 개뿐이라 값싸다.
 static std::string g_layerJson;
 static void pushLayers() {
-    // 선택의 선종류: 전부 같으면 그 값, 섞였으면 -2, 선택이 없으면 -3 (패널이 회색으로)
+    // 선택 상태: 전부 같으면 그 값, 섞였으면 -2, 선택이 없으면 -3 (패널이 회색으로)
     int selLt = -3;
+    int selColor = -3;   // 0xRRGGBB
+    int selByLayer = -3; // 0 / 1
     for (LotGameObject::id_t sel : g_edit.selection()) {
         const auto* obj = LotGameObject::find(g_gameObjects, sel);
         if (!obj) continue;
         const int v = (obj->linetype == lot_linetype::kByLayer) ? -1 : static_cast<int>(obj->linetype);
         if (selLt == -3) selLt = v;
-        else if (selLt != v) { selLt = -2; break; }
+        else if (selLt != v) selLt = -2;
+
+        const int rgb = (static_cast<int>(obj->color.x * 255.0f + 0.5f) << 16)
+                      | (static_cast<int>(obj->color.y * 255.0f + 0.5f) << 8)
+                      | static_cast<int>(obj->color.z * 255.0f + 0.5f);
+        if (selColor == -3) selColor = rgb;
+        else if (selColor != rgb) selColor = -2;
+
+        const int bl = obj->colorByLayer ? 1 : 0;
+        if (selByLayer == -3) selByLayer = bl;
+        else if (selByLayer != bl) selByLayer = -2;
     }
     std::string j = "{\"current\":" + std::to_string(g_layers.current())
-                  + ",\"selectionLinetype\":" + std::to_string(selLt) + ",\"layers\":[";
+                  + ",\"selectionLinetype\":" + std::to_string(selLt)
+                  + ",\"selectionColor\":" + std::to_string(selColor)
+                  + ",\"selectionByLayer\":" + std::to_string(selByLayer) + ",\"layers\":[";
     bool first = true;
     for (const LotLayers::Layer* l : g_layers.all()) {
         if (!first) j += ",";
@@ -319,6 +333,33 @@ void lot_onLayerCommand(const char* action, int layerId, int value) {
                 g_edit.setSelection(std::move(keep));
             }
         }
+    } else if (what == "layerColor") {
+        if (LotLayers::Layer* l = g_layers.find(id)) {
+            l->color = vec3{((value >> 16) & 0xFF) / 255.0f, ((value >> 8) & 0xFF) / 255.0f,
+                            (value & 0xFF) / 255.0f};
+            LOT_LOG("layer: " << l->name << " color set");
+        }
+    } else if (what == "objectColor" || what == "objectByLayer") {
+        if (!g_edit.hasSelection()) return;
+        EditHistory::Edit edit;
+        edit.label = "color";
+        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        for (LotGameObject::id_t sel : g_edit.selection()) {
+            auto* obj = LotGameObject::find(g_gameObjects, sel);
+            if (!obj) continue;
+            if (what == "objectByLayer") {
+                obj->colorByLayer = (value != 0);
+            } else {
+                obj->color = vec3{((value >> 16) & 0xFF) / 255.0f, ((value >> 8) & 0xFF) / 255.0f,
+                                  (value & 0xFF) / 255.0f};
+                obj->colorByLayer = false;  // 색을 직접 골랐으면 층 따름을 끈다
+            }
+        }
+        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
+        g_edit.history().record(std::move(edit));
+        LOT_LOG("color: selection " << (what == "objectByLayer"
+                                        ? (value != 0 ? "-> ByLayer" : "-> own colour")
+                                        : "-> custom"));
     } else if (what == "layerLinetype") {
         if (LotLayers::Layer* l = g_layers.find(id)) {
             l->linetype = static_cast<uint32_t>(value);

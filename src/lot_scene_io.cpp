@@ -75,6 +75,7 @@ JsonValue objectJson(const LotGameObject& obj) {
     JsonValue jo = JsonValue::makeObject();
     jo.set("name", "");
     jo.set("color", j3(obj.color));
+    if (obj.colorByLayer) jo.set("colorByLayer", true);  // 웹 확장 (네이티브는 무시)
     jo.set("layer", static_cast<double>(obj.layer));
     // 네이티브와 같은 규약: -1 = ByLayer, 그 외는 선종류 id
     jo.set("linetype", obj.linetype == lot_linetype::kByLayer
@@ -190,12 +191,13 @@ JsonValue objectJson(const LotGameObject& obj) {
 // 스케치 오브젝트를 만들어 넣는다. 점은 이미 웹 로컬 좌표.
 void addSketch(LotGameObject::Map& objects, std::vector<vec3> points, bool closed,
                const TransformComponent& t, const vec3& color, uint32_t layer, uint32_t linetype,
-               const LotGameObject::Curve* curve = nullptr) {
+               bool byLayer, const LotGameObject::Curve* curve = nullptr) {
     auto obj = LotGameObject::createGameObject();
     obj.transform = t;
     obj.color = color;
     obj.layer = layer;
     obj.linetype = linetype;
+    obj.colorByLayer = byLayer;
     obj.points = std::move(points);
     obj.closed = closed;
     if (curve) obj.curve = *curve;
@@ -365,6 +367,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
         const TransformComponent t = transformFromJson(jo.find("transform"));
         const vec3 color = getv3(jo.find("color"), vec3{1.0f, 1.0f, 1.0f});
         const uint32_t layerId = mappedLayer(jo);
+        const bool colorByLayer = jo.find("colorByLayer") ? jo.find("colorByLayer")->boolOr(false) : false;
         const double ltRaw = jo.find("linetype") ? jo.find("linetype")->numberOr(-1.0) : -1.0;
         const uint32_t linetypeId = (ltRaw < 0.0) ? lot_linetype::kByLayer
                                                   : static_cast<uint32_t>(ltRaw);
@@ -373,7 +376,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             const JsonValue* jl = jo.find("line");
             const vec3 a = fromNative(getv3(jl->find("a"), vec3{0.0f, 0.0f, 0.0f}));
             const vec3 b = fromNative(getv3(jl->find("b"), vec3{0.0f, 0.0f, 0.0f}));
-            addSketch(objects, {a, b}, false, t, color, layerId, linetypeId);
+            addSketch(objects, {a, b}, false, t, color, layerId, linetypeId, colorByLayer);
             ++stats.lines;
         } else if (kind == "polyline" && jo.find("polyline")) {
             const JsonValue* jp = jo.find("polyline");
@@ -386,7 +389,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             }
             if (pts.size() < 2) { ++stats.skipped; continue; }
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
-            addSketch(objects, std::move(pts), closed, t, color, layerId, linetypeId);
+            addSketch(objects, std::move(pts), closed, t, color, layerId, linetypeId, colorByLayer);
             ++stats.polylines;
         } else if (kind == "text" && jo.find("text")) {
             const JsonValue* jt = jo.find("text");
@@ -436,6 +439,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             obj.color = color;
             obj.layer = layerId;
             obj.linetype = linetypeId;
+            obj.colorByLayer = colorByLayer;
             obj.dim = d;
             const auto id = obj.getId();
             objects.emplace(id, std::move(obj));
@@ -446,7 +450,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
             std::vector<vec3> pts = tessellateArc(c.center, c.radius, c.right, c.up,
                                                   c.start, c.end, /*includeEnd=*/arc);
             if (pts.size() < 2) { ++stats.skipped; continue; }
-            addSketch(objects, std::move(pts), !arc, t, color, layerId, linetypeId, &c);
+            addSketch(objects, std::move(pts), !arc, t, color, layerId, linetypeId, colorByLayer, &c);
             arc ? ++stats.arcs : ++stats.circles;
         } else if (jo.find("mesh")) {
             if (loadMesh(*jo.find("mesh"), device, t, color, layerId, defaultMaterial, objects)) ++stats.meshes;

@@ -266,6 +266,33 @@ const scenarios = [
     },
   },
   {
+    name: 'colours',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(400, 700); await a.click(900, 700); await a.key('Enter');
+      await a.click(650, 700);
+      t.expect(a.has(/pick: sketch/), 'pick the line');
+
+      t.expect(await a.setColor('selection', 0xff3366) === '#ff3366', 'selection colour input');
+      t.expect(a.has(/color: selection -> custom/), 'object colour set');
+
+      t.expect(await a.toggleByLayer(), 'ByLayer button');
+      t.expect(a.has(/color: selection -> ByLayer/), 'object follows the layer colour');
+      t.expect(await a.setColor(0, 0x00aaff) === '#00aaff', 'layer colour input');
+      t.expect(a.has(/layer: 0 color set/), 'layer colour set');
+
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo color/), 'undo restores the colour');
+
+      // 저장/열기로 살아남나
+      const text = await a.sceneSave();
+      await a.reload();
+      await a.sceneLoad(text);
+      t.expect(a.has(/scene: loaded .* 1 lines/), 'scene reloaded with the coloured line');
+    },
+  },
+  {
     name: 'scene-roundtrip',
     async run(t) {
       const a = t.api;
