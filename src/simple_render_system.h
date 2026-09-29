@@ -62,8 +62,9 @@ private:
     struct UniformData {
         mat4 modelMatrix;   // 월드 변환만. 카메라는 group(0) 이 들고 있다.
         mat4 normalMatrix;  // transpose(inverse(mat3(model)))
+        float objectColor[4];  // rgb + 섞는 세기 (0 이면 정점 색 그대로)
     };
-    static_assert(sizeof(UniformData) == 128, "Uniform layout must match triangle.wgsl");
+    static_assert(sizeof(UniformData) == 144, "Uniform layout must match triangle.wgsl");
 
     std::unique_ptr<lot_web_pipeline> pipeline_;
     std::unique_ptr<lot_web_buffer> uniformBuffer_;

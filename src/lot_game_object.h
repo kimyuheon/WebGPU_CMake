@@ -128,6 +128,12 @@ public:
     };
     Text text;
 
+    // 색을 사용자가 지정했나. 메시는 보통 정점 색/텍스처로 그리므로, 흰색 그대로이고
+    // 층 따름도 아니면 '지정 안 함' 으로 보아 셰이더가 정점 색을 쓰게 한다.
+    bool hasOwnColor() const {
+        return colorByLayer || color.x != 1.0f || color.y != 1.0f || color.z != 1.0f;
+    }
+
     bool isSketch() const { return !points.empty(); }
     bool isText() const { return text.valid; }
     bool hasCurve() const { return curve.kind != Curve::Kind::None; }

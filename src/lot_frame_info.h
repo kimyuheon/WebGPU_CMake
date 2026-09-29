@@ -24,7 +24,13 @@ struct FrameInfo {
     // 층 표를 모르고 이 함수만 묻는다. 비워두면 전부 그린다.
     bool (*visibleFilter)(const LotGameObject&) = nullptr;
 
+    // 이 오브젝트가 낼 색 ('층 따름'이면 층 색). main 이 채운다.
+    vec3 (*colorFilter)(const LotGameObject&) = nullptr;
+
     bool isVisible(const LotGameObject& obj) const {
         return visibleFilter == nullptr || visibleFilter(obj);
+    }
+    vec3 colorOf(const LotGameObject& obj) const {
+        return colorFilter == nullptr ? obj.color : colorFilter(obj);
     }
 };

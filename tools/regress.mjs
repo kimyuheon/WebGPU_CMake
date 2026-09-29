@@ -285,6 +285,17 @@ const scenarios = [
       await a.ctrl('KeyZ');
       t.expect(a.has(/history: undo color/), 'undo restores the colour');
 
+      // 메시(큐브)도 색이 먹나 - .lot 에 적힌 색으로 확인
+      await a.key('Escape');
+      await a.click(270, 500);
+      t.expect(a.has(/pick: object/), 'pick the cube');
+      await a.setColor('selection', 0x20c040);
+      const cube = await a.evaluate(
+        `(() => { const s = JSON.parse(Module.lotDom.sceneSave());`
+        + ` const m = s['objects'].filter(o => o['kind'] === 'mesh');`
+        + ` return m.map(o => o['color'].map(v => Math.round(v * 255)).join(',')); })()`);
+      t.expect(cube.includes('32,192,64'), `mesh colour stored (${cube.join(' | ')})`);
+
       // 저장/열기로 살아남나
       const text = await a.sceneSave();
       await a.reload();

@@ -964,6 +964,7 @@ void renderLoop() {
             g_globalUniform.getBindGroup(),
             g_gameObjects,
             layerVisible,  // 꺼진 층의 메시는 건너뛴다
+            displayColor,  // '층 따름'이면 층 색
         };
 
         // 이번 프레임의 보조선. 광원 위치를 십자로, 작업 영역을 상자로.

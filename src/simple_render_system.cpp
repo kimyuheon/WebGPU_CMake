@@ -52,7 +52,9 @@ void SimpleRenderSystem::createUniformBuffer(lot_web_device& device,
     //    'auto' 레이아웃으로는 이 플래그를 켤 수 없어서 직접 만든다.
     WGPUBindGroupLayoutEntry layoutEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     layoutEntry.binding = 0;
-    layoutEntry.visibility = WGPUShaderStage_Vertex;
+    // 프래그먼트도 본다 - 오브젝트 색을 거기서 섞는다. 버텍스 전용으로 두면
+    // 셰이더가 group(1) 을 읽는 순간 파이프라인이 통째로 무효가 된다 (조용히 검은 화면).
+    layoutEntry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     layoutEntry.buffer.type = WGPUBufferBindingType_Uniform;
     layoutEntry.buffer.hasDynamicOffset = WGPU_TRUE;
     layoutEntry.buffer.minBindingSize = sizeof(UniformData);
@@ -162,9 +164,12 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
         //
         // 노멀은 모델 행렬로 변환하면 안 된다 - 축마다 다른 스케일이 방향을
         // 틀어놓기 때문이다. 그래서 별도로 하나 더 보낸다.
+        // 오브젝트 색은 '지정했을 때만' 쓴다 - 지정하지 않은 메시는 정점 색/텍스처 그대로.
+        const vec3 c = frame.colorOf(obj);
         const UniformData uniform{
             obj.transform.mat4Transform(),
             obj.transform.normalMatrix(),
+            {c.x, c.y, c.z, obj.hasOwnColor() ? 1.0f : 0.0f},
         };
 
         const uint32_t byteOffset = slot * uniformStride_;

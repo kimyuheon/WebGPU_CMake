@@ -18,6 +18,9 @@ struct ObjectUniforms {
     // 상단 3x3 만 쓰지만, mat3x3 은 열마다 16바이트로 패딩되어 C++ 구조체와
     // 어긋나기 쉬우므로 mat4x4 로 받는다.
     normalMatrix: mat4x4<f32>,
+    // 오브젝트 색 (rgb) + 섞는 세기 (w). w = 0 이면 정점 색 그대로, 1 이면 오브젝트 색만.
+    // 메시는 보통 정점 색/텍스처를 쓰지만, 사용자가 색을 지정하면 그것이 이긴다.
+    objectColor: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> global: GlobalUniforms;
@@ -85,5 +88,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // 텍스처 색 * 정점 색 * 조명. 정점 색이 흰색이면 텍스처 그대로,
     // 텍스처가 없으면(1x1 흰색) 정점 색 그대로다.
     let texel = textureSample(materialTexture, materialSampler, input.uv);
-    return vec4<f32>((diffuse + ambientLight) * input.color * texel.rgb, 1.0);
+    let base = mix(input.color * texel.rgb, object.objectColor.rgb * texel.rgb, object.objectColor.a);
+    return vec4<f32>((diffuse + ambientLight) * base, 1.0);
 }
