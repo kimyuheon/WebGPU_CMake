@@ -74,6 +74,14 @@ public:
     // 선택된 오브젝트들을 지운다. 드래그 중이면 먼저 끝낸다.
     void deleteSelection(LotGameObject::Map& objects);
 
+    // 이번 프레임에 더블 클릭으로 집힌 오브젝트 (없으면 kInvalidId). 읽으면 비워진다.
+    // 문자 편집처럼 '그 오브젝트를 열기' 에 쓴다.
+    id_t consumeDoubleClicked() {
+        const id_t id = doubleClicked_;
+        doubleClicked_ = kInvalidId2();
+        return id;
+    }
+
     const lot_osnap::Snap& snap() const { return snap_; }
 
     // 실행 취소 / 다시 실행. 드래그 중이면 먼저 끝내고, 영향 받은 오브젝트를 선택한다.
@@ -122,7 +130,10 @@ private:
 
     void finishMarquee(const Context& ctx, float x1, float y1, bool additive);
 
+    static constexpr id_t kInvalidId2() { return LotGameObject::kInvalidId; }
+
     std::set<id_t> selection_;
+    id_t doubleClicked_ = LotGameObject::kInvalidId;
     Drag drag_;
     Marquee marquee_;
     lot_osnap::Snap snap_;

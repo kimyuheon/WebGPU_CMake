@@ -1,7 +1,7 @@
 #include "lot_mouse_input.h"
 #include "lot_log.h"
 
-#include <emscripten/emscripten.h>
+#include <emscripten/emscripten.h>  // emscripten_get_now
 #include <emscripten/html5.h>
 
 namespace {
@@ -88,6 +88,12 @@ void MouseInput::onWheel(float notches) {
     wheel_ += notches;
 }
 
+bool MouseInput::consumeLeftDoubleClick() {
+    const bool was = leftDoubleClick_;
+    leftDoubleClick_ = false;
+    return was;
+}
+
 bool MouseInput::consumeLeftPress() {
     const bool was = leftPressed_;
     leftPressed_ = false;
@@ -123,6 +129,14 @@ void MouseInput::onButton(int button, bool down, float x, float y, bool shift) {
         if (down && !down_[0]) {
             leftPressed_ = true;
             shiftAtPress_ = shift;
+            // 더블 클릭: 400ms 안에 5px 안에서 두 번. 브라우저의 dblclick 이벤트를 쓰면
+            // 캔버스 위에서 선택/드래그와 순서가 꼬이므로 여기서 직접 센다.
+            const double now = emscripten_get_now();
+            const float dx = x - lastPressX_, dy = y - lastPressY_;
+            leftDoubleClick_ = (now - lastPressMs_ < 400.0) && (dx * dx + dy * dy < 25.0f);
+            lastPressMs_ = leftDoubleClick_ ? -1000.0 : now;  // 세 번째 클릭은 새로 시작
+            lastPressX_ = x;
+            lastPressY_ = y;
         }
         if (!down && down_[0]) leftReleased_ = true;
     }

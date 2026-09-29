@@ -489,13 +489,14 @@ mergeInto(LibraryManager.library, {
     },
 
     js_showTextInput__deps: ['$UTF8ToString'],
-    js_showTextInput: function(placeholderPtr) {
+    js_showTextInput: function(placeholderPtr, initialPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.textInput) return;
         dom.textInput.placeholder = UTF8ToString(placeholderPtr);
-        dom.textInput.value = '';
+        dom.textInput.value = initialPtr ? UTF8ToString(initialPtr) : '';
         dom.textInput.style.display = 'block';
         dom.textInput.focus();
+        dom.textInput.select();
     },
 
     js_hideTextInput: function() {

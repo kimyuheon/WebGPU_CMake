@@ -169,6 +169,14 @@ const scenarios = [
       t.expect(a.has(/sketch: text committed .*Regress 테스트/), 'text placed');
       await a.click(750, 760);
       t.expect(a.has(/pick: sketch/), 'dimension picked by its line');
+
+      // 문자를 더블 클릭해 내용을 고친다
+      await a.doubleClick(...P.emptyFloor);
+      t.expect(a.has(/text: editing object/), 'double click opens the text for editing');
+      await a.type('Edited'); await a.key('Enter');
+      t.expect(a.has(/text: object \d+ edited \("Edited"\)/), 'text content changed');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo text edit/), 'undo restores the old text');
     },
   },
   {

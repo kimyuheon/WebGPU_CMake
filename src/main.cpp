@@ -44,7 +44,7 @@ extern "C" {
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
     extern void js_setupToolbar();
     // 문자 도구 입력창 (lot_toolbar.js). Enter 는 lot_onTextEntered, Esc 는 lot_onTextCancelled 로 온다.
-    extern void js_showTextInput(const char* placeholder);
+    extern void js_showTextInput(const char* placeholder, const char* initial);
     extern void js_hideTextInput();
     // 레이어 패널 (lot_toolbar.js). JSON 문자열로 층 목록을 밀어 넣는다.
     // 패널이 아직 없으면 0 - 그러면 기억하지 말고 다음 프레임에 다시 보낸다.
@@ -414,11 +414,37 @@ void lot_onLayerCommand(const char* action, int layerId, int value) {
     pushLayers();
 }
 
+// 더블 클릭으로 연 문자 오브젝트 (없으면 kInvalidId). 입력창이 이 오브젝트를 고친다.
+static LotGameObject::id_t g_editingTextId = LotGameObject::kInvalidId;
+
 // 문자 입력창에서 Enter. 내용은 JS 가 잡아 준 UTF-8 버퍼 (JS 가 해제한다).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onTextEntered(const char* text) {
     if (text == nullptr) return;
     const std::string content(text);
+
+    // 기존 문자를 고치는 중이면 내용만 바꾼다 (히스토리에 남는다)
+    if (g_editingTextId != LotGameObject::kInvalidId) {
+        const LotGameObject::id_t id = g_editingTextId;
+        g_editingTextId = LotGameObject::kInvalidId;
+        auto* obj = LotGameObject::find(g_gameObjects, id);
+        if (!obj || !obj->isText() || obj->text.content == content) return;
+        EditHistory::Edit edit;
+        edit.label = "text edit";
+        edit.before = EditHistory::snapshot(g_gameObjects, std::set<LotGameObject::id_t>{id});
+        if (content.empty()) {
+            g_gameObjects.erase(id);  // 비우면 지운다 (CAD 관례)
+            LOT_LOG("text: object " << id << " removed (empty)");
+        } else {
+            obj->text.content = content;
+            edit.after = EditHistory::snapshot(g_gameObjects, std::set<LotGameObject::id_t>{id});
+            LOT_LOG("text: object " << id << " edited (\"" << content << "\")");
+        }
+        if (edit.after.empty() && !content.empty()) return;
+        g_edit.history().record(std::move(edit));
+        return;
+    }
+
     g_sketch.submitText(content, g_gameObjects);
     if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
         if (auto* obj = LotGameObject::find(g_gameObjects, id)) obj->layer = g_layers.current();
@@ -429,6 +455,7 @@ void lot_onTextEntered(const char* text) {
 // 문자 입력창에서 Esc (또는 포커스 잃음).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onTextCancelled() {
+    g_editingTextId = LotGameObject::kInvalidId;
     if (g_sketch.waitingForTextInput()) g_sketch.cancel();
 }
 
@@ -766,7 +793,16 @@ void renderLoop() {
             }
             // 문자 도구가 기준점을 찍었으면 브라우저 입력창을 연다 (글자 입력은 DOM 이 받는다)
             if (g_sketch.consumeTextInputRequest()) {
-                js_showTextInput("text, Enter to place");
+                g_editingTextId = LotGameObject::kInvalidId;
+                js_showTextInput("text, Enter to place", "");
+            }
+            // 문자를 더블 클릭하면 그 내용을 고친다
+            if (const auto id = g_edit.consumeDoubleClicked(); id != LotGameObject::kInvalidId) {
+                if (const auto* obj = LotGameObject::find(g_gameObjects, id); obj && obj->isText()) {
+                    g_editingTextId = id;
+                    js_showTextInput("edit text, Enter to apply", obj->text.content.c_str());
+                    LOT_LOG("text: editing object " << id);
+                }
             }
         }
 

@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -77,6 +77,18 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
       await sleep(400);
     },
     async shiftClick(x, y) { await api.click(x, y, 8); },
+    // 더블 클릭 (문자 편집 등). 엔진이 두 누름의 간격으로 판정하므로 (400ms)
+    // api.click 을 두 번 부르면 안 된다 - 그쪽은 뗀 뒤 400ms 를 쉰다.
+    async doubleClick(x, y) {
+      await mouse('mouseMoved', x, y);
+      for (let i = 1; i <= 2; ++i) {
+        await mouse('mousePressed', x, y, { clickCount: i });
+        await sleep(40);
+        await mouse('mouseReleased', x, y, { clickCount: i });
+        await sleep(60);
+      }
+      await sleep(400);
+    },
     async move(x, y) { await mouse('mouseMoved', x, y); await sleep(400); },
 
     // 여러 단계로 나눠 움직여야 프레임마다 드래그가 반영된다

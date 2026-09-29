@@ -32,6 +32,11 @@ public:
 
     // 이번 프레임에 왼쪽 버튼이 눌렸으면 true. 부르면 플래그가 지워진다.
     bool consumeLeftPress();
+
+    // 방금 누름이 더블 클릭이었나 (같은 자리에서 빠르게 두 번). consumeLeftPress 와
+    // 같은 프레임에 묻는다 - 더블 클릭도 누름이므로 평소 선택은 그대로 일어나고,
+    // 그 위에 '편집 열기' 같은 동작을 얹는 식이다 (브라우저/CAD 관례).
+    bool consumeLeftDoubleClick();
     bool consumeLeftRelease();
 
     // 브라우저 이벤트 콜백에서만 부른다.
@@ -54,6 +59,10 @@ private:
     float wheel_ = 0.0f;
     bool down_[kButtons] = {};
     bool leftPressed_ = false;   // 프레임 사이에 왼쪽 눌림이 있었나
+    bool leftDoubleClick_ = false;
+    double lastPressMs_ = -1000.0;
+    float lastPressX_ = 0.0f;
+    float lastPressY_ = 0.0f;
     bool leftReleased_ = false;  // 프레임 사이에 왼쪽 뗌이 있었나
     bool shiftAtPress_ = false;
 };

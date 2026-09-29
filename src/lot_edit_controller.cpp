@@ -68,12 +68,15 @@ void EditController::update(const Context& ctx) {
     }
 
     // 2. 누름 (도구가 열려 있으면 클릭은 그 도구가 가져간다)
+    const bool doubleClick = ctx.mouse.consumeLeftDoubleClick();
     if (!ctx.toolActive && ctx.mouse.consumeLeftPress()) {
         const lot_pick::Ray ray = mouseRay();
         const bool shift = ctx.mouse.shiftAtPress();
 
         // 2-1. 기즈모 핸들? 오브젝트보다 먼저 - 기즈모가 위에 겹쳐 있다.
-        const int handle = hasSelection()
+        //      단 더블 클릭은 '이걸 열어라' 지 '끌어라' 가 아니다. 첫 클릭으로 선택되면
+        //      기즈모가 커서 밑에 생기므로, 그대로 두면 두 번째 누름이 늘 기즈모를 잡는다.
+        const int handle = (hasSelection() && !doubleClick)
             ? ctx.gizmo.hitTest(ray, ctx.camera, pivot(ctx.objects)) : -1;
         if (handle >= 0) {
             beginGizmoDrag(ctx, ray, handle);
@@ -96,6 +99,7 @@ void EditController::update(const Context& ctx) {
                 } else {
                     selection_ = {picked};
                 }
+                if (doubleClick) doubleClicked_ = picked;
                 if (hit.valid()) {
                     LOT_LOG("pick: object " << picked << " tri " << hit.triangle
                             << " -> " << selection_.size() << " selected");
