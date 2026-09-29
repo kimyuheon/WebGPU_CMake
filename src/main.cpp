@@ -14,6 +14,7 @@
 #include "lot_layers.h"
 #include "lot_cursor_snap.h"
 #include "lot_dxf.h"
+#include "ui/lot_ui.h"
 #include "lot_cursor_snap.h"
 #include "lot_linetype.h"
 #include "lot_sketch_tool.h"
@@ -43,19 +44,13 @@ extern "C" {
     // 파일 선택창은 사용자 제스처로만 열 수 있어서 JS 쪽에 버튼을 만든다.
     extern void js_setupObjFileInput();
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
-    extern void js_setupToolbar();
+    extern void js_setupPanels();
     // 문자 도구 입력창 (lot_toolbar.js). Enter 는 lot_onTextEntered, Esc 는 lot_onTextCancelled 로 온다.
     extern void js_showTextInput(const char* placeholder, const char* initial);
     extern void js_hideTextInput();
-    // 레이어 패널 (lot_toolbar.js). JSON 문자열로 층 목록을 밀어 넣는다.
-    // 패널이 아직 없으면 0 - 그러면 기억하지 말고 다음 프레임에 다시 보낸다.
-    extern int js_setLayers(const char* json);
-    // 선종류 목록 (한 번). [{id, name, sample}, ...]
-    extern void js_setLinetypes(const char* json);
+    // 선종류 목록 (한 번). 레이어 패널의 드롭다운을 채운다.
+    extern void js_uiSetLinetypes(const char* json);
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
-    extern int js_setToolbarState(int gizmoMode, int sketchTool, int xformMode, int view, int fps,
-                                  int ortho, int orthoTrack, int gridSnap, int outline,
-                                  int canUndo, int canRedo, const char* hint);
 }
 
 // 전역 객체들
@@ -85,6 +80,7 @@ KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
 SketchController g_sketch;
 LotLayers g_layers;
+lot_ui::LotUi g_ui;
 TransformTool g_transform;
 
 // 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
@@ -213,6 +209,21 @@ void placeObjModel() {
 
 // 사용자가 고른 OBJ 파일이 도착했을 때 JS 가 부른다.
 //
+// 선종류 목록을 패널에 한 번. 표준 8종 + Continuous.
+static void pushLinetypes() {
+    std::string j = "[";
+    bool first = true;
+    for (const lot_linetype::Definition& d : lot_linetype::standard()) {
+        if (!first) j += ",";
+        first = false;
+        j += "{\"id\":" + std::to_string(d.id)
+           + ",\"name\":" + lot_ui::quote(d.name)
+           + ",\"sample\":" + lot_ui::quote(d.sample) + "}";
+    }
+    j += "]";
+    js_uiSetLinetypes(j.c_str());
+}
+
 // 층 표를 보는 콜백들. 렌더/피킹 시스템은 층을 모르고 이 함수만 부른다.
 static bool layerVisible(const LotGameObject& obj) { return g_layers.isVisible(obj.layer); }
 static bool layerSelectable(const LotGameObject& obj) { return g_layers.isSelectable(obj.layer); }
@@ -231,188 +242,12 @@ static vec3 displayColor(const LotGameObject& obj) {
     return l ? l->color : obj.color;
 }
 
-// 레이어 패널로 보내는 상태 (바뀔 때만). JSON 을 직접 엮는다 - 층 몇 개뿐이라 값싸다.
-static std::string g_layerJson;
-static void pushLayers() {
-    // 선택 상태: 전부 같으면 그 값, 섞였으면 -2, 선택이 없으면 -3 (패널이 회색으로)
-    int selLt = -3;
-    int selColor = -3;   // 0xRRGGBB
-    int selByLayer = -3; // 0 / 1
-    for (LotGameObject::id_t sel : g_edit.selection()) {
-        const auto* obj = LotGameObject::find(g_gameObjects, sel);
-        if (!obj) continue;
-        const int v = (obj->linetype == lot_linetype::kByLayer) ? -1 : static_cast<int>(obj->linetype);
-        if (selLt == -3) selLt = v;
-        else if (selLt != v) selLt = -2;
-
-        const int rgb = (static_cast<int>(obj->color.x * 255.0f + 0.5f) << 16)
-                      | (static_cast<int>(obj->color.y * 255.0f + 0.5f) << 8)
-                      | static_cast<int>(obj->color.z * 255.0f + 0.5f);
-        if (selColor == -3) selColor = rgb;
-        else if (selColor != rgb) selColor = -2;
-
-        const int bl = obj->colorByLayer ? 1 : 0;
-        if (selByLayer == -3) selByLayer = bl;
-        else if (selByLayer != bl) selByLayer = -2;
-    }
-    std::string j = "{\"current\":" + std::to_string(g_layers.current())
-                  + ",\"selectionLinetype\":" + std::to_string(selLt)
-                  + ",\"selectionColor\":" + std::to_string(selColor)
-                  + ",\"selectionByLayer\":" + std::to_string(selByLayer) + ",\"layers\":[";
-    bool first = true;
-    for (const LotLayers::Layer* l : g_layers.all()) {
-        if (!first) j += ",";
-        first = false;
-        int count = 0;
-        for (const auto& entry : g_gameObjects) {
-            if (entry.second.layer == l->id) ++count;
-        }
-        char color[32];
-        std::snprintf(color, sizeof(color), "\"#%02x%02x%02x\"",
-                      static_cast<int>(l->color.x * 255.0f + 0.5f),
-                      static_cast<int>(l->color.y * 255.0f + 0.5f),
-                      static_cast<int>(l->color.z * 255.0f + 0.5f));
-        j += "{\"id\":" + std::to_string(l->id) + ",\"name\":" + dumpJson(JsonValue(l->name), 0)
-           + ",\"visible\":" + (l->visible ? "true" : "false")
-           + ",\"locked\":" + (l->locked ? "true" : "false")
-           + ",\"linetype\":" + std::to_string(l->linetype)
-           + ",\"color\":" + color + ",\"count\":" + std::to_string(count) + "}";
-    }
-    j += "]}";
-    if (j == g_layerJson) return;
-    if (js_setLayers(j.c_str()) == 0) return;  // 패널 DOM 이 생기기 전 - 다음 프레임에 다시
-    g_layerJson = std::move(j);
-}
-
-// 선종류 목록을 패널에 한 번 밀어 넣는다 (표준 8종 + Continuous).
-static void pushLinetypes() {
-    std::string j = "[";
-    bool first = true;
-    for (const lot_linetype::Definition& d : lot_linetype::standard()) {
-        if (!first) j += ",";
-        first = false;
-        j += "{\"id\":" + std::to_string(d.id)
-           + ",\"name\":" + dumpJson(JsonValue(std::string(d.name)), 0)
-           + ",\"sample\":" + dumpJson(JsonValue(std::string(d.sample)), 0) + "}";
-    }
-    j += "]";
-    js_setLinetypes(j.c_str());
-}
-
-// 레이어 패널에서 온 명령. action: "new" | "current" | "visible" | "locked" | "assign" | "delete"
-//                                | "layerLinetype" (value = 선종류 id) | "objectLinetype" (선택에)
+// 레이어 패널에서 온 명령. 실제 처리는 LotLayerPanel 이 한다 (main 은 배선만).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onLayerCommand(const char* action, int layerId, int value) {
     if (action == nullptr) return;
-    const std::string what(action);
-    const uint32_t id = static_cast<uint32_t>(layerId);
-
-    if (what == "new") {
-        // 새 층 색은 돌아가며 고른다 - 손으로 고르는 UI 는 아직 없다
-        static const vec3 kPalette[] = {
-            {0.95f, 0.45f, 0.45f}, {0.45f, 0.85f, 0.55f}, {0.45f, 0.65f, 0.95f},
-            {0.95f, 0.8f, 0.4f},   {0.8f, 0.55f, 0.95f},  {0.4f, 0.9f, 0.9f},
-        };
-        const size_t n = g_layers.size() - 1;  // 기본층 빼고
-        const uint32_t newId = g_layers.create("Layer " + std::to_string(n + 1),
-                                               kPalette[n % (sizeof(kPalette) / sizeof(kPalette[0]))]);
-        g_layers.setCurrent(newId);
-    } else if (what == "current") {
-        g_layers.setCurrent(id);
-        LOT_LOG("layer: current = " << g_layers.current());
-    } else if (what == "visible" || what == "locked") {
-        if (LotLayers::Layer* l = g_layers.find(id); l && id != LotLayers::kDefault) {
-            (what == "visible" ? l->visible : l->locked) = (value != 0);
-            LOT_LOG("layer: " << l->name << " " << what << " = " << (value != 0 ? "on" : "off"));
-            if (!g_layers.isSelectable(id)) {
-                // 안 보이거나 잠긴 층의 오브젝트는 선택에서 뺀다
-                std::set<LotGameObject::id_t> keep;
-                for (LotGameObject::id_t sel : g_edit.selection()) {
-                    const auto* obj = LotGameObject::find(g_gameObjects, sel);
-                    if (obj && obj->layer != id) keep.insert(sel);
-                }
-                g_edit.setSelection(std::move(keep));
-            }
-        }
-    } else if (what == "layerColor") {
-        if (LotLayers::Layer* l = g_layers.find(id)) {
-            l->color = vec3{((value >> 16) & 0xFF) / 255.0f, ((value >> 8) & 0xFF) / 255.0f,
-                            (value & 0xFF) / 255.0f};
-            LOT_LOG("layer: " << l->name << " color set");
-        }
-    } else if (what == "objectColor" || what == "objectByLayer") {
-        if (!g_edit.hasSelection()) return;
-        EditHistory::Edit edit;
-        edit.label = "color";
-        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        for (LotGameObject::id_t sel : g_edit.selection()) {
-            auto* obj = LotGameObject::find(g_gameObjects, sel);
-            if (!obj) continue;
-            if (what == "objectByLayer") {
-                obj->colorByLayer = (value != 0);
-            } else {
-                obj->color = vec3{((value >> 16) & 0xFF) / 255.0f, ((value >> 8) & 0xFF) / 255.0f,
-                                  (value & 0xFF) / 255.0f};
-                obj->colorByLayer = false;  // 색을 직접 골랐으면 층 따름을 끈다
-            }
-        }
-        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        g_edit.history().record(std::move(edit));
-        LOT_LOG("color: selection " << (what == "objectByLayer"
-                                        ? (value != 0 ? "-> ByLayer" : "-> own colour")
-                                        : "-> custom"));
-    } else if (what == "layerLinetype") {
-        if (LotLayers::Layer* l = g_layers.find(id)) {
-            l->linetype = static_cast<uint32_t>(value);
-            LOT_LOG("layer: " << l->name << " linetype = " << lot_linetype::name(l->linetype));
-        }
-    } else if (what == "objectLinetype") {
-        // 선택된 오브젝트의 선종류. value < 0 이면 '층 따름'.
-        if (!g_edit.hasSelection()) return;
-        const uint32_t lt = (value < 0) ? lot_linetype::kByLayer : static_cast<uint32_t>(value);
-        EditHistory::Edit edit;
-        edit.label = "linetype";
-        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        for (LotGameObject::id_t sel : g_edit.selection()) {
-            if (auto* obj = LotGameObject::find(g_gameObjects, sel)) obj->linetype = lt;
-        }
-        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        g_edit.history().record(std::move(edit));
-        LOT_LOG("linetype: selection -> " << lot_linetype::name(lt));
-    } else if (what == "assign") {
-        // 선택된 오브젝트를 이 층으로 (히스토리에 남는다)
-        if (!g_layers.find(id) || !g_edit.hasSelection()) return;
-        EditHistory::Edit edit;
-        edit.label = "layer";
-        edit.before = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        int moved = 0;
-        for (LotGameObject::id_t sel : g_edit.selection()) {
-            if (auto* obj = LotGameObject::find(g_gameObjects, sel)) {
-                obj->layer = id;
-                ++moved;
-            }
-        }
-        edit.after = EditHistory::snapshot(g_gameObjects, g_edit.selection());
-        g_edit.history().record(std::move(edit));
-        LOT_LOG("layer: moved " << moved << " objects to layer " << id);
-    } else if (what == "delete") {
-        if (id == LotLayers::kDefault) return;
-        // 그 층의 오브젝트는 기본층으로 옮긴다 (지우지 않는다 - CAD 관례)
-        std::set<LotGameObject::id_t> affected;
-        for (auto& entry : g_gameObjects) {
-            if (entry.second.layer == id) affected.insert(entry.first);
-        }
-        EditHistory::Edit edit;
-        edit.label = "layer delete";
-        edit.before = EditHistory::snapshot(g_gameObjects, affected);
-        for (LotGameObject::id_t objId : affected) {
-            if (auto* obj = LotGameObject::find(g_gameObjects, objId)) obj->layer = LotLayers::kDefault;
-        }
-        edit.after = EditHistory::snapshot(g_gameObjects, affected);
-        g_edit.history().record(std::move(edit));
-        g_layers.remove(id);
-    }
-    pushLayers();
+    g_ui.layerPanel().command(action, static_cast<uint32_t>(layerId), value,
+                              g_layers, g_gameObjects, g_edit);
 }
 
 // 더블 클릭으로 연 문자 오브젝트 (없으면 kInvalidId). 입력창이 이 오브젝트를 고친다.
@@ -553,7 +388,6 @@ void lot_onDxfFileLoaded(const char* data, int length) {
     g_edit.history().clear();
     g_gameObjects = std::move(loaded);
     g_layers = std::move(loadedLayers);
-    pushLayers();
     g_objPlaced = true;  // 도면에는 기본 토러스를 끼워 넣지 않는다
     zoomExtents();
 }
@@ -597,59 +431,8 @@ void lot_onLotFileLoaded(const char* data, int length) {
     g_edit.history().clear();
     g_gameObjects = std::move(loaded);
     g_layers = std::move(loadedLayers);
-    pushLayers();
     g_objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
     zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
-}
-
-// 툴바에 밀어 넣는 상태. 프레임마다 만들어 이전 것과 다를 때만 JS 를 부른다
-// (DOM 갱신은 비싸고, 대부분 프레임에는 아무것도 안 바뀐다).
-struct ToolbarState {
-    int gizmoMode = -1;
-    int sketchTool = -1;
-    int xformMode = -1;
-    int view = -1;
-    int fps = 0;
-    int ortho = 0;
-    int orthoTrack = 0;
-    int gridSnap = 0;
-    int outline = 0;
-    int canUndo = 0;
-    int canRedo = 0;
-    std::string hint;
-
-    bool operator==(const ToolbarState& o) const {
-        return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && xformMode == o.xformMode
-            && view == o.view
-            && fps == o.fps && ortho == o.ortho && orthoTrack == o.orthoTrack
-            && gridSnap == o.gridSnap && outline == o.outline
-            && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
-    }
-};
-static ToolbarState g_toolbarState;
-static bool g_toolbarPushed = false;
-
-static void pushToolbarState() {
-    ToolbarState s;
-    s.gizmoMode = static_cast<int>(g_gizmoSystem->mode);
-    s.sketchTool = g_sketch.activeKind();
-    s.xformMode = g_transform.isActive() ? g_transform.modeIndex() - 1 : -1;
-    s.view = g_camera.presetViewIndex();
-    s.fps = g_camera.isCadMode() ? 0 : 1;
-    s.ortho = g_orthographic ? 1 : 0;
-    s.orthoTrack = lot_cursor::settings().ortho ? 1 : 0;
-    s.gridSnap = lot_cursor::settings().gridSpacing > 0.0f ? 1 : 0;
-    s.outline = (g_postSystem->mode == PostProcessSystem::Mode::Outline) ? 1 : 0;
-    s.canUndo = g_edit.history().canUndo() ? 1 : 0;
-    s.canRedo = g_edit.history().canRedo() ? 1 : 0;
-    s.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
-    if (g_toolbarPushed && s == g_toolbarState) return;
-    const bool applied = js_setToolbarState(s.gizmoMode, s.sketchTool, s.xformMode, s.view, s.fps,
-                                            s.ortho, s.orthoTrack, s.gridSnap, s.outline,
-                                            s.canUndo, s.canRedo, s.hint.c_str()) != 0;
-    if (!applied) return;  // 툴바 DOM 이 생기기 전 - 기억하지 말고 다음 프레임에 다시
-    g_toolbarState = s;
-    g_toolbarPushed = true;
 }
 
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼다. 해제는 여기 책임이다.
@@ -699,9 +482,8 @@ void renderLoop() {
         // 캔버스는 스왑체인이 만들므로 이제야 셀렉터로 찾을 수 있다
         g_mouse.init();
         // 툴바도 상태바 높이를 DOM 에서 읽으므로 같은 시점에
-        js_setupToolbar();
+        js_setupPanels();
         pushLinetypes();
-        pushLayers();
     }
 
     // 1-1. OBJ 모델은 네트워크로 받아오므로 요청만 보내두고 넘어간다.
@@ -981,9 +763,23 @@ void renderLoop() {
             }
         }
 
-        // 툴바 하이라이트 / 안내문 / 레이어 패널 (바뀐 프레임에만 DOM 을 건드린다)
-        pushToolbarState();
-        pushLayers();
+        // 메뉴 · 리본 · 레이어 패널 (바뀐 것만 DOM 으로 나간다)
+        {
+            lot_ui::State ui;
+            ui.gizmoMode = static_cast<int>(g_gizmoSystem->mode);
+            ui.sketchTool = g_sketch.activeKind();
+            ui.xformMode = g_transform.isActive() ? g_transform.modeIndex() - 1 : -1;
+            ui.view = g_camera.presetViewIndex();
+            ui.fps = !g_camera.isCadMode();
+            ui.ortho = g_orthographic;
+            ui.orthoTracking = lot_cursor::settings().ortho;
+            ui.gridSnap = lot_cursor::settings().gridSpacing > 0.0f;
+            ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
+            ui.canUndo = g_edit.history().canUndo();
+            ui.canRedo = g_edit.history().canRedo();
+            ui.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
+            g_ui.update(ui, g_layers, g_gameObjects, g_edit);
+        }
 
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.

@@ -128,13 +128,20 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
     // 포커스된 입력창에 글자 (문자 도구)
     async type(text) { await send('Input.insertText', { text }); await sleep(200); },
 
-    // 툴바 버튼을 글자로 찾아 누른다
-    async btn(label) {
+    // 메뉴/리본의 명령 단추를 누른다. id 는 C++ 의 명령 표(src/ui/lot_main_menu.cpp)에 있는
+    // "view.top" 같은 값이다 - 이름이 겹치는 명령(이동/회전…)도 구별된다.
+    async cmd(id) {
       const ok = await api.evaluate(
-        `(() => { const b = [...document.querySelectorAll('#lot-toolbar button')]`
-        + `.find(x => x.textContent === ${JSON.stringify(label)}); if (b) b.click(); return !!b; })()`);
+        `(() => { const b = document.querySelector('[data-cmd=' + ${JSON.stringify(JSON.stringify(id))} + ']');`
+        + ` if (b) b.click(); return !!b; })()`);
       await sleep(300);
       return ok;
+    },
+    // 그 명령이 지금 켜져 있나 (파란 강조)
+    async cmdActive(id) {
+      return api.evaluate(
+        `(() => { const b = document.querySelector('[data-cmd=' + ${JSON.stringify(JSON.stringify(id))} + ']');`
+        + ` return b ? b.getAttribute('data-on') === '1' : null; })()`);
     },
     async hint() { return api.evaluate(`document.getElementById('lot-hint')?.textContent ?? ''`); },
 

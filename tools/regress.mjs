@@ -20,19 +20,20 @@ const kNativeScene = process.env.LOT_NATIVE_SCENE ?? 'D:/vulkan/3dengine/tests/d
 // 1100x850 뷰포트, Top 뷰(T) 기준 좌표. 캔버스는 y = 150 부터 700px, 카메라 거리 4 에
 // fov 50 도라 1 월드 단위 ≈ 187px, 월드 원점 = 화면 (550, 500). 화면 = (550 + 187x, 500 - 187y).
 // 큐브: 노란 (270, 500), 파란 (830, 500), 한 변 ≈ 112px. 토러스 중심 (550, 500) 반지름 ≈ 155px.
-// 빈 바닥: 아래쪽 y >= 680 (토러스 아래), 위쪽 모서리 (950, 300).
+// UI 가 가리는 곳은 쓰지 않는다: 메뉴바+리본 y < 270, 레이어 패널 x > 840,
+// 안내문은 아래 가운데. 안전한 자리 = x 200..800, y 300..810.
 const P = {
   yellowCube: [270, 500],
-  emptyFloor: [950, 650],
+  emptyFloor: [740, 640],
 };
 
 const scenarios = [
   {
     name: 'boot',
     async run(t) {
-      const moveOn = await t.api.evaluate(
-        `[...document.querySelectorAll('#lot-toolbar button')].find(b => b.textContent === 'Move')?.style.backgroundColor`);
-      t.expect(moveOn === 'rgb(0, 255, 0)', 'toolbar shows Move gizmo active');
+      t.expect(await t.api.evaluate(`!!document.getElementById('lot-ui')`), 'menu bar and ribbon mounted');
+      t.expect(await t.api.cmdActive('gizmo.move') === true, 'move gizmo shown as active');
+      t.expect(await t.api.cmdActive('edit.undo') === false, 'undo not active yet');
       t.expect(!t.api.has(/ERROR/), 'no ERROR in startup log');
     },
   },
@@ -68,7 +69,7 @@ const scenarios = [
       await a.key('KeyN'); await a.click(900, 690); await a.click(1000, 740); await a.click(950, 800); await a.click(900, 690);
       await a.key('KeyA'); await a.click(200, 700); await a.click(280, 640); await a.click(380, 700);
       await a.key('KeyG'); await a.key('BracketRight'); await a.key('BracketRight');
-      await a.click(950, 300); await a.click(1000, 300);
+      await a.click(700, 330); await a.click(760, 330);
       t.expect(a.has(/sketch: line committed/), 'line');
       t.expect(a.has(/sketch: rectangle committed .*4 points, closed/), 'rectangle');
       t.expect(a.has(/sketch: circle committed .*64 points, closed/), 'circle');
@@ -108,17 +109,17 @@ const scenarios = [
       await a.key('KeyT');
       await a.click(...P.yellowCube);
       t.expect(a.has(/pick: object/), 'pick cube');
-      // 위로 1.5 단위 = 280px -> 큐브가 (270, 220) 으로
-      await a.key('KeyM'); await a.click(...P.yellowCube); await a.move(270, 380);
+      // 아래로 1.5 단위 = 280px -> 큐브가 (270, 780) 으로 (위쪽은 리본이 가린다)
+      await a.key('KeyM'); await a.click(...P.yellowCube); await a.move(270, 620);
       await a.key('Digit1'); await a.key('Period'); await a.key('Digit5'); await a.key('Enter');
       t.expect(a.has(/transform: move done \(1\.5 units\)/), 'move by typed distance 1.5');
-      await a.key('KeyK'); await a.click(270, 220); await a.move(370, 220);
+      await a.key('KeyK'); await a.click(270, 780); await a.move(370, 780);
       await a.key('Digit4'); await a.key('Digit5'); await a.key('Enter');
       t.expect(a.has(/transform: rotate done \(45 deg\)/), 'rotate by typed 45 deg');
-      await a.key('KeyX'); await a.click(270, 220); await a.move(350, 220);
+      await a.key('KeyX'); await a.click(270, 780); await a.move(350, 780);
       await a.key('Digit0'); await a.key('Period'); await a.key('Digit5'); await a.key('Enter');
       t.expect(a.has(/transform: scale done \(0\.5 x\)/), 'scale by typed 0.5');
-      await a.key('KeyM'); await a.click(270, 220); await a.move(500, 300); await a.key('Escape');
+      await a.key('KeyM'); await a.click(270, 780); await a.move(500, 700); await a.key('Escape');
       t.expect(a.has(/transform: move cancelled/), 'Esc cancels');
     },
   },
@@ -319,7 +320,7 @@ const scenarios = [
       await a.key('KeyL'); await a.click(600, 700); await a.click(900, 700); await a.key('Enter');
       await a.key('KeyC'); await a.click(800, 760); await a.click(850, 760);
       await a.key('KeyD'); await a.click(200, 700); await a.click(450, 700); await a.click(300, 760);
-      await a.key('KeyW'); await a.click(950, 300); await a.type('rt'); await a.key('Enter');
+      await a.key('KeyW'); await a.click(700, 330); await a.type('rt'); await a.key('Enter');
       const text = await a.sceneSave();
       t.expect(text.length > 1000 && /"format": "lot"/.test(text), 'scene saved as .lot JSON');
       await a.reload();

@@ -46,7 +46,8 @@ add_link_options(${EMDAWNWEBGPU_PORT})
 add_link_options(
     -sALLOW_MEMORY_GROWTH=1
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js"
-    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_toolbar.js"
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_ui.js"
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
 )
 
@@ -67,13 +68,16 @@ endif()
 add_link_options($<$<CONFIG:Release>:--closure=1>)
 
 # 소스 파일
-file(GLOB SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp")
+file(GLOB SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/ui/*.cpp")
 
 add_executable(WebGPUApp ${SOURCE_FILES})
 
+# src/ 를 포함 경로에 둔다 - src/ui 의 파일들이 "lot_camera.h" 처럼 짧게 쓴다.
+target_include_directories(WebGPUApp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 # JS 라이브러리가 바뀌면 다시 링크되도록 의존성을 걸어둔다.
 set_target_properties(WebGPUApp PROPERTIES
-    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_toolbar.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
+    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_ui.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
 )
 
 # 셰이더를 빌드 폴더로 복사

@@ -85,7 +85,12 @@ Tool : Visual Studio Code
 | 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기, OBJ 열기 | 툴바 |
 | 렌더 | 텍스처 재질, 점 광원, 오프스크린 + 외곽선 후처리 | `O` |
 
-키 대신 캔버스 왼쪽 툴바 버튼을 눌러도 같다 (버튼은 단축키 코드를 되돌려 보낼 뿐이라 둘이 어긋나지 않는다).
+키 대신 위쪽 **메뉴바**(파일·편집·뷰·그리기·수정·설정)나 **리본**(홈 / 2D / 3D 탭)에서 눌러도 같다.
+Vulkan 쪽 ImGui UI 와 같은 짜임이다: 메뉴 항목 오른쪽에 단축키, 리본은 아이콘 한 줄 + 그룹 캡션,
+켜진 명령은 파란 강조, 탭 줄을 더블클릭하면 접힌다. 오른쪽에 레이어/속성 패널.
+
+명령 표는 C++ 한 곳(`src/ui/lot_main_menu.cpp`, `lot_ribbon.cpp`)에 있고 메뉴·리본·단축키가 그걸
+함께 본다. 누르면 그 명령의 키 코드가 키보드와 같은 경로로 들어가므로 셋이 갈라질 수 없다.
 
 ### 구조 메모
 
@@ -100,8 +105,11 @@ Tool : Visual Studio Code
 - `lot_cursor_snap` — 커서 보정 한 곳 (osnap > 직교 > 그리드). 도구가 각자 들면 둘이 어긋난다.
 - `lot_linetype` — 선종류. 무늬를 CPU 에서 잘라 선분으로 낸다 (폴리라인 전체가 한 누적 길이).
 - `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.
-- `src/js/lot_toolbar.js` — HTML 툴바 + 레이어 패널. C++ 이 상태를 밀고, 버튼은 키 코드를 되돌린다.
-  ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾸므로, 바깥에 노출하거나 JSON 으로 주고받는 이름은 `obj['name']` 으로 적는다.
+- `src/ui/` — UI 클래스들. `LotMainMenu`/`LotRibbon` 은 명령 표, `LotLayerPanel` 은 층/속성 편집,
+  `LotUi` 가 셋을 들고 바뀐 것만 DOM 으로 내보낸다. 그리는 것은 `src/js/lot_ui.js`(메뉴·리본)와
+  `src/js/lot_panels.js`(패널·입력창·파일).
+  ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾼다. 바깥에 노출하거나 JSON 으로 주고받는 이름은
+  `obj['name']` 으로, DOM 속성은 `el.setAttribute('data-cmd', ...)` 로 적는다 (`el.dataset.cmd` 도 줄여버린다).
 
 ### 헤드리스 테스트 / 회귀
 

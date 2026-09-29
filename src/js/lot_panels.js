@@ -1,28 +1,24 @@
 /**
- * 툴바 - 캔버스 왼쪽에 겹쳐 놓는 HTML 버튼 묶음.
+ * 패널과 대화상자 - 레이어 패널 · 문자 입력창 · 파일 열기/저장.
  *
- * Vulkan 쪽은 ImGui 지만 브라우저에서는 DOM 이 더 싸고 접근성도 낫다.
- * 버튼은 로직을 갖지 않는다: 누르면 그 기능의 단축키 코드를 C++ 에 넘기고
- * (lot_onToolbarKey), C++ 은 키보드 이벤트와 같은 경로로 처리한다. 그래서
- * 키와 버튼이 어긋날 수 없다. 반대로 C++ 은 프레임마다 상태(현재 기즈모 모드,
- * 열린 스케치 도구, 뷰 모드, undo 가능 여부, 안내문)를 밀어서 버튼을 밝힌다
- * (js_setToolbarState). 바뀔 때만 부르므로 DOM 을 매 프레임 건드리지 않는다.
+ * 메뉴와 리본은 src/js/lot_ui.js 가 그린다. 여기는 '창' 성격의 것들이다.
+ * 생김새는 같은 ImGui 다크 톤을 따른다.
  *
- * --js-library 옵션으로 링크된다 (webgpu_bindings.js 와 같은 방식).
+ * ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾸므로 JSON 으로 오간 값은 대괄호로 읽는다.
  */
 
 mergeInto(LibraryManager.library, {
 
-    js_setupToolbar__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
+    js_setupPanels__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
                             'lot_onTextEntered', 'lot_onTextCancelled', 'lot_onLayerCommand',
                             'lot_onDxfFileLoaded',
                             '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
-    js_setupToolbar: function() {
+    js_setupPanels: function() {
         if (!Module.lotDom) {
             Module.lotDom = {};
         }
         var dom = Module.lotDom;
-        if (dom.toolbar) return;
+        if (dom.layerPanel) return;
         // 캔버스는 상태바 아래에서 시작한다. 상태바가 아직 없으면 (호출 순서가 바뀌면) 0.
         var statusBarHeight = dom.statusBar ? dom.statusBar.offsetHeight : 0;
 
@@ -112,7 +108,8 @@ mergeInto(LibraryManager.library, {
         dom.lotInput = lotInput;
 
         // 버튼 동작 중 키가 아닌 것들. '@이름' 코드로 가리킨다.
-        var actions = {
+        // 메뉴/리본의 '@이름' 명령이 부른다 (src/js/lot_ui.js 의 run)
+        var actions = dom.actions = {
             openObj: function() { if (dom.objInput) dom.objInput.click(); },
             openLot: function() { lotInput.click(); },
             openDxf: function() { dxfInput.click(); },
@@ -131,182 +128,8 @@ mergeInto(LibraryManager.library, {
             },
         };
 
-        // 기존의 떠 있는 OBJ 버튼은 툴바로 들어왔으니 숨긴다
+        // 떠 있던 OBJ 버튼은 메뉴로 들어왔으니 숨긴다
         if (dom.objButton) dom.objButton.style.display = 'none';
-
-        // [그룹, 버튼들...]. 버튼 = [표시, 키 코드 또는 '@동작', ctrl 여부, 툴팁, 상태 키]
-        // 상태 키는 js_setToolbarState 가 '켜짐' 표시를 할 때 대조하는 이름이다.
-        var groups = [
-            ['file', [
-                ['Open .lot', '@openLot', 0, 'Open a .lot scene (replaces the scene)', ''],
-                ['Save .lot', '@saveLot', 0, 'Download the scene as scene.lot', ''],
-                ['Open DXF',  '@openDxf', 0, 'Open an AutoCAD DXF drawing (replaces the scene)', ''],
-                ['Open OBJ',  '@openObj', 0, 'Add a Wavefront OBJ model', ''],
-            ]],
-            ['view', [
-                ['Front', 'KeyF', 0, 'Front view (F)', 'view:0'],
-                ['Top',   'KeyT', 0, 'Top view (T)', 'view:2'],
-                ['Right', 'KeyR', 0, 'Right view (R)', 'view:4'],
-                ['Iso',   'KeyI', 0, 'Isometric view (I)', 'view:6'],
-                ['Fit',   'KeyZ', 0, 'Zoom extents - fit the whole scene (Z)', ''],
-                ['Parallel', 'KeyP', 0, 'Perspective / parallel (orthographic) projection (P)', 'ortho'],
-                ['FPS',   'KeyV', 0, 'CAD orbit / first-person (V)', 'fps'],
-            ]],
-            ['gizmo', [
-                ['Move',   'Digit1', 0, 'Move gizmo (1)', 'gizmo:0'],
-                ['Rotate', 'Digit2', 0, 'Rotate gizmo (2)', 'gizmo:1'],
-                ['Scale',  'Digit3', 0, 'Scale gizmo (3)', 'gizmo:2'],
-            ]],
-            ['modify', [
-                ['Move',   'KeyM', 0, 'Move by base point -> destination, or distance (M)', 'xform:0'],
-                ['Copy',   'KeyU', 0, 'Copy by base point, repeat (U)', 'xform:1'],
-                ['Rotate', 'KeyK', 0, 'Rotate about base point, or degrees (K)', 'xform:2'],
-                ['Scale',  'KeyX', 0, 'Scale about base point, or factor (X)', 'xform:3'],
-            ]],
-            ['sketch', [
-                ['Line',     'KeyL', 0, 'Line (L)', 'sketch:0'],
-                ['Rect',     'KeyB', 0, 'Rectangle (B)', 'sketch:1'],
-                ['Polyline', 'KeyN', 0, 'Polyline (N)', 'sketch:2'],
-                ['Circle',   'KeyC', 0, 'Circle: center, radius (C)', 'sketch:3'],
-                ['Arc',      'KeyA', 0, 'Arc through 3 points (A, CAD mode)', 'sketch:4'],
-                ['Polygon',  'KeyG', 0, 'Regular polygon: center, vertex (G; [ ] sides)', 'sketch:5'],
-                ['Dim',      'KeyD', 0, 'Aligned dimension: two points, then line position (D, CAD mode)', 'sketch:6'],
-                ['Text',     'KeyW', 0, 'Text: click the start point, type, Enter (W, CAD mode)', 'sketch:7'],
-                ['Finish',   'Enter', 0, 'Finish sketch (Enter)', ''],
-                ['Cancel',   'Escape', 0, 'Cancel sketch / clear selection (Esc)', ''],
-                ['Ortho',    'F8', 0, 'Ortho tracking: constrain to plane axes (F8)', 'orthoTrack'],
-                ['Snap',     'F9', 0, 'Grid snap: snap the cursor to grid steps (F9)', 'gridSnap'],
-            ]],
-            ['edit', [
-                ['Dup',    'KeyD', 1, 'Duplicate selection in place (Ctrl+D)', ''],
-                ['Delete', 'Delete', 0, 'Delete selection (Del)', ''],
-                ['Undo',   'KeyZ', 1, 'Undo (Ctrl+Z)', 'undo'],
-                ['Redo',   'KeyY', 1, 'Redo (Ctrl+Y)', 'redo'],
-                ['Outline','KeyO', 0, 'Selection outline (O)', 'outline'],
-            ]],
-        ];
-
-        var bar = document.createElement('div');
-        bar.id = 'lot-toolbar';
-        bar.style.position = 'fixed';
-        bar.style.top = (statusBarHeight + 8) + 'px';
-        bar.style.left = '8px';
-        bar.style.zIndex = '10';
-        bar.style.display = 'flex';
-        bar.style.flexDirection = 'column';
-        // 창이 낮으면 그룹이 다음 열로 흐른다 - 버튼이 화면 밖으로 잘리지 않게
-        bar.style.flexWrap = 'wrap';
-        bar.style.alignContent = 'flex-start';
-        bar.style.maxHeight = 'calc(100vh - ' + (statusBarHeight + 16) + 'px)';
-        bar.style.gap = '6px';
-        bar.style.fontFamily = 'monospace';
-        bar.style.fontSize = '12px';
-        bar.style.userSelect = 'none';
-
-        var buttons = {};  // 상태 키 -> 버튼
-
-        var styleButton = function(b, on, enabled) {
-            b.style.color = enabled ? (on ? '#0d0d0d' : '#00ff00') : '#3a5a3a';
-            b.style.backgroundColor = on ? '#00ff00' : '#0d0d0d';
-            b.style.borderColor = enabled ? '#00ff00' : '#2a3a2a';
-            b.style.cursor = enabled ? 'pointer' : 'default';
-        };
-
-        groups.forEach(function(g) {
-            var box = document.createElement('div');
-            box.style.display = 'flex';
-            box.style.flexDirection = 'column';
-            box.style.gap = '2px';
-            box.style.padding = '4px';
-            box.style.border = '1px solid #333';
-            box.style.borderRadius = '4px';
-            box.style.backgroundColor = 'rgba(13, 13, 13, 0.85)';
-
-            var title = document.createElement('div');
-            title.textContent = g[0];
-            title.style.color = '#666';
-            title.style.fontSize = '10px';
-            title.style.padding = '0 2px 2px';
-            box.appendChild(title);
-
-            g[1].forEach(function(spec) {
-                var b = document.createElement('button');
-                b.textContent = spec[0];
-                b.title = spec[3];
-                b.style.padding = '4px 8px';
-                b.style.minWidth = '72px';
-                b.style.textAlign = 'left';
-                b.style.fontFamily = 'monospace';
-                b.style.fontSize = '12px';
-                b.style.border = '1px solid #00ff00';
-                b.style.borderRadius = '3px';
-                styleButton(b, false, true);
-
-                // mousedown 을 막아 포커스가 버튼으로 가지 않게 한다 - 그래야 이후
-                // Enter/Space 가 버튼을 다시 누르지 않고 캔버스 단축키로 간다.
-                b.addEventListener('mousedown', function(e) { e.preventDefault(); });
-                b.addEventListener('click', function() {
-                    if (spec[1].charAt(0) === '@') {
-                        var fn = actions[spec[1].substring(1)];
-                        if (fn) fn();
-                        return;
-                    }
-                    var ptr = stringToNewUTF8(spec[1]);
-                    _lot_onToolbarKey(ptr, spec[2]);
-                    _free(ptr);
-                });
-                if (spec[4]) buttons[spec[4]] = b;
-                box.appendChild(b);
-            });
-            bar.appendChild(box);
-        });
-
-        // 레이어 패널 (오른쪽 위). C++ 이 js_setLayers 로 목록을 밀어 넣는다.
-        // 행: [색] 이름 (개수)  [눈] [자물쇠] [x].  이름을 누르면 현재 층이 된다 (새 객체가 여기로).
-        var layerPanel = document.createElement('div');
-        layerPanel.id = 'lot-layers';
-        layerPanel.style.position = 'fixed';
-        layerPanel.style.right = '12px';
-        layerPanel.style.top = (statusBarHeight + 8) + 'px';
-        layerPanel.style.zIndex = '10';
-        layerPanel.style.minWidth = '210px';
-        layerPanel.style.maxHeight = 'calc(100vh - ' + (statusBarHeight + 80) + 'px)';
-        layerPanel.style.overflowY = 'auto';
-        layerPanel.style.padding = '4px';
-        layerPanel.style.border = '1px solid #333';
-        layerPanel.style.borderRadius = '4px';
-        layerPanel.style.backgroundColor = 'rgba(13, 13, 13, 0.85)';
-        layerPanel.style.fontFamily = 'monospace';
-        layerPanel.style.fontSize = '12px';
-        layerPanel.style.userSelect = 'none';
-        document.body.appendChild(layerPanel);
-        dom.layerPanel = layerPanel;
-
-        // 층 명령을 C++ 로. action 은 lot_onLayerCommand 의 것.
-        dom.layerCommand = function(action, id, value) {
-            var ptr = stringToNewUTF8(action);
-            _lot_onLayerCommand(ptr, id | 0, value | 0);
-            _free(ptr);
-        };
-
-        // 안내문 (캔버스 왼쪽 아래). 열린 도구의 다음 할 일을 보여준다.
-        var hint = document.createElement('div');
-        hint.id = 'lot-hint';
-        hint.style.position = 'fixed';
-        hint.style.left = '50%';
-        hint.style.transform = 'translateX(-50%)';
-        hint.style.bottom = '12px';
-        hint.style.whiteSpace = 'nowrap';
-        hint.style.zIndex = '10';
-        hint.style.padding = '6px 10px';
-        hint.style.fontFamily = 'monospace';
-        hint.style.fontSize = '12px';
-        hint.style.color = '#ddd';
-        hint.style.backgroundColor = 'rgba(13, 13, 13, 0.85)';
-        hint.style.border = '1px solid #333';
-        hint.style.borderRadius = '4px';
-        hint.style.pointerEvents = 'none';
-        hint.style.display = 'none';
 
         // 문자 도구 입력창. 기준점을 찍으면 C++ 이 js_showTextInput 으로 연다.
         // 여기서 잡은 키는 window 로 올라가지 않게 (stopPropagation) - 안 그러면 C++ 키 핸들러가
@@ -321,11 +144,11 @@ mergeInto(LibraryManager.library, {
         textInput.style.zIndex = '11';
         textInput.style.width = '360px';
         textInput.style.padding = '6px 10px';
-        textInput.style.fontFamily = 'monospace';
+        textInput.style.fontFamily = 'inherit';
         textInput.style.fontSize = '14px';
-        textInput.style.color = '#fff';
-        textInput.style.backgroundColor = '#0d0d0d';
-        textInput.style.border = '1px solid #00ff00';
+        textInput.style.color = '#e6e6e6';
+        textInput.style.backgroundColor = '#1b1b1b';
+        textInput.style.border = '1px solid #4296fa';
         textInput.style.borderRadius = '4px';
         textInput.style.display = 'none';
         textInput.addEventListener('keydown', function(e) {
@@ -347,24 +170,69 @@ mergeInto(LibraryManager.library, {
         document.body.appendChild(textInput);
         dom.textInput = textInput;
 
-        document.body.appendChild(bar);
+        // 레이어 패널 (오른쪽 위). C++ 이 js_setLayers 로 목록을 밀어 넣는다.
+        // 행: [색] 이름 (개수)  [눈] [자물쇠] [x].  이름을 누르면 현재 층이 된다 (새 객체가 여기로).
+        var layerPanel = document.createElement('div');
+        layerPanel.id = 'lot-layers';
+        layerPanel.style.position = 'fixed';
+        layerPanel.style.right = '12px';
+        // 메뉴바 + 리본 아래에 붙인다 (높이는 lot_ui.js 가 알려준다)
+        var uiH = (dom.uiHeight ? dom.uiHeight() : 0);
+        layerPanel.style.top = (statusBarHeight + uiH + 8) + 'px';
+        layerPanel.style.zIndex = '10';
+        layerPanel.style.minWidth = '210px';
+        layerPanel.style.maxHeight = 'calc(100vh - ' + (statusBarHeight + uiH + 90) + 'px)';
+        layerPanel.style.overflowY = 'auto';
+        layerPanel.style.padding = '4px';
+        layerPanel.style.border = '1px solid #4a4a55';
+        layerPanel.style.borderRadius = '4px';
+        layerPanel.style.backgroundColor = 'rgba(15, 15, 15, 0.94)';
+        layerPanel.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';
+        layerPanel.style.fontSize = '12px';
+        layerPanel.style.userSelect = 'none';
+        document.body.appendChild(layerPanel);
+        dom.layerPanel = layerPanel;
+
+        // 층 명령을 C++ 로. action 은 lot_onLayerCommand 의 것.
+        dom.layerCommand = function(action, id, value) {
+            var ptr = stringToNewUTF8(action);
+            _lot_onLayerCommand(ptr, id | 0, value | 0);
+            _free(ptr);
+        };
+
+
+        // 안내문 (화면 아래 가운데). 열린 도구의 다음 할 일 - 메뉴바 오른쪽에도 같은 글이 뜬다.
+        var hint = document.createElement('div');
+        hint.id = 'lot-hint';
+        hint.style.position = 'fixed';
+        hint.style.left = '50%';
+        hint.style.transform = 'translateX(-50%)';
+        hint.style.bottom = '14px';
+        hint.style.zIndex = '11';
+        hint.style.padding = '5px 12px';
+        hint.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';
+        hint.style.fontSize = '12px';
+        hint.style.color = '#e6e6e6';
+        hint.style.backgroundColor = 'rgba(15, 15, 15, 0.92)';
+        hint.style.border = '1px solid #4a4a55';
+        hint.style.borderRadius = '3px';
+        hint.style.whiteSpace = 'nowrap';
+        hint.style.pointerEvents = 'none';
+        hint.style.display = 'none';
         document.body.appendChild(hint);
-        dom.toolbar = bar;
-        dom.toolbarButtons = buttons;
-        dom.toolbarStyle = styleButton;
         dom.hint = hint;
     },
 
     // 선종류 목록 (한 번). 드롭다운을 채우는 데 쓴다.
-    js_setLinetypes__deps: ['$UTF8ToString'],
-    js_setLinetypes: function(jsonPtr) {
+    js_uiSetLinetypes__deps: ['$UTF8ToString'],
+    js_uiSetLinetypes: function(jsonPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         try { Module.lotDom.linetypes = JSON.parse(UTF8ToString(jsonPtr)); } catch (e) {}
     },
 
     // C++ 이 층 목록을 밀어 넣는다 (바뀔 때만). json: {current, layers:[{id,name,visible,locked,color,count}]}
-    js_setLayers__deps: ['$UTF8ToString'],
-    js_setLayers: function(jsonPtr) {
+    js_uiSetLayers__deps: ['$UTF8ToString'],
+    js_uiSetLayers: function(jsonPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.layerPanel) return 0;
         // JSON.parse 결과의 속성은 아래에서 대괄호로 읽는다 - Closure 가 점 표기 이름을
@@ -382,7 +250,7 @@ mergeInto(LibraryManager.library, {
         head.style.padding = '0 2px 4px';
         var title = document.createElement('span');
         title.textContent = 'layers';
-        title.style.color = '#666';
+        title.style.color = '#9a9aa2';
         title.style.fontSize = '10px';
         head.appendChild(title);
 
@@ -409,11 +277,11 @@ mergeInto(LibraryManager.library, {
         var mkLinetypeSelect = function(value, byLayer, title, onChange) {
             var sel = document.createElement('select');
             sel.title = title;
-            sel.style.fontFamily = 'monospace';
+            sel.style.fontFamily = 'inherit';
             sel.style.fontSize = '10px';
-            sel.style.color = '#00ff00';
-            sel.style.backgroundColor = '#0d0d0d';
-            sel.style.border = '1px solid #2a3a2a';
+            sel.style.color = '#e6e6e6';
+            sel.style.backgroundColor = '#1b1b1b';
+            sel.style.border = '1px solid #4a4a55';
             sel.style.borderRadius = '3px';
             sel.style.maxWidth = '92px';
             var add = function(v, text) {
@@ -438,11 +306,11 @@ mergeInto(LibraryManager.library, {
             b.title = title;
             b.style.padding = '1px 5px';
             b.style.marginLeft = '2px';
-            b.style.fontFamily = 'monospace';
+            b.style.fontFamily = 'inherit';
             b.style.fontSize = '11px';
-            b.style.color = '#00ff00';
-            b.style.backgroundColor = '#0d0d0d';
-            b.style.border = '1px solid #2a3a2a';
+            b.style.color = '#e6e6e6';
+            b.style.backgroundColor = '#1b1b1b';
+            b.style.border = '1px solid #4a4a55';
             b.style.borderRadius = '3px';
             b.style.cursor = 'pointer';
             b.addEventListener('mousedown', function(e) { e.preventDefault(); });
@@ -460,7 +328,7 @@ mergeInto(LibraryManager.library, {
             row.style.gap = '2px';
             row.style.padding = '1px 2px';
             row.style.borderRadius = '3px';
-            if (l['id'] === state['current']) row.style.backgroundColor = 'rgba(0, 255, 0, 0.15)';
+            if (l['id'] === state['current']) row.style.backgroundColor = '#2b5fa8';
 
             row.appendChild(mkColorInput(l['color'], 'Layer colour (objects set to ByLayer follow it)',
                 function(v) { dom.layerCommand('layerColor', l['id'], v); }));
@@ -475,7 +343,7 @@ mergeInto(LibraryManager.library, {
             name.style.whiteSpace = 'nowrap';
             name.style.padding = '0 4px';
             name.style.cursor = 'pointer';
-            name.style.color = l['visible'] ? (l['id'] === state['current'] ? '#00ff00' : '#ddd') : '#666';
+            name.style.color = l['visible'] ? '#e6e6e6' : '#6f6f78';
             name.addEventListener('mousedown', function(e) { e.preventDefault(); });
             name.addEventListener('click', function() { dom.layerCommand('current', l['id'], 0); });
             row.appendChild(name);
@@ -511,7 +379,7 @@ mergeInto(LibraryManager.library, {
             selRow.style.borderTop = '1px solid #333';
             var label = document.createElement('span');
             label.textContent = 'selection';
-            label.style.color = '#888';
+            label.style.color = '#9a9aa2';
             label.style.fontSize = '10px';
             selRow.appendChild(label);
             selRow.appendChild(mkLinetypeSelect(state['selectionLinetype'], true,
@@ -528,7 +396,7 @@ mergeInto(LibraryManager.library, {
             var bl = mkButton(byLayer ? '\u25c9 ByLayer' : '\u25cb ByLayer',
                 'Follow the layer colour',
                 function() { dom.layerCommand('objectByLayer', 0, byLayer ? 0 : 1); });
-            if (byLayer) { bl.style.color = '#0d0d0d'; bl.style.backgroundColor = '#00ff00'; }
+            if (byLayer) { bl.style.color = '#ffffff'; bl.style.backgroundColor = '#2b5fa8'; bl.style.borderColor = '#4296fa'; }
             selRow.appendChild(bl);
             panel.appendChild(selRow);
         }
@@ -552,42 +420,6 @@ mergeInto(LibraryManager.library, {
         dom.textInput.style.display = 'none';
         dom.textInput.value = '';
         dom.textInput.blur();
-    },
-
-    // C++ 이 상태가 바뀔 때 부른다. 값은 키보드 컨트롤러/카메라의 enum 그대로.
-    //   gizmoMode 0/1/2, sketchTool -1/0/1/2, view -1 또는 CadViewType, fps 0/1,
-    //   ortho 0/1, outline 0/1, canUndo/canRedo 0/1, hint = UTF-8 문자열 (빈 문자열이면 숨김)
-    js_setToolbarState__deps: ['$UTF8ToString'],
-    js_setToolbarState: function(gizmoMode, sketchTool, xformMode, view, fps, ortho, orthoTrack,
-                                 gridSnap, outline, canUndo, canRedo, hintPtr) {
-        var dom = Module.lotDom;
-        if (!dom || !dom.toolbarButtons) return 0;  // 아직 툴바가 없다 - C++ 이 다음 프레임에 다시 보낸다
-        var buttons = dom.toolbarButtons;
-        var style = dom.toolbarStyle;
-
-        var setOn = function(prefix, value) {
-            for (var key in buttons) {
-                if (key.indexOf(prefix + ':') === 0) {
-                    style(buttons[key], key === prefix + ':' + value, true);
-                }
-            }
-        };
-        setOn('gizmo', gizmoMode);
-        setOn('sketch', sketchTool);
-        setOn('xform', xformMode);
-        setOn('view', view);
-        style(buttons['fps'], fps === 1, true);
-        style(buttons['ortho'], ortho === 1, true);
-        style(buttons['orthoTrack'], orthoTrack === 1, true);
-        style(buttons['gridSnap'], gridSnap === 1, true);
-        style(buttons['outline'], outline === 1, true);
-        style(buttons['undo'], false, canUndo === 1);
-        style(buttons['redo'], false, canRedo === 1);
-
-        var text = UTF8ToString(hintPtr);
-        dom.hint.textContent = text;
-        dom.hint.style.display = text ? 'block' : 'none';
-        return 1;
     },
 
 });
