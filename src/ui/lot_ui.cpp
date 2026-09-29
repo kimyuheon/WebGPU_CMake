@@ -3,7 +3,7 @@
 extern "C" {
     // src/js/lot_ui.js. 메뉴/리본 뼈대는 한 번, 상태와 층은 바뀔 때만.
     // 셋 다 DOM 이 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
-    extern int js_uiInstall(const char* menuJson, const char* ribbonJson);
+    extern int js_uiInstall(const char* menuJson, const char* ribbonJson, const char* commandNames);
     extern int js_uiSetState(const char* stateJson);
     extern int js_uiSetLayers(const char* layersJson);
 }
@@ -19,7 +19,9 @@ bool State::operator==(const State& o) const {
 
 void LotUi::install() {
     if (installed_) return;
-    installed_ = js_uiInstall(menu_.toJson().c_str(), ribbon_.toJson().c_str()) != 0;
+    commandLine_.build(menu_, ribbon_);
+    installed_ = js_uiInstall(menu_.toJson().c_str(), ribbon_.toJson().c_str(),
+                              commandLine_.namesJson().c_str()) != 0;
 }
 
 void LotUi::invalidate() {

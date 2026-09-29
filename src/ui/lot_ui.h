@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lot_command_line.h"
 #include "lot_layer_panel.h"
 #include "lot_main_menu.h"
 #include "lot_ribbon.h"
@@ -43,11 +44,13 @@ public:
     void invalidate();
 
     LotLayerPanel& layerPanel() { return layerPanel_; }
+    LotCommandLine& commandLine() { return commandLine_; }
 
 private:
     LotMainMenu menu_;
     LotRibbon ribbon_;
     LotLayerPanel layerPanel_;
+    LotCommandLine commandLine_;
     State lastState_;
     bool statePushed_ = false;
     bool installed_ = false;

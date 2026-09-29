@@ -20,8 +20,9 @@ const kNativeScene = process.env.LOT_NATIVE_SCENE ?? 'D:/vulkan/3dengine/tests/d
 // 1100x850 뷰포트, Top 뷰(T) 기준 좌표. 캔버스는 y = 150 부터 700px, 카메라 거리 4 에
 // fov 50 도라 1 월드 단위 ≈ 187px, 월드 원점 = 화면 (550, 500). 화면 = (550 + 187x, 500 - 187y).
 // 큐브: 노란 (270, 500), 파란 (830, 500), 한 변 ≈ 112px. 토러스 중심 (550, 500) 반지름 ≈ 155px.
-// UI 가 가리는 곳은 쓰지 않는다: 메뉴바+리본 y < 270, 레이어 패널 x > 840,
-// 안내문은 아래 가운데. 안전한 자리 = x 200..800, y 300..810.
+// UI 가 가리는 곳은 쓰지 않는다: 메뉴바+리본 y < 270, 레이어 패널 x > 870 / y 270..400,
+// 안내문은 아래 가운데, 명령행은 y > 820 (맨 아래 띠). 캔버스가 성한 자리 = y 400..810.
+// 스케치 osnap 시험은 기본 씬의 정점에 걸리지 않게 y > 690 띠에서 그린다.
 const P = {
   yellowCube: [270, 500],
   emptyFloor: [740, 640],
@@ -83,19 +84,20 @@ const scenarios = [
     async run(t) {
       const a = t.api;
       await a.key('KeyT');
-      // A: (700,700)-(1000,820), B: (720,830)-(1050,700) -> 교차 (874, 770). 중점은 A (850,760), B (885,765).
-      await a.key('KeyL'); await a.click(700, 700); await a.click(1000, 820); await a.key('Enter');
-      await a.key('KeyL'); await a.click(720, 830); await a.click(1050, 700); await a.key('Enter');
-      await a.key('KeyL'); await a.move(874, 770);
+      // 기본 씬(큐브 둘 + 토러스)의 정점에 걸리지 않게 화면 아래 띠에서만 그린다.
+      // A: (450,700)-(1000,800) [중점 (725,750)], B: (520,800)-(760,695) -> 교차 (661, 738)
+      await a.key('KeyL'); await a.click(450, 700); await a.click(1000, 800); await a.key('Enter');
+      await a.key('KeyL'); await a.click(520, 800); await a.click(760, 695); await a.key('Enter');
+      await a.key('KeyL'); await a.move(661, 738);
       t.expect(a.has(/snap: intersection/), 'intersection snap');
       await a.key('Escape');
-      // (1000,620) 에서 A 에 내린 수선의 발 = (931, 792)
-      await a.key('KeyL'); await a.click(1000, 620); await a.move(931, 792);
+      // (800,690) 에서 A 에 내린 수선의 발 = (787, 761)
+      await a.key('KeyL'); await a.click(800, 690); await a.move(787, 761);
       t.expect(a.has(/snap: perpendicular/), 'perpendicular snap');
       await a.key('Escape');
-      await a.key('KeyL'); await a.move(700, 700);
+      await a.key('KeyL'); await a.move(450, 700);
       t.expect(a.has(/snap: endpoint/), 'endpoint snap');
-      await a.move(850, 760);
+      await a.move(725, 750);
       t.expect(a.has(/snap: midpoint/), 'midpoint snap');
       await a.key('Escape');
       await a.key('F8');
@@ -331,6 +333,36 @@ const scenarios = [
     },
   },
   {
+    name: 'command-line',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      // 이름 · 짧은 별칭 · 한국어가 모두 같은 명령으로
+      t.expect(await a.command('circle'), 'command line present');
+      t.expect(a.has(/command: circle -> 원/), 'full name');
+      await a.key('Escape');
+      await a.command('l');
+      t.expect(a.has(/command: l -> 선/), 'short alias');
+      await a.key('Escape');
+      await a.command('평면도');
+      t.expect(a.has(/command: 평면도 -> 평면도/), 'Korean name');
+      await a.command('nosuchthing');
+      t.expect(a.has(/command: unknown "nosuchthing"/), 'unknown command is reported');
+
+      // 값 입력: 이동 중에 숫자를 치면 그 거리로 확정된다
+      await a.click(270, 500);
+      await a.command('move');
+      await a.click(270, 500);
+      await a.move(270, 620);
+      await a.command('1.5');
+      t.expect(a.has(/transform: move done \(1\.5 units\)/), 'numeric value through the command line');
+
+      // 입력창으로 쳐도 같다 (Tab 자동완성 포함)
+      await a.commandType('zoom');
+      t.expect(a.has(/view: zoom extents/), 'typed in the input box');
+    },
+  },
+  {
     name: 'dxf-import',
     async run(t) {
       const a = t.api;
@@ -396,7 +428,7 @@ for (const sc of scenarios) {
     ++failed;
     console.log(`FAIL  ${sc.name}`);
     for (const f of failures) console.log(`        - ${f}`);
-    for (const l of api.logs.slice(-12)) console.log(`        engine: ${l}`);
+    for (const l of api.logs.slice(-(Number(process.env.LOG_TAIL) || 12))) console.log(`        engine: ${l}`);
   }
 }
 

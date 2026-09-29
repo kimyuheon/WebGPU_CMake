@@ -242,6 +242,41 @@ static vec3 displayColor(const LotGameObject& obj) {
     return l ? l->color : obj.color;
 }
 
+// 명령행에서 친 글자. 이름이면 그 명령을, 숫자면 열린 도구의 값 입력으로 보낸다.
+// 문자열은 JS 가 잡아 준 것이라 JS 가 해제한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onCommandLine(const char* typed) {
+    if (typed == nullptr) return;
+    const std::string text(typed);
+    if (text.empty()) return;
+
+    // 숫자(또는 부호/소수점)로 시작하면 값이다 - 진행 중인 변환 도구가 받는다.
+    const char first = text[0];
+    if (first == '-' || first == '.' || (first >= '0' && first <= '9')) {
+        if (g_transform.isPreviewing()) {
+            g_transform.setNumberBuffer(text);
+            const auto& sc = g_renderer->getSwapchain();
+            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                                        static_cast<float>(sc.getWidth()),
+                                        static_cast<float>(sc.getHeight())};
+            g_transform.finish(tctx, g_edit.history());
+            LOT_LOG("command: value " << text);
+        } else {
+            LOT_LOG("command: " << text << " - no tool is waiting for a value");
+        }
+        return;
+    }
+
+    const lot_ui::LotCommandLine::Resolved r = g_ui.commandLine().resolve(text);
+    if (!r.found) {
+        LOT_LOG("command: unknown \"" << text << "\"");
+        return;
+    }
+    LOT_LOG("command: " << text << " -> " << r.label);
+    g_cameraController.handleBrowserKey(r.keyCode.c_str(), true, r.ctrl);
+    g_cameraController.handleBrowserKey(r.keyCode.c_str(), false, r.ctrl);
+}
+
 // 레이어 패널에서 온 명령. 실제 처리는 LotLayerPanel 이 한다 (main 은 배선만).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onLayerCommand(const char* action, int layerId, int value) {

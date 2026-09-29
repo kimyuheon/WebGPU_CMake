@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -142,6 +142,21 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
       return api.evaluate(
         `(() => { const b = document.querySelector('[data-cmd=' + ${JSON.stringify(JSON.stringify(id))} + ']');`
         + ` return b ? b.getAttribute('data-on') === '1' : null; })()`);
+    },
+    // 명령행에 치기 (입력창을 거치지 않고 같은 입구로)
+    async command(text) {
+      const ok = await api.evaluate(
+        `(() => { if (!Module.lotDom || !Module.lotDom['commandRun']) return false;`
+        + ` Module.lotDom['commandRun'](${JSON.stringify(text)}); return true; })()`);
+      await sleep(400);
+      return ok;
+    },
+    // 명령행 입력창에 직접 치고 Enter (자동완성·되풀이까지 보려면)
+    async commandType(text) {
+      await api.evaluate(`document.getElementById('lot-cmdline-input').focus()`);
+      if (text) await api.type(text);
+      await api.key('Enter');
+      await sleep(400);
     },
     async hint() { return api.evaluate(`document.getElementById('lot-hint')?.textContent ?? ''`); },
 

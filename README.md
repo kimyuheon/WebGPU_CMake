@@ -82,15 +82,22 @@ Tool : Visual Studio Code
 | 편집 | 제자리 복제 · 삭제 · 실행 취소/다시 실행 (100단계) | `Ctrl+D` `Del` `Ctrl+Z/Y` |
 | 레이어 | 층 만들기/삭제, 표시·잠금, 현재 층, 선택을 옮기기 | 오른쪽 패널 |
 | 속성 | 색 (층 색 / 오브젝트 색 / ByLayer, 메시 포함), 선종류 (8종) | 오른쪽 패널 |
-| 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기, OBJ 열기 | 툴바 |
+| 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기, OBJ 열기 | 메뉴 · 리본 |
+| 명령행 | 이름으로 명령 부르기 (별칭·한글), Tab 자동완성, 지난 명령, 값 입력 | `Space` |
 | 렌더 | 텍스처 재질, 점 광원, 오프스크린 + 외곽선 후처리 | `O` |
 
 키 대신 위쪽 **메뉴바**(파일·편집·뷰·그리기·수정·설정)나 **리본**(홈 / 2D / 3D 탭)에서 눌러도 같다.
 Vulkan 쪽 ImGui UI 와 같은 짜임이다: 메뉴 항목 오른쪽에 단축키, 리본은 아이콘 한 줄 + 그룹 캡션,
 켜진 명령은 파란 강조, 탭 줄을 더블클릭하면 접힌다. 오른쪽에 레이어/속성 패널.
 
-명령 표는 C++ 한 곳(`src/ui/lot_main_menu.cpp`, `lot_ribbon.cpp`)에 있고 메뉴·리본·단축키가 그걸
-함께 본다. 누르면 그 명령의 키 코드가 키보드와 같은 경로로 들어가므로 셋이 갈라질 수 없다.
+화면 맨 아래는 AutoCAD 식 **명령행**이다. `Space` 로 커서가 가고, 이름을 쳐서 부른다
+(`line`/`l`/`선`, `circle`/`c`/`원`, `move`/`m`, `zoom`/`z`, `undo`/`u` …). `Tab` 자동완성,
+`↑`/`↓` 로 지난 명령, 빈 `Enter` 는 직전 명령 되풀이. 변환 도구가 값을 기다릴 때 숫자를 치면
+그 값으로 확정된다 (`1.5` = 1.5 단위 이동). 별칭 표는 `src/ui/lot_command_line.cpp` 에 있고
+Vulkan 쪽 `builtinCommandTable` 과 같은 규약(영문 풀이름 · 짧은 별칭 · 한글)을 쓴다.
+
+명령 표는 C++ 한 곳(`src/ui/lot_main_menu.cpp`, `lot_ribbon.cpp`)에 있고 메뉴·리본·명령행·단축키가
+그걸 함께 본다. 어느 쪽으로 눌러도 그 명령의 키 코드가 키보드와 같은 경로로 들어가므로 넷이 갈라질 수 없다.
 
 ### 구조 메모
 
@@ -106,7 +113,7 @@ Vulkan 쪽 ImGui UI 와 같은 짜임이다: 메뉴 항목 오른쪽에 단축�
 - `lot_linetype` — 선종류. 무늬를 CPU 에서 잘라 선분으로 낸다 (폴리라인 전체가 한 누적 길이).
 - `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.
 - `src/ui/` — UI 클래스들. `LotMainMenu`/`LotRibbon` 은 명령 표, `LotLayerPanel` 은 층/속성 편집,
-  `LotUi` 가 셋을 들고 바뀐 것만 DOM 으로 내보낸다. 그리는 것은 `src/js/lot_ui.js`(메뉴·리본)와
+  `LotCommandLine` 은 그 표에서 칠 수 있는 이름을 뽑아 둔다. `LotUi` 가 넷을 들고 바뀐 것만 DOM 으로 내보낸다. 그리는 것은 `src/js/lot_ui.js`(메뉴·리본)와
   `src/js/lot_panels.js`(패널·입력창·파일).
   ⚠️ Closure(릴리스)가 점 표기 속성명을 바꾼다. 바깥에 노출하거나 JSON 으로 주고받는 이름은
   `obj['name']` 으로, DOM 속성은 `el.setAttribute('data-cmd', ...)` 로 적는다 (`el.dataset.cmd` 도 줄여버린다).

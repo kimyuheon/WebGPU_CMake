@@ -31,19 +31,20 @@ mergeInto(LibraryManager.library, {
     // ---------------------------------------------------------------- 뼈대
     js_uiInstall__deps: ['lot_onToolbarKey', 'lot_onLayerCommand', 'lot_onTextEntered',
                          'lot_onTextCancelled', 'lot_saveScene', 'lot_onLotFileLoaded',
-                         'lot_onDxfFileLoaded', '$LotUiTheme',
+                         'lot_onDxfFileLoaded', 'lot_onCommandLine', '$LotUiTheme',
                          '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
-    js_uiInstall: function(menuPtr, ribbonPtr) {
+    js_uiInstall: function(menuPtr, ribbonPtr, namesPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         var dom = Module.lotDom;
         if (!dom.statusBar) return 0;          // 캔버스/상태바가 아직
         if (dom.uiRoot) return 1;              // 이미 만들었다
 
         var T = LotUiTheme;
-        var menus, ribbon;
+        var menus, ribbon, commandNames;
         try {
             menus = JSON.parse(UTF8ToString(menuPtr));
             ribbon = JSON.parse(UTF8ToString(ribbonPtr));
+            commandNames = JSON.parse(UTF8ToString(namesPtr));
         } catch (e) { return 0; }
 
         var top = dom.statusBar.offsetHeight;
@@ -337,6 +338,117 @@ mergeInto(LibraryManager.library, {
         root.appendChild(ribbonBox);
         document.body.appendChild(root);
         applyTabs();
+
+        // ── 명령행 (화면 아래) ────────────────────────────────
+        // AutoCAD 처럼 이름을 쳐서 명령을 부른다. 캔버스의 단축키와 섞이지 않도록
+        // 키 이벤트를 여기서 멈춘다 (stopPropagation) - 문자 입력창과 같은 이유다.
+        var cmdBox = document.createElement('div');
+        cmdBox.id = 'lot-cmdline';
+        cmdBox.style.position = 'fixed';
+        cmdBox.style.left = '0';
+        cmdBox.style.right = '0';
+        cmdBox.style.bottom = '0';
+        cmdBox.style.zIndex = '11';
+        cmdBox.style.display = 'flex';
+        cmdBox.style.alignItems = 'center';
+        cmdBox.style.gap = '6px';
+        cmdBox.style.padding = '3px 8px';
+        cmdBox.style.background = T.menuBg;
+        cmdBox.style.borderTop = '1px solid ' + T.border;
+        cmdBox.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';
+        cmdBox.style.fontSize = '12px';
+
+        var prompt = document.createElement('span');
+        prompt.textContent = '명령:';
+        prompt.style.color = T.textDim;
+        cmdBox.appendChild(prompt);
+
+        var cmdInput = document.createElement('input');
+        cmdInput.type = 'text';
+        cmdInput.id = 'lot-cmdline-input';
+        cmdInput.title = '명령 이름을 치고 Enter (line, c, move, zoom …). Space 로 여기에 커서';
+        cmdInput.style.flex = '1 1 auto';
+        cmdInput.style.padding = '2px 6px';
+        cmdInput.style.color = T.text;
+        cmdInput.style.background = '#101010';
+        cmdInput.style.border = '1px solid ' + T.border;
+        cmdInput.style.borderRadius = '2px';
+        cmdInput.style.font = 'inherit';
+        cmdInput.style.outline = 'none';
+        cmdBox.appendChild(cmdInput);
+
+        var suggest = document.createElement('span');
+        suggest.style.color = T.textDim;
+        suggest.style.whiteSpace = 'nowrap';
+        suggest.style.maxWidth = '40%';
+        suggest.style.overflow = 'hidden';
+        cmdBox.appendChild(suggest);
+
+        var history = [];
+        var histIndex = -1;
+
+        var updateSuggest = function() {
+            var v = cmdInput.value.trim().toLowerCase();
+            if (!v) { suggest.textContent = ''; return; }
+            var hits = commandNames.filter(function(n) { return n.indexOf(v) === 0; }).slice(0, 6);
+            suggest.textContent = hits.length ? hits.join('  ') : '?';
+        };
+
+        cmdInput.addEventListener('input', updateSuggest);
+        cmdInput.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                var text = cmdInput.value.trim();
+                // 빈 Enter 는 직전 명령 되풀이 (AutoCAD 관례)
+                if (!text && history.length) text = history[history.length - 1];
+                if (text) {
+                    history.push(text);
+                    histIndex = history.length;
+                    var ptr = stringToNewUTF8(text);
+                    _lot_onCommandLine(ptr);
+                    _free(ptr);
+                }
+                cmdInput.value = '';
+                suggest.textContent = '';
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                var v = cmdInput.value.trim().toLowerCase();
+                var hit = commandNames.filter(function(n) { return n.indexOf(v) === 0; })[0];
+                if (hit) { cmdInput.value = hit; updateSuggest(); }
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (!history.length) return;
+                histIndex += (e.key === 'ArrowUp') ? -1 : 1;
+                if (histIndex < 0) histIndex = 0;
+                if (histIndex >= history.length) { histIndex = history.length; cmdInput.value = ''; return; }
+                cmdInput.value = history[histIndex];
+                updateSuggest();
+            } else if (e.key === 'Escape') {
+                cmdInput.value = '';
+                suggest.textContent = '';
+                cmdInput.blur();
+            }
+        });
+        cmdInput.addEventListener('keyup', function(e) { e.stopPropagation(); });
+        cmdInput.addEventListener('keypress', function(e) { e.stopPropagation(); });
+
+        // Space 로 명령행에 커서 (AutoCAD 의 스페이스 = 명령 입력과 같은 자리).
+        // 다른 입력창에 커서가 있을 때는 건드리지 않는다.
+        window.addEventListener('keydown', function(e) {
+            if (e.code !== 'Space') return;
+            var t = document.activeElement;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+            e.preventDefault();
+            cmdInput.focus();
+        });
+
+        document.body.appendChild(cmdBox);
+        dom.cmdInput = cmdInput;
+        dom['commandRun'] = function(text) {   // 테스트 도구가 부른다 (Closure 이름 고정)
+            var ptr = stringToNewUTF8(text);
+            _lot_onCommandLine(ptr);
+            _free(ptr);
+        };
 
         dom.uiRoot = root;
         dom.uiHeight = function() { return root.offsetHeight; };
