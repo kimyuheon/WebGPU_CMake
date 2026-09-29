@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -203,6 +203,18 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
       return ok;
     },
     async saveLotFile(path) { writeFileSync(path, await api.sceneSave()); },
+
+    // DXF 열기 (파일 대화상자 없이). 바이트를 그대로 넘겨 페이지가 코드페이지를 푼다.
+    async loadDxfFile(path) {
+      const b64 = readFileSync(path).toString('base64');
+      const ok = await api.evaluate(
+        `(() => { const bin = atob(${JSON.stringify(b64)});`
+        + ` const u8 = new Uint8Array(bin.length);`
+        + ` for (let i = 0; i < bin.length; ++i) u8[i] = bin.charCodeAt(i);`
+        + ` return Module.lotDom.dxfLoad(u8.buffer); })()`);
+      await sleep(800);
+      return ok;
+    },
     async loadLotFile(path) { return api.sceneLoad(readFileSync(path, 'utf8')); },
 
     async screenshot(path) {

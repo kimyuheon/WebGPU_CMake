@@ -1,0 +1,204 @@
+999
+Small hand-written DXF for the regression suite: two layers, one of each
+999
+entity the importer handles (LINE, CIRCLE, ARC, LWPOLYLINE with a bulge,
+999
+old-style POLYLINE/VERTEX, TEXT). ASCII, ANSI_1252, R12-ish.
+  0
+SECTION
+  2
+HEADER
+  9
+$ACADVER
+  1
+AC1009
+  9
+$DWGCODEPAGE
+  3
+ANSI_1252
+  0
+ENDSEC
+  0
+SECTION
+  2
+TABLES
+  0
+TABLE
+  2
+LAYER
+ 70
+2
+  0
+LAYER
+  2
+0
+ 70
+0
+ 62
+7
+  6
+CONTINUOUS
+  0
+LAYER
+  2
+CENTRE
+ 70
+0
+ 62
+1
+  6
+CENTER
+  0
+ENDTAB
+  0
+ENDSEC
+  0
+SECTION
+  2
+ENTITIES
+  0
+LINE
+  8
+0
+ 10
+0.0
+ 20
+0.0
+ 30
+0.0
+ 11
+100.0
+ 21
+0.0
+ 31
+0.0
+  0
+LINE
+  8
+CENTRE
+ 10
+50.0
+ 20
+-20.0
+ 30
+0.0
+ 11
+50.0
+ 21
+80.0
+ 31
+0.0
+  0
+CIRCLE
+  8
+0
+ 62
+3
+ 10
+50.0
+ 20
+30.0
+ 30
+0.0
+ 40
+25.0
+  0
+ARC
+  8
+0
+ 10
+0.0
+ 20
+30.0
+ 30
+0.0
+ 40
+15.0
+ 50
+0.0
+ 51
+90.0
+  0
+LWPOLYLINE
+  8
+0
+ 90
+4
+ 70
+1
+ 10
+120.0
+ 20
+0.0
+ 42
+0.5
+ 10
+170.0
+ 20
+0.0
+ 10
+170.0
+ 20
+40.0
+ 10
+120.0
+ 20
+40.0
+  0
+POLYLINE
+  8
+CENTRE
+ 66
+1
+ 70
+0
+  0
+VERTEX
+  8
+CENTRE
+ 10
+120.0
+ 20
+60.0
+ 30
+0.0
+  0
+VERTEX
+  8
+CENTRE
+ 10
+150.0
+ 20
+80.0
+ 30
+0.0
+  0
+VERTEX
+  8
+CENTRE
+ 10
+180.0
+ 20
+60.0
+ 30
+0.0
+  0
+SEQEND
+  0
+TEXT
+  8
+0
+ 10
+0.0
+ 20
+-30.0
+ 30
+0.0
+ 40
+12.0
+  1
+DXF sample
+  0
+ENDSEC
+  0
+EOF

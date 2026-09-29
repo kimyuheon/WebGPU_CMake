@@ -13,6 +13,7 @@
 #include "lot_json.h"
 #include "lot_layers.h"
 #include "lot_cursor_snap.h"
+#include "lot_dxf.h"
 #include "lot_cursor_snap.h"
 #include "lot_linetype.h"
 #include "lot_sketch_tool.h"
@@ -527,6 +528,34 @@ static void zoomExtents() {
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
+}
+
+// DXF 열기. JS 가 코드페이지를 풀어 UTF-8 로 넘긴다 (옛 도면은 CP949 등).
+// 버퍼는 JS 가 malloc 으로 잡은 것이라 여기서 해제한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onDxfFileLoaded(const char* data, int length) {
+    if (data == nullptr) return;
+    const std::string text(data, static_cast<size_t>(length));
+    std::free(const_cast<char*>(data));
+
+    // 파싱이 실패하면 지금 씬을 건드리지 않도록 임시 맵에 먼저 읽는다
+    LotGameObject::Map loaded;
+    LotLayers loadedLayers;
+    const lot_dxf::LoadStats stats = lot_dxf::load(text, loaded, loadedLayers);
+    if (!stats.error.empty()) {
+        LOT_ERR(stats.error);
+        return;
+    }
+
+    g_sketch.cancel();
+    g_transform.cancel(g_gameObjects);
+    g_edit.clearSelection();
+    g_edit.history().clear();
+    g_gameObjects = std::move(loaded);
+    g_layers = std::move(loadedLayers);
+    pushLayers();
+    g_objPlaced = true;  // 도면에는 기본 토러스를 끼워 넣지 않는다
+    zoomExtents();
 }
 
 // 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.

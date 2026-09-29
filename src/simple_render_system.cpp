@@ -145,6 +145,9 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
     uint32_t slot = 0;
     for (auto& entry : frame.gameObjects) {
         LotGameObject& obj = entry.second;
+        // 메시가 아닌 것(선/치수/문자)은 여기서 그리지 않는다. 슬롯도 먹지 않아야
+        // 한다 - DXF 처럼 선이 수천 개인 도면에서 슬롯이 동나 메시가 사라진다.
+        if (!obj.model) continue;
         if (!frame.isVisible(obj)) continue;  // 꺼진 층
         if (slot >= kMaxObjects) {
             if (!overflowWarned_) {
@@ -185,10 +188,8 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
         wgpuRenderPassEncoderSetBindGroup(pass, 2, material->getBindGroup(), 0, nullptr);
 
         // 정점/인덱스 버퍼 바인딩과 draw 는 모델이 알아서 한다
-        if (obj.model) {
-            obj.model->bind(pass);
-            obj.model->draw(pass);
-        }
+        obj.model->bind(pass);
+        obj.model->draw(pass);
 
         ++slot;
     }

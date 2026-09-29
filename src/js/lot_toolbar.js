@@ -15,6 +15,7 @@ mergeInto(LibraryManager.library, {
 
     js_setupToolbar__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
                             'lot_onTextEntered', 'lot_onTextCancelled', 'lot_onLayerCommand',
+                            'lot_onDxfFileLoaded',
                             '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
     js_setupToolbar: function() {
         if (!Module.lotDom) {
@@ -30,6 +31,50 @@ mergeInto(LibraryManager.library, {
         lotInput.type = 'file';
         lotInput.accept = '.lot,.json';
         lotInput.style.display = 'none';
+        // DXF 파일 입력. 옛 도면은 CP949 같은 코드페이지라 브라우저 TextDecoder 로 푼다
+        // ($DWGCODEPAGE 를 앞부분에서 찾아 고른다). C++ 은 UTF-8 만 받는다.
+        var dxfInput = document.createElement('input');
+        dxfInput.type = 'file';
+        dxfInput.accept = '.dxf';
+        dxfInput.style.display = 'none';
+        dom.dxfLoad = function(buffer) {
+            var bytes = new Uint8Array(buffer);
+            // 앞 4KB 만 아스키로 훑어 코드페이지를 찾는다
+            var head = '';
+            for (var i = 0; i < Math.min(bytes.length, 4096); ++i) head += String.fromCharCode(bytes[i]);
+            var label = 'utf-8';
+            var m = head.match(/\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n\s*([A-Za-z0-9_]+)/);
+            if (m) {
+                var cp = m[1].toLowerCase();
+                if (cp.indexOf('949') >= 0) label = 'euc-kr';
+                else if (cp.indexOf('936') >= 0) label = 'gbk';
+                else if (cp.indexOf('932') >= 0) label = 'shift_jis';
+                else if (cp.indexOf('950') >= 0) label = 'big5';
+                else if (cp.indexOf('1252') >= 0) label = 'windows-1252';
+                else if (cp.indexOf('1251') >= 0) label = 'windows-1251';
+            }
+            var text;
+            try { text = new TextDecoder(label).decode(bytes); }
+            catch (e) { text = new TextDecoder('utf-8').decode(bytes); }
+            var utf8 = new TextEncoder().encode(text);
+            var ptr = _malloc(utf8.length);
+            if (!ptr) { console.error('dxf: out of memory (' + utf8.length + ' bytes)'); return false; }
+            HEAPU8.set(utf8, ptr);
+            _lot_onDxfFileLoaded(ptr, utf8.length);  // 해제는 C++ 쪽
+            return true;
+        };
+        dxfInput.addEventListener('change', function() {
+            var file = dxfInput.files && dxfInput.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function() { dom.dxfLoad(reader.result); };
+            reader.onerror = function() { console.error('dxf: could not read ' + file.name); };
+            reader.readAsArrayBuffer(file);
+            dxfInput.value = '';
+        });
+        document.body.appendChild(dxfInput);
+        dom['dxfLoad'] = dom.dxfLoad;  // 테스트 도구가 부른다 (Closure 이름 고정)
+
         // 씬 텍스트 <-> C++. 파일 대화상자와 분리해 두면 테스트 도구(tools/click.mjs)가
         // Module.lotDom.sceneSave() / sceneLoad(text) 로 대화상자 없이 부를 수 있다.
         dom.sceneSave = function() {
@@ -70,6 +115,7 @@ mergeInto(LibraryManager.library, {
         var actions = {
             openObj: function() { if (dom.objInput) dom.objInput.click(); },
             openLot: function() { lotInput.click(); },
+            openDxf: function() { dxfInput.click(); },
             saveLot: function() {
                 var text = dom.sceneSave();
                 if (!text) return;
@@ -94,6 +140,7 @@ mergeInto(LibraryManager.library, {
             ['file', [
                 ['Open .lot', '@openLot', 0, 'Open a .lot scene (replaces the scene)', ''],
                 ['Save .lot', '@saveLot', 0, 'Download the scene as scene.lot', ''],
+                ['Open DXF',  '@openDxf', 0, 'Open an AutoCAD DXF drawing (replaces the scene)', ''],
                 ['Open OBJ',  '@openObj', 0, 'Add a Wavefront OBJ model', ''],
             ]],
             ['view', [

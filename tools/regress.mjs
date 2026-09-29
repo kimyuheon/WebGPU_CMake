@@ -330,6 +330,27 @@ const scenarios = [
     },
   },
   {
+    name: 'dxf-import',
+    async run(t) {
+      const a = t.api;
+      t.expect(await a.loadDxfFile('tests/data/sample.dxf'), 'sample.dxf loads');
+      t.expect(a.has(/dxf: 2 lines, 1 circles, 1 arcs, 2 polylines, 1 texts/),
+               'entity counts (line, circle, arc, lwpolyline+polyline, text)');
+      t.expect(a.has(/dxf: .* 2 layers/), 'layers from the LAYER table');
+      const rows = await a.layerRows();
+      t.expect(rows.some(r => /CENTRE \(2\)/.test(r)), `CENTRE layer holds two objects (${rows.join(' | ')})`);
+      t.expect(/Center/.test(rows.find(r => /CENTRE/.test(r)) ?? ''), 'CENTRE layer got the Center linetype');
+      t.expect(a.has(/view: zoom extents .* radius 1\d\d/), 'framed to the drawing size');
+
+      // bulge 가 있는 LWPOLYLINE 은 점이 늘어난다 (직선 4점보다 많아야 한다)
+      const counts = await a.evaluate(
+        `(() => { const s = JSON.parse(Module.lotDom.sceneSave());`
+        + ` return s['objects'].filter(o => o['kind'] === 'polyline')`
+        + `.map(o => o['polyline']['verts'].length).sort((x, y) => y - x); })()`);
+      t.expect(counts[0] > 4, `bulge tessellated (${counts.join(',')})`);
+    },
+  },
+  {
     name: 'native-scene',
     skip: !existsSync(kNativeScene),
     async run(t) {
