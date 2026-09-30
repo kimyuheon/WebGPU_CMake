@@ -27,6 +27,7 @@ LotRibbon::LotRibbon() {
                 icon("file.openLot", "열기",  "\xE2\x96\xA4", "@openLot", false, "", "저장해 둔 씬 열기"),
                 icon("file.saveLot", "저장",  "\xE2\x96\xA3", "@saveLot", false, "", "씬을 .lot 으로 저장"),
                 icon("file.openDxf", "DXF",   "\xE2\x97\xA7", "@openDxf", false, "", "DXF 도면 열기"),
+                icon("file.saveDxf", "DXF 저장", "\xE2\x97\xA8", "@saveDxf", false, "", "2D 도면을 DXF 로 내보내기"),
             }},
             {"편집", {
                 icon("edit.undo",   "취소", "\xE2\x86\xB6", "KeyZ",   true,  "Ctrl+Z", "실행 취소", "undo"),

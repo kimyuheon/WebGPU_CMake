@@ -9,7 +9,7 @@
 
 mergeInto(LibraryManager.library, {
 
-    js_setupPanels__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_onLotFileLoaded',
+    js_setupPanels__deps: ['lot_onToolbarKey', 'lot_saveScene', 'lot_saveDxf', 'lot_onLotFileLoaded',
                             'lot_onTextEntered', 'lot_onTextCancelled', 'lot_onLayerCommand',
                             'lot_onDxfFileLoaded',
                             '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
@@ -80,6 +80,13 @@ mergeInto(LibraryManager.library, {
             _free(ptr);
             return text;
         };
+        dom.dxfSave = function() {
+            var ptr = _lot_saveDxf();   // C++ 이 malloc 으로 잡아 준 DXF, 여기서 free
+            if (!ptr) return '';
+            var text = UTF8ToString(ptr);
+            _free(ptr);
+            return text;
+        };
         dom.sceneLoad = function(text) {
             var bytes = new TextEncoder().encode(text);
             var ptr = _malloc(bytes.length);
@@ -93,6 +100,7 @@ mergeInto(LibraryManager.library, {
         // 따옴표로 박아 둔다. 안에서는 dom.sceneSave 로 써도 같은 함수다.
         Module['lotDom'] = dom;
         dom['sceneSave'] = dom.sceneSave;
+        dom['dxfSave'] = dom.dxfSave;
         dom['sceneLoad'] = dom.sceneLoad;
 
         lotInput.addEventListener('change', function() {
@@ -107,25 +115,28 @@ mergeInto(LibraryManager.library, {
         document.body.appendChild(lotInput);
         dom.lotInput = lotInput;
 
+        // 만든 텍스트를 파일로 내려준다. a[download] 는 사용자 제스처 안에서만 열린다.
+        var download = function(text, name, mime) {
+            if (!text) return;
+            var blob = new Blob([text], { type: mime });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        };
+
         // 버튼 동작 중 키가 아닌 것들. '@이름' 코드로 가리킨다.
         // 메뉴/리본의 '@이름' 명령이 부른다 (src/js/lot_ui.js 의 run)
         var actions = dom.actions = {
             openObj: function() { if (dom.objInput) dom.objInput.click(); },
             openLot: function() { lotInput.click(); },
             openDxf: function() { dxfInput.click(); },
-            saveLot: function() {
-                var text = dom.sceneSave();
-                if (!text) return;
-                var blob = new Blob([text], { type: 'application/json' });
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url;
-                a.download = 'scene.lot';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-            },
+            saveLot: function() { download(dom.sceneSave(), 'scene.lot', 'application/json'); },
+            saveDxf: function() { download(dom.dxfSave(), 'scene.dxf', 'application/dxf'); },
         };
 
         // 떠 있던 OBJ 버튼은 메뉴로 들어왔으니 숨긴다

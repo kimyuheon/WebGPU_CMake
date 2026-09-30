@@ -384,6 +384,33 @@ const scenarios = [
     },
   },
   {
+    name: 'dxf-export',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      // 종류별로 하나씩. 기본 씬의 정점에 걸리지 않게 아래 띠에서 그린다.
+      await a.key('KeyL'); await a.click(450, 700); await a.click(760, 700); await a.key('Enter');
+      await a.key('KeyB'); await a.click(200, 730); await a.click(300, 800);
+      await a.key('KeyC'); await a.click(850, 760); await a.click(890, 760);
+      await a.key('KeyA'); await a.click(960, 700); await a.click(1000, 660); await a.click(1040, 700);
+      await a.key('KeyW'); await a.click(...P.emptyFloor); await a.type('DXF'); await a.key('Enter');
+      await a.key('KeyD'); await a.click(450, 780); await a.click(760, 780); await a.click(600, 740);
+
+      const text = await a.dxfSave();
+      t.expect(/^0\nSECTION\n2\nHEADER\n/.test(text), 'starts with a HEADER section');
+      t.expect(/\n2\nLTYPE\n/.test(text) && /\n2\nLAYER\n/.test(text), 'LTYPE and LAYER tables');
+      t.expect(/\n0\nEOF\n$/.test(text), 'ends with EOF');
+      t.expect(a.has(/dxf: wrote 1 lines, 1 circles, 1 arcs, 1 polylines, 1 texts, 1 dimensions \(exploded\), 1 layers/),
+               'one entity of each kind');
+      t.expect(a.has(/dxf: wrote .*skipped \d+ meshes/), 'meshes are left out (they are not 2D entities)');
+
+      // 그대로 다시 읽으면 같은 도면이 돌아온다. 치수만 선 7 + 글자 1 로 풀려 있다
+      // (DXF 의 DIMENSION 은 그려진 모양을 담은 블록을 달고 다녀야 해서 풀어 쓴다).
+      await a.dxfRoundTrip();
+      t.expect(a.has(/dxf: 8 lines, 1 circles, 1 arcs, 1 polylines, 2 texts/), 'round trip keeps every entity');
+    },
+  },
+  {
     name: 'native-scene',
     skip: !existsSync(kNativeScene),
     async run(t) {

@@ -82,7 +82,7 @@ Tool : Visual Studio Code
 | 편집 | 제자리 복제 · 삭제 · 실행 취소/다시 실행 (100단계) | `Ctrl+D` `Del` `Ctrl+Z/Y` |
 | 레이어 | 층 만들기/삭제, 표시·잠금, 현재 층, 선택을 옮기기 | 오른쪽 패널 |
 | 속성 | 색 (층 색 / 오브젝트 색 / ByLayer, 메시 포함), 선종류 (8종) | 오른쪽 패널 |
-| 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기, OBJ 열기 | 메뉴 · 리본 |
+| 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기/내보내기, OBJ 열기 | 메뉴 · 리본 |
 | 명령행 | 이름으로 명령 부르기 (별칭·한글), Tab 자동완성, 지난 명령, 값 입력 | `Space` |
 | 렌더 | 텍스처 재질, 점 광원, 오프스크린 + 외곽선 후처리 | `O` |
 
@@ -107,8 +107,10 @@ Vulkan 쪽 `builtinCommandTable` 과 같은 규약(영문 풀이름 · 짧은 �
 - `lot_transform_tool` — 기준점 변환. 숫자 입력은 `KeyboardMovementController::setNumberCapture`.
 - `lot_history` — 편집 전/후 스냅샷 기반 undo/redo. 도구가 늘어도 `record()` 한 줄.
 - `lot_scene_io` + `lot_json` — `.lot` 저장/열기. 외부 JSON 라이브러리 없음.
-- `lot_dxf` — DXF 읽기 (LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/SPLINE 근사, 층·ACI 색·선종류).
-  글자 코드페이지(CP949 등)는 JS 쪽 TextDecoder 가 풀어 UTF-8 로 넘긴다.
+- `lot_dxf` — DXF 읽기 (LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/SPLINE 근사, 층·ACI 색·선종류)와
+  쓰기 (R12 ASCII - 핸들도 서브클래스도 없어 어디서나 열린다). 치수는 DIMENSION 이 블록을
+  달고 다녀야 해서 선과 글자로 풀어 쓰고, 메시는 빠진다. 글자 코드페이지(CP949 등)는
+  JS 쪽 TextDecoder 가 풀어 UTF-8 로 넘긴다.
 - `lot_cursor_snap` — 커서 보정 한 곳 (osnap > 직교 > 그리드). 도구가 각자 들면 둘이 어긋난다.
 - `lot_linetype` — 선종류. 무늬를 CPU 에서 잘라 선분으로 낸다 (폴리라인 전체가 한 누적 길이).
 - `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.

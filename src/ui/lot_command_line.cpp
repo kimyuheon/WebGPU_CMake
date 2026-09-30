@@ -63,7 +63,8 @@ const Alias kAliases[] = {
     {"snap.grid",     "snap f9 그리드"},
     {"file.openLot",  "open 열기"},
     {"file.saveLot",  "save 저장"},
-    {"file.openDxf",  "dxf dxfopen"},
+    {"file.openDxf",  "dxf dxfopen dxfin"},
+    {"file.saveDxf",  "dxfout export 내보내기"},
     {"file.openObj",  "obj objopen"},
 };
 

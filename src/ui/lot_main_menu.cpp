@@ -28,6 +28,7 @@ LotMainMenu::LotMainMenu() {
             item("file.openDxf",  "DXF 열기...",     "@openDxf", false, "",       "AutoCAD DXF 도면을 연다 (지금 씬을 대체)"),
             item("file.openObj",  "OBJ 가져오기...", "@openObj", false, "",       "Wavefront OBJ 모델을 지금 씬에 얹는다"),
             item("file.saveLot",  "저장 (.lot)",     "@saveLot", false, "",       "씬을 scene.lot 으로 내려받는다", "", true),
+            item("file.saveDxf",  "DXF 로 내보내기", "@saveDxf", false, "",       "2D 도면을 scene.dxf 로 내려받는다 (메시는 빠진다)"),
         }},
         {"편집", {
             item("edit.undo",     "실행 취소",  "KeyZ",   true,  "Ctrl+Z", "마지막 편집을 되돌린다", "undo"),

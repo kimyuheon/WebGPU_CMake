@@ -34,4 +34,33 @@ struct LoadStats {
 // 텍스트를 읽어 objects / layers 에 채운다 (둘 다 비우고 시작한다).
 LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& layers);
 
+// ---- 쓰기 ----
+//
+// R12 (AC1009) ASCII 로 쓴다. 가장 오래된 규격이라 핸들도 서브클래스 표시도 필요 없고,
+// 어떤 CAD 든 받아 준다. 그래서 LWPOLYLINE 대신 POLYLINE+VERTEX+SEQEND 를 쓴다.
+//
+// 2D 로 낼 수 있는 것만 나간다: 선 · 원 · 호 · 폴리선 · 문자. 치수는 DIMENSION 엔티티가
+// 블록을 달고 다녀야 해서, 보이는 대로 선과 문자로 풀어 쓴다 (연관성은 잃는다).
+// 메시(큐브·OBJ)는 2D 도면 엔티티가 아니므로 건너뛴다 - 그건 .lot 으로 저장한다.
+//
+// 읽을 때 bulge (호가 섞인 폴리선) 를 점으로 잘라 두므로, 다시 쓰면 그 자리는
+// 곧은 선분들로 나간다 - 모양은 같지만 bulge 값은 돌아오지 않는다.
+//
+// 색은 ACI 번호 하나로 나간다 (R12 에는 트루컬러가 없다). DXF 에서 읽어 온 색은
+// 그 번호로 정확히 돌아오지만, 색판에서 고른 임의의 색은 가장 가까운 번호로 맞춘다.
+struct SaveStats {
+    int lines = 0;
+    int circles = 0;
+    int arcs = 0;
+    int polylines = 0;
+    int texts = 0;
+    int dimensions = 0;   // 선/문자로 풀어 쓴 것
+    int skipped = 0;      // 메시 등 2D 로 낼 수 없는 것
+    int layers = 0;
+};
+
+// linetypeScale 은 헤더의 $LTSCALE 로 나간다.
+std::string save(const LotGameObject::Map& objects, const LotLayers& layers,
+                 float linetypeScale = 1.0f, SaveStats* stats = nullptr);
+
 }  // namespace lot_dxf

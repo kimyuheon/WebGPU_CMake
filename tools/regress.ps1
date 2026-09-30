@@ -22,7 +22,7 @@ $newest = Get-ChildItem (Join-Path $root "src"), (Join-Path $root "shaders") -Re
           Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($newest -and $newest.LastWriteTime -gt $out.LastWriteTime) {
     Write-Host "빌드가 소스보다 오래됐습니다: $($newest.Name) > WebGPUApp.js" -ForegroundColor Yellow
-    Write-Host "  .uild.ps1 을 먼저 돌리세요 (JS 만 고쳤다면 build\WebGPUApp.js 를 지우고 다시)" -ForegroundColor Yellow
+    Write-Host "  .\build.ps1 을 먼저 돌리세요 (JS 만 고쳤다면 build\WebGPUApp.js 를 지우고 다시)" -ForegroundColor Yellow
     exit 1
 }
 

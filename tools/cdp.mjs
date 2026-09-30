@@ -239,6 +239,20 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
     },
     async loadLotFile(path) { return api.sceneLoad(readFileSync(path, 'utf8')); },
 
+    // DXF 내보내기 (대화상자 없이 텍스트만)
+    async dxfSave() { return api.evaluate(`Module.lotDom['dxfSave']()`); },
+    async saveDxfFile(path) { writeFileSync(path, await api.dxfSave()); },
+    // 내보낸 것을 그 자리에서 다시 읽는다 - 왕복 확인용. 글자 길이를 돌려준다.
+    async dxfRoundTrip() {
+      const n = await api.evaluate(
+        `(() => { const t = Module.lotDom['dxfSave']();`
+        + ` if (!t) return 0;`
+        + ` Module.lotDom['dxfLoad'](new TextEncoder().encode(t).buffer);`
+        + ` return t.length; })()`);
+      await sleep(800);
+      return n;
+    },
+
     async screenshot(path) {
       const r = await send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(path, Buffer.from(r.data, 'base64'));

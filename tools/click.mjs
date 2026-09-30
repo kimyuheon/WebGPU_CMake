@@ -15,6 +15,9 @@
 //   node tools/click.mjs out.png  type 문자열           포커스된 입력창에 글자 (문자 도구)
 //   node tools/click.mjs out.png  savelot a.lot        씬을 .lot 로 저장
 //   node tools/click.mjs out.png  loadlot a.lot        .lot 씬 열기
+//   node tools/click.mjs out.png  savedxf a.dxf        씬을 DXF 로 내보내기
+//   node tools/click.mjs out.png  loaddxf a.dxf        DXF 도면 열기
+//   node tools/click.mjs out.png  viewport 1100 850    창 크기 고정 (회귀와 같은 좌표로)
 //   node tools/click.mjs out.png  reload               페이지 새로 열기
 //   node tools/click.mjs out.png  wait                 잠깐 기다림
 //
@@ -52,6 +55,9 @@ while (i < args.length) {
   case 'type':    { const t = args[i++]; await api.type(t); console.log(`type "${t}"`); break; }
   case 'savelot': { const p = args[i++]; await api.saveLotFile(p); console.log(`savelot -> ${p}`); break; }
   case 'loadlot': { const p = args[i++]; console.log(`loadlot ${p} -> ${await api.loadLotFile(p)}`); break; }
+  case 'savedxf': { const p = args[i++]; await api.saveDxfFile(p); console.log(`savedxf -> ${p}`); break; }
+  case 'loaddxf': { const p = args[i++]; console.log(`loaddxf ${p} -> ${await api.loadDxfFile(p)}`); break; }
+  case 'viewport': { const x = num(), y = num(); await api.setViewport(x, y); console.log(`viewport ${x}x${y}`); break; }
   case 'reload':  await api.reload(); console.log('reload'); break;
   case 'wait':    await sleep(500); break;
   default:        console.error(`unknown command: ${cmd}`); process.exit(2);

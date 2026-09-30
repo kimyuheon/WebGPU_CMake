@@ -437,6 +437,16 @@ char* lot_saveScene() {
     return out;
 }
 
+// 씬을 DXF 로. 2D 스케치/문자/치수만 나간다 (메시는 .lot 으로 저장한다).
+extern "C" EMSCRIPTEN_KEEPALIVE
+char* lot_saveDxf() {
+    const std::string text = lot_dxf::save(g_gameObjects, g_layers, g_linetypeScale);
+    char* out = static_cast<char*>(std::malloc(text.size() + 1));
+    if (!out) return nullptr;
+    std::memcpy(out, text.c_str(), text.size() + 1);
+    return out;
+}
+
 // 씬 열기. 현재 씬을 버리고 파일 것으로 바꾼다 (히스토리/선택도 비운다).
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼라 여기서 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
