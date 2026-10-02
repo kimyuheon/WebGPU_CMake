@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|cube:|viewcube:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|document:|cube:|viewcube:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -232,9 +232,40 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
 
     // 씬 저장/열기 (파일 대화상자 없이, lot_toolbar.js 의 훅)
     async sceneSave() { return api.evaluate(`Module.lotDom.sceneSave()`); },
-    async sceneLoad(text) {
-      const ok = await api.evaluate(`Module.lotDom.sceneLoad(${JSON.stringify(text)})`);
+    // name 을 주면 파일 이름으로 열린 것처럼 (탭 이름이 된다)
+    async sceneLoad(text, name) {
+      const ok = await api.evaluate(
+        `Module.lotDom.sceneLoad(${JSON.stringify(text)}, ${JSON.stringify(name ?? '')})`);
       await sleep(500);
+      return ok;
+    },
+
+    // 도면 탭 줄. [{name, on}] - name 은 보이는 글자 그대로 (고친 도면은 끝에 ' ●').
+    async docTabs() {
+      return api.evaluate(
+        `[...document.querySelectorAll('#lot-doc-tabs [data-doc-tab]')]`
+        + `.map(t => ({ name: t.firstChild.textContent, on: t.getAttribute('data-on') === '1' }))`);
+    },
+    async clickDocTab(i) {
+      const ok = await api.evaluate(
+        `(() => { const t = document.querySelector('#lot-doc-tabs [data-doc-tab="${i}"]');`
+        + ` if (t) t.click(); return !!t; })()`);
+      await sleep(300);
+      return ok;
+    },
+    // x 단추. 고친 도면이면 확인창이 뜨는데, 헤드리스에서는 막히므로 '예' 로 바꿔 둔다.
+    async closeDocTab(i) {
+      const ok = await api.evaluate(
+        `(() => { window.confirm = () => true;`
+        + ` const x = document.querySelector('#lot-doc-tabs [data-doc-close="${i}"]');`
+        + ` if (x) x.click(); return !!x; })()`);
+      await sleep(300);
+      return ok;
+    },
+    async newDocTab() {
+      const ok = await api.evaluate(
+        `(() => { const p = document.getElementById('lot-doc-new'); if (p) p.click(); return !!p; })()`);
+      await sleep(300);
       return ok;
     },
     async saveLotFile(path) { writeFileSync(path, await api.sceneSave()); },

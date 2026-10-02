@@ -7,6 +7,7 @@
 #include "lot_ribbon.h"
 
 #include <string>
+#include <vector>
 
 // 화면 UI 전체를 한 자리에서. Vulkan 쪽에서 FirstApp 이 메뉴/리본/패널을 차례로
 // 그리는 것과 같은 자리지만, 여기서는 DOM 이 그리므로 '무엇을 보여줄지' 만 만든다.
@@ -32,6 +33,14 @@ struct State {
     bool operator==(const State& o) const;
 };
 
+// 도면 탭 하나. 탭 줄은 이름과 '고쳐졌나' 만 안다.
+struct DocTab {
+    std::string name;
+    bool modified = false;
+
+    bool operator==(const DocTab& o) const { return name == o.name && modified == o.modified; }
+};
+
 class LotUi {
 public:
     // 메뉴/리본 뼈대를 DOM 에 한 번 보낸다 (캔버스가 생긴 뒤).
@@ -39,7 +48,7 @@ public:
 
     // 프레임마다. 바뀐 것만 보낸다.
     void update(const State& state, const LotLayers& layers, const LotGameObject::Map& objects,
-                const EditController& edit);
+                const EditController& edit, const std::vector<DocTab>& tabs, int activeTab);
 
     // DOM 이 아직 없어 놓쳤을 때 다시 보내게 한다.
     void invalidate();
@@ -59,6 +68,8 @@ private:
     bool viewCubeInstalled_ = false;
     State lastState_;
     bool statePushed_ = false;
+    std::vector<DocTab> lastTabs_;
+    int lastActiveTab_ = -1;   // -1 = 아직 안 보냈다
     bool installed_ = false;
 };
 

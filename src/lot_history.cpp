@@ -111,6 +111,7 @@ void EditHistory::recordCreated(const char* label, const LotGameObject::Map& obj
 void EditHistory::record(Edit edit) {
     if (same(edit.before, edit.after)) return;  // 아무것도 안 바뀐 편집은 기록하지 않는다
     redo_.clear();
+    ++revision_;
     undo_.push_back(std::move(edit));
     if (undo_.size() > maxEntries) undo_.erase(undo_.begin());
     LOT_LOG("history: " << undo_.back().label << " recorded (" << undo_.size() << " undoable)");
@@ -153,6 +154,7 @@ std::set<EditHistory::id_t> EditHistory::undo(LotGameObject::Map& objects) {
     }
     Edit e = std::move(undo_.back());
     undo_.pop_back();
+    ++revision_;
     std::set<id_t> touched = apply(objects, e.after, e.before);
     LOT_LOG("history: undo " << e.label << " (" << undo_.size() << " left)");
     redo_.push_back(std::move(e));
@@ -166,6 +168,7 @@ std::set<EditHistory::id_t> EditHistory::redo(LotGameObject::Map& objects) {
     }
     Edit e = std::move(redo_.back());
     redo_.pop_back();
+    ++revision_;
     std::set<id_t> touched = apply(objects, e.before, e.after);
     LOT_LOG("history: redo " << e.label << " (" << redo_.size() << " left)");
     undo_.push_back(std::move(e));

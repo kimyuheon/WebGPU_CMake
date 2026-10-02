@@ -18,9 +18,17 @@
 // 저장은 여전히 .lot 한 장이 도면 하나다. 탭은 그걸 여러 장 띄워 두는 것뿐이라
 // 파일 형식은 건드리지 않는다.
 struct LotDocument {
-    std::string name = "도면1";
+    std::string name = "도면1";  // 탭에 보이는 이름. 파일을 열면 그 파일 이름 (확장자 빼고)
     std::string path;            // 열거나 저장한 파일 이름 (없으면 빈 칸)
-    bool modified = false;       // 탭 이름 옆에 점을 찍을지
+    uint64_t savedRevision = 0;  // 마지막으로 열거나 저장했을 때의 히스토리 revision
+
+    // 탭 이름 옆에 점을 찍을지. 히스토리가 저장 뒤로 움직였으면 고쳐진 것이다.
+    bool modified() const { return edit.history().revision() != savedRevision; }
+    void markSaved() { savedRevision = edit.history().revision(); }
+
+    // 손댄 적 없는 새 도면인가. 파일을 열 때 이런 탭은 새 탭을 만들지 않고
+    // 그 자리를 쓴다 (켜자마자 파일을 열면 빈 '도면1' 이 남지 않게 - 네이티브와 같다).
+    bool pristine() const { return path.empty() && !modified(); }
 
     LotGameObject::Map objects;
     LotLayers layers;
@@ -36,6 +44,11 @@ struct LotDocument {
     float linetypeScale = 1.0f;      // AutoCAD 의 LTSCALE
     float nearZ = 0.1f;
     float farZ = 100.0f;
+    // 새로 그릴 치수/문자의 크기. 씬에 맞춰 잡히므로 도면마다 다르다 - 탭을 바꾸면
+    // 스케치 도구에 다시 넣는다. 기본값은 SketchController 의 것과 같다.
+    float dimTextHeight = 0.22f;
+    float dimArrowSize = 0.12f;
+    float textHeight = 0.25f;
 
     // 투영 (P 키). 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 = 줌.
     bool orthographic = false;

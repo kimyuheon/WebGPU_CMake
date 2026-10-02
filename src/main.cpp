@@ -356,6 +356,87 @@ static void addCube() {
     LOT_LOG("cube: added object " << id << " at (" << look.x << ", " << look.y << ")");
 }
 
+// ── 도면 탭 ─────────────────────────────────────────────────────
+// 탭 하나가 LotDocument 하나다. 바꾸는 일은 doc() 가 가리키는 곳을 옮기는 것뿐이고,
+// 그 전에 손에 든 도구를 내려놓는다 - 도구는 지금 도면의 오브젝트를 물고 있다.
+// 오브젝트 id 는 전역 카운터라 도면끼리 겹치지 않고, 모델/재질은 shared_ptr 라
+// 안 보이는 도면의 것도 그대로 살아 있다 (다시 올릴 것이 없다).
+
+static int g_untitledCount = 0;   // '도면N' 의 N
+
+static std::unique_ptr<LotDocument> makeDocument() {
+    auto d = std::make_unique<LotDocument>();
+    d->name = "도면" + std::to_string(++g_untitledCount);
+    // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
+    // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.
+    d->camera.setViewFromDirection(normalize(vec3{-0.45f, -1.0f, 0.45f}));
+    d->viewer.transform.translation = kCameraStartPosition;
+    d->objPlaced = true;   // 가운데 토러스는 첫 도면에만 (main 이 풀어 준다)
+    return d;
+}
+
+// 씬 크기에서 나온 값 중 도면 밖(도구 · 커서 설정)에 들어가 있는 것들을 지금 도면 것으로.
+static void applyDocumentScale() {
+    g_sketch.setDimensionStyle(doc().dimTextHeight, doc().dimArrowSize);
+    g_sketch.setTextHeight(doc().textHeight);
+    if (lot_cursor::settings().gridSpacing > 0.0f) lot_cursor::settings().gridSpacing = doc().gridSpacing;
+}
+
+static void putDownTools() {
+    g_sketch.cancel();
+    g_transform.cancel(doc().objects);
+    g_editingTextId = LotGameObject::kInvalidId;
+    js_hideTextInput();
+}
+
+static void activateDocument(size_t index) {
+    if (index >= g_documents.size() || index == g_documentIndex) return;
+    putDownTools();
+    g_documentIndex = index;
+    applyDocumentScale();
+    LOT_LOG("document: switched to \"" << doc().name << "\" (" << index + 1 << "/"
+            << g_documents.size() << ")");
+}
+
+static void newDocument() {
+    putDownTools();
+    g_documents.push_back(makeDocument());
+    g_documentIndex = g_documents.size() - 1;
+    applyDocumentScale();
+    LOT_LOG("document: new \"" << doc().name << "\" (" << g_documents.size() << " open)");
+}
+
+// 마지막 하나는 닫지 않고 새 빈 도면으로 바꾼다 - 탭은 늘 하나 이상이다 (네이티브와 같다).
+static void closeDocument(size_t index) {
+    if (index >= g_documents.size()) return;
+    if (index == g_documentIndex) putDownTools();
+    const std::string name = g_documents[index]->name;
+    if (g_documents.size() == 1) {
+        g_documents[0] = makeDocument();
+    } else {
+        g_documents.erase(g_documents.begin() + static_cast<std::ptrdiff_t>(index));
+        // 앞의 것이 빠졌거나 맨 끝 것을 닫았으면 한 칸 당긴다
+        if (index < g_documentIndex || g_documentIndex >= g_documents.size()) --g_documentIndex;
+    }
+    applyDocumentScale();
+    LOT_LOG("document: closed \"" << name << "\" (" << g_documents.size() << " open, showing \""
+            << doc().name << "\")");
+}
+
+static void stepDocument(int delta) {
+    const int n = static_cast<int>(g_documents.size());
+    activateDocument(static_cast<size_t>((static_cast<int>(g_documentIndex) + delta + n) % n));
+}
+
+// 탭 줄에서 온 것. index 는 탭 순서 (0 부터).
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onDocumentTab(const char* action, int index) {
+    if (action == nullptr || index < 0) return;
+    const std::string a(action);
+    if (a == "activate") activateDocument(static_cast<size_t>(index));
+    else if (a == "close") closeDocument(static_cast<size_t>(index));
+}
+
 // 키가 아닌 명령 ('#이름'). 메뉴/리본/명령행이 같은 코드를 보낸다.
 //
 // 그릴 거리가 늘어날수록 알파벳이 모자란다 - 큐브·구·원기둥에 글쇠를 하나씩
@@ -366,6 +447,10 @@ static bool runAction(const char* code) {
     const std::string name(code + 1);
     if (name == "cube") { addCube(); return true; }
     if (name == "eraseAll") { doc().edit.deleteAll(doc().objects); return true; }
+    if (name == "newDoc") { newDocument(); return true; }
+    if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
+    if (name == "nextDoc") { stepDocument(1); return true; }
+    if (name == "prevDoc") { stepDocument(-1); return true; }
     LOT_ERR("command: no action named \"" << name << "\"");
     return true;   // '#' 로 왔으면 키로 넘기지 않는다
 }
@@ -456,22 +541,43 @@ static void zoomExtents() {
     doc().nearZ = std::fmax(0.01f, doc().farZ * 1e-5f);
 
     // 치수 글자/화살표 기본 크기를 씬에 맞춘다 (mm 도면에서 0.3 짜리 글자는 안 보인다)
-    g_sketch.setDimensionStyle(radius * 0.05f, radius * 0.025f);
-    g_sketch.setTextHeight(radius * 0.07f);
+    doc().dimTextHeight = radius * 0.05f;
+    doc().dimArrowSize = radius * 0.025f;
+    doc().textHeight = radius * 0.07f;
     // 선종류 무늬도 씬 크기에 맞춘다 (mm 도면에서 0.5 짜리 파선은 실선처럼 보인다)
     doc().linetypeScale = std::fmax(0.01f, radius * 0.25f);
     // 그리드 스냅 간격도 - 화면 가로에 눈금이 20 개쯤 되게 '보기 좋은' 값으로
     doc().gridSpacing = lot_cursor::niceSpacing(radius * 0.1f);
-    if (lot_cursor::settings().gridSpacing > 0.0f) lot_cursor::settings().gridSpacing = doc().gridSpacing;
+    applyDocumentScale();
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << doc().nearZ << " .. " << doc().farZ);
 }
 
+// 읽어 들인 파일을 탭에. 지금 탭이 손대지 않은 새 도면이면 그 자리에, 아니면 새 탭에.
+// fileName 은 탭 이름과 저장할 때의 파일 이름이 된다 (테스트 도구는 안 넘긴다 - 그러면 그대로).
+static void openIntoDocument(LotGameObject::Map&& objects, LotLayers&& layers, const char* fileName) {
+    if (doc().pristine()) putDownTools();
+    else newDocument();
+    doc().edit.clearSelection();
+    doc().edit.history().clear();
+    doc().objects = std::move(objects);
+    doc().layers = std::move(layers);
+    doc().objPlaced = true;  // 파일 도면에는 기본 토러스를 끼워 넣지 않는다
+    if (fileName != nullptr && fileName[0] != '\0') {
+        doc().path = fileName;
+        const size_t dot = doc().path.find_last_of('.');
+        doc().name = (dot == std::string::npos || dot == 0) ? doc().path : doc().path.substr(0, dot);
+    }
+    doc().markSaved();
+    zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
+    LOT_LOG("document: \"" << doc().name << "\" opened (" << g_documents.size() << " open)");
+}
+
 // DXF 열기. JS 가 코드페이지를 풀어 UTF-8 로 넘긴다 (옛 도면은 CP949 등).
 // 버퍼는 JS 가 malloc 으로 잡은 것이라 여기서 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
-void lot_onDxfFileLoaded(const char* data, int length) {
+void lot_onDxfFileLoaded(const char* data, int length, const char* fileName) {
     if (data == nullptr) return;
     const std::string text(data, static_cast<size_t>(length));
     std::free(const_cast<char*>(data));
@@ -485,20 +591,17 @@ void lot_onDxfFileLoaded(const char* data, int length) {
         return;
     }
 
-    g_sketch.cancel();
-    g_transform.cancel(doc().objects);
-    doc().edit.clearSelection();
-    doc().edit.history().clear();
-    doc().objects = std::move(loaded);
-    doc().layers = std::move(loadedLayers);
-    doc().objPlaced = true;  // 도면에는 기본 토러스를 끼워 넣지 않는다
-    zoomExtents();
+    openIntoDocument(std::move(loaded), std::move(loadedLayers), fileName);
 }
 
 // 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.
+// 내려받기가 곧 저장이라 여기서 '저장됨' 으로 친다 (탭의 점이 지워진다).
+// DXF 내보내기는 그렇지 않다 - 메시가 빠지므로 도면을 다 담은 것이 아니다.
 extern "C" EMSCRIPTEN_KEEPALIVE
 char* lot_saveScene() {
     const std::string text = lot_scene::save(doc().objects, doc().layers);
+    if (doc().path.empty()) doc().path = doc().name + ".lot";
+    doc().markSaved();
     char* out = static_cast<char*>(std::malloc(text.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, text.c_str(), text.size() + 1);
@@ -518,7 +621,7 @@ char* lot_saveDxf() {
 // 씬 열기. 현재 씬을 버리고 파일 것으로 바꾼다 (히스토리/선택도 비운다).
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼라 여기서 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
-void lot_onLotFileLoaded(const char* data, int length) {
+void lot_onLotFileLoaded(const char* data, int length, const char* fileName) {
     if (data == nullptr) return;
     const std::string text(data, static_cast<size_t>(length));
     std::free(const_cast<char*>(data));
@@ -538,14 +641,7 @@ void lot_onLotFileLoaded(const char* data, int length) {
         return;
     }
 
-    g_sketch.cancel();
-    g_transform.cancel(doc().objects);
-    doc().edit.clearSelection();
-    doc().edit.history().clear();
-    doc().objects = std::move(loaded);
-    doc().layers = std::move(loadedLayers);
-    doc().objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
-    zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
+    openIntoDocument(std::move(loaded), std::move(loadedLayers), fileName);
 }
 
 // data 는 JS 가 malloc 으로 잡아 넘긴 버퍼다. 해제는 여기 책임이다.
@@ -894,7 +990,11 @@ void renderLoop() {
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
             ui.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
-            g_ui.update(ui, doc().layers, doc().objects, doc().edit);
+            std::vector<lot_ui::DocTab> tabs;
+            tabs.reserve(g_documents.size());
+            for (const auto& d : g_documents) tabs.push_back({d->name, d->modified()});
+            g_ui.update(ui, doc().layers, doc().objects, doc().edit, tabs,
+                        static_cast<int>(g_documentIndex));
             g_ui.updateViewCube(doc().camera);
         }
 
@@ -1048,7 +1148,9 @@ int main() {
     LOT_LOG("==================================");
 
     // 첫 도면. doc() 을 건드리는 것은 전부 이 뒤에 온다.
-    g_documents.push_back(std::make_unique<LotDocument>());
+    // 시연용 큐브·광원·토러스는 이 도면에만 들어간다 (새 도면은 빈 종이).
+    g_documents.push_back(makeDocument());
+    doc().objPlaced = false;
 
     // Renderer 생성 (동적 크기 - 브라우저 창 크기에 맞춤)
     g_renderer = std::make_unique<LotWebRenderer>();
@@ -1062,10 +1164,6 @@ int main() {
     g_postSystem = std::make_unique<PostProcessSystem>();
     g_textSystem = std::make_unique<TextRenderSystem>();
 
-    // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
-    // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.
-    doc().camera.setViewFromDirection(normalize(vec3{-0.45f, -1.0f, 0.45f}));  // 앞-왼쪽-위
-    doc().viewer.transform.translation = kCameraStartPosition;
     g_cameraController.init();
     // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다
 

@@ -33,7 +33,13 @@ mergeInto(LibraryManager.library, {
         dxfInput.type = 'file';
         dxfInput.accept = '.dxf';
         dxfInput.style.display = 'none';
-        dom.dxfLoad = function(buffer) {
+        // name 은 탭 이름이 된다 (테스트 도구는 안 넘긴다).
+        var withName = function(name, fn) {
+            var namePtr = name ? stringToNewUTF8(name) : 0;
+            fn(namePtr);
+            if (namePtr) _free(namePtr);
+        };
+        dom.dxfLoad = function(buffer, name) {
             var bytes = new Uint8Array(buffer);
             // 앞 4KB 만 아스키로 훑어 코드페이지를 찾는다
             var head = '';
@@ -56,14 +62,14 @@ mergeInto(LibraryManager.library, {
             var ptr = _malloc(utf8.length);
             if (!ptr) { console.error('dxf: out of memory (' + utf8.length + ' bytes)'); return false; }
             HEAPU8.set(utf8, ptr);
-            _lot_onDxfFileLoaded(ptr, utf8.length);  // 해제는 C++ 쪽
+            withName(name, function(n) { _lot_onDxfFileLoaded(ptr, utf8.length, n); });  // 버퍼 해제는 C++ 쪽
             return true;
         };
         dxfInput.addEventListener('change', function() {
             var file = dxfInput.files && dxfInput.files[0];
             if (!file) return;
             var reader = new FileReader();
-            reader.onload = function() { dom.dxfLoad(reader.result); };
+            reader.onload = function() { dom.dxfLoad(reader.result, file.name); };
             reader.onerror = function() { console.error('dxf: could not read ' + file.name); };
             reader.readAsArrayBuffer(file);
             dxfInput.value = '';
@@ -87,12 +93,12 @@ mergeInto(LibraryManager.library, {
             _free(ptr);
             return text;
         };
-        dom.sceneLoad = function(text) {
+        dom.sceneLoad = function(text, name) {
             var bytes = new TextEncoder().encode(text);
             var ptr = _malloc(bytes.length);
             if (!ptr) { console.error('scene: out of memory (' + bytes.length + ' bytes)'); return false; }
             HEAPU8.set(bytes, ptr);
-            _lot_onLotFileLoaded(ptr, bytes.length);  // 해제는 C++ 쪽
+            withName(name, function(n) { _lot_onLotFileLoaded(ptr, bytes.length, n); });  // 버퍼 해제는 C++ 쪽
             return true;
         };
 
@@ -107,7 +113,7 @@ mergeInto(LibraryManager.library, {
             var file = lotInput.files && lotInput.files[0];
             if (!file) return;
             var reader = new FileReader();
-            reader.onload = function() { dom.sceneLoad(reader.result); };
+            reader.onload = function() { dom.sceneLoad(reader.result, file.name); };
             reader.onerror = function() { console.error('scene: could not read ' + file.name); };
             reader.readAsText(file);
             lotInput.value = '';
@@ -135,8 +141,9 @@ mergeInto(LibraryManager.library, {
             openObj: function() { if (dom.objInput) dom.objInput.click(); },
             openLot: function() { lotInput.click(); },
             openDxf: function() { dxfInput.click(); },
-            saveLot: function() { download(dom.sceneSave(), 'scene.lot', 'application/json'); },
-            saveDxf: function() { download(dom.dxfSave(), 'scene.dxf', 'application/dxf'); },
+            // 파일 이름은 지금 탭 이름 (js_uiSetTabs 가 dom.docName 에 둔다)
+            saveLot: function() { download(dom.sceneSave(), (dom.docName || 'scene') + '.lot', 'application/json'); },
+            saveDxf: function() { download(dom.dxfSave(), (dom.docName || 'scene') + '.dxf', 'application/dxf'); },
         };
 
         // 떠 있던 OBJ 버튼은 메뉴로 들어왔으니 숨긴다

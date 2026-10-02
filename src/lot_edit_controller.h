@@ -94,6 +94,7 @@ public:
     // 실행 취소 / 다시 실행. 드래그 중이면 먼저 끝내고, 영향 받은 오브젝트를 선택한다.
     // 스케치 도구가 만든 오브젝트도 여기 기록된다 (main 이 recordCreated 로 넣는다).
     EditHistory& history() { return history_; }
+    const EditHistory& history() const { return history_; }
     void undo(LotGameObject::Map& objects);
     void redo(LotGameObject::Map& objects);
 

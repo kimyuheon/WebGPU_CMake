@@ -24,8 +24,12 @@ Command item(const char* id, const char* label, const char* key, bool ctrl,
 LotMainMenu::LotMainMenu() {
     menus_ = {
         {"파일", {
-            item("file.openLot",  "열기 (.lot)",     "@openLot", false, "",       "저장해 둔 씬을 연다 (지금 씬을 대체)"),
-            item("file.openDxf",  "DXF 열기...",     "@openDxf", false, "",       "AutoCAD DXF 도면을 연다 (지금 씬을 대체)"),
+            item("file.newDoc",   "새 도면",         "#newDoc",  false, "",       "빈 도면을 새 탭에 연다"),
+            item("file.closeDoc", "도면 닫기",       "#closeDoc",false, "",       "지금 탭을 닫는다 (마지막 하나면 빈 도면으로)"),
+            item("file.nextDoc",  "다음 도면",       "#nextDoc", false, "",       "오른쪽 탭으로"),
+            item("file.prevDoc",  "이전 도면",       "#prevDoc", false, "",       "왼쪽 탭으로"),
+            item("file.openLot",  "열기 (.lot)",     "@openLot", false, "",       "저장해 둔 도면을 새 탭에 연다", "", true),
+            item("file.openDxf",  "DXF 열기...",     "@openDxf", false, "",       "AutoCAD DXF 도면을 새 탭에 연다"),
             item("file.openObj",  "OBJ 가져오기...", "@openObj", false, "",       "Wavefront OBJ 모델을 지금 씬에 얹는다"),
             item("file.saveLot",  "저장 (.lot)",     "@saveLot", false, "",       "씬을 scene.lot 으로 내려받는다", "", true),
             item("file.saveDxf",  "DXF 로 내보내기", "@saveDxf", false, "",       "2D 도면을 scene.dxf 로 내려받는다 (메시는 빠진다)"),

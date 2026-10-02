@@ -6,6 +6,7 @@ extern "C" {
     extern int js_uiInstall(const char* menuJson, const char* ribbonJson, const char* commandNames);
     extern int js_uiSetState(const char* stateJson);
     extern int js_uiSetLayers(const char* layersJson);
+    extern int js_uiSetTabs(const char* tabsJson);
     // src/js/lot_view_cube.js. 상자는 한 번, 자세는 바뀔 때만.
     extern int js_viewCubeInstall();
     extern int js_viewCubeOrient(const char* matrixCss);
@@ -30,6 +31,7 @@ void LotUi::install() {
 void LotUi::invalidate() {
     installed_ = false;
     statePushed_ = false;
+    lastActiveTab_ = -1;
     viewCubeInstalled_ = false;
     viewCube_.invalidate();
     layerPanel_.invalidate();
@@ -47,7 +49,8 @@ void LotUi::updateViewCube(const LotCamera& camera) {
 }
 
 void LotUi::update(const State& state, const LotLayers& layers,
-                   const LotGameObject::Map& objects, const EditController& edit) {
+                   const LotGameObject::Map& objects, const EditController& edit,
+                   const std::vector<DocTab>& tabs, int activeTab) {
     install();
     if (!installed_) return;  // DOM 이 아직 - 다음 프레임에
 
@@ -78,6 +81,20 @@ void LotUi::update(const State& state, const LotLayers& layers,
         if (js_uiSetState(j.c_str()) == 0) return;  // DOM 이 준비 안 됨 - 기억하지 않는다
         lastState_ = state;
         statePushed_ = true;
+    }
+
+    if (activeTab != lastActiveTab_ || !(tabs == lastTabs_)) {
+        std::string j = "{\"active\":" + std::to_string(activeTab) + ",\"tabs\":[";
+        for (size_t i = 0; i < tabs.size(); ++i) {
+            if (i) j += ",";
+            j += "{\"name\":" + quote(tabs[i].name)
+               + ",\"modified\":" + (tabs[i].modified ? "true" : "false") + "}";
+        }
+        j += "]}";
+        if (js_uiSetTabs(j.c_str()) != 0) {
+            lastTabs_ = tabs;
+            lastActiveTab_ = activeTab;
+        }
     }
 
     const std::string layersJson = layerPanel_.diffJson(layers, objects, edit);

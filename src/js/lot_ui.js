@@ -336,6 +336,20 @@ mergeInto(LibraryManager.library, {
         ribbonBox.appendChild(body);
         root.appendChild(bar);
         root.appendChild(ribbonBox);
+
+        // ── 도면 탭 (리본 아래, 도면 바로 위 - AutoCAD 의 파일 탭 자리) ──
+        // 내용은 js_uiSetTabs 가 채운다. 하나뿐이어도 보인다 - 높이가 바뀌면 아래 패널이 들썩인다.
+        var docTabs = document.createElement('div');
+        docTabs.id = 'lot-doc-tabs';
+        docTabs.style.display = 'flex';
+        docTabs.style.alignItems = 'stretch';
+        docTabs.style.height = '24px';
+        docTabs.style.background = T.menuBg;
+        docTabs.style.borderBottom = '1px solid ' + T.border;
+        docTabs.style.overflowX = 'auto';
+        docTabs.style.overflowY = 'hidden';
+        root.appendChild(docTabs);
+        dom.docTabs = docTabs;
         document.body.appendChild(root);
         applyTabs();
 
@@ -452,6 +466,99 @@ mergeInto(LibraryManager.library, {
 
         dom.uiRoot = root;
         dom.uiHeight = function() { return root.offsetHeight; };
+        return 1;
+    },
+
+    // ---------------------------------------------------------------- 도면 탭
+    // json: {active, tabs:[{name, modified}]}. 누르면 바꾸고, x 는 닫고, + 는 새 도면.
+    // 고친 도면을 x 로 닫을 때만 묻는다 (명령행 close 는 묻지 않는다 - 친 사람이 안다).
+    js_uiSetTabs__deps: ['lot_onDocumentTab', 'lot_onToolbarKey', '$LotUiTheme',
+                         '$stringToNewUTF8', '$UTF8ToString', 'free'],
+    js_uiSetTabs: function(jsonPtr) {
+        var dom = Module.lotDom;
+        if (!dom || !dom.docTabs) return 0;
+        var s;
+        try { s = JSON.parse(UTF8ToString(jsonPtr)); } catch (e) { return 0; }
+        var T = LotUiTheme;
+        var active = s['active'];
+        var tabs = s['tabs'];
+
+        var send = function(action, index) {
+            var ptr = stringToNewUTF8(action);
+            _lot_onDocumentTab(ptr, index);
+            _free(ptr);
+        };
+
+        var strip = dom.docTabs;
+        strip.textContent = '';
+        tabs.forEach(function(tab, i) {
+            var on = (i === active);
+            var el = document.createElement('div');
+            el.setAttribute('data-doc-tab', String(i));
+            el.setAttribute('data-on', on ? '1' : '0');
+            el.title = tab['name'] + (tab['modified'] ? ' (저장 안 됨)' : '');
+            el.style.display = 'flex';
+            el.style.alignItems = 'center';
+            el.style.gap = '6px';
+            el.style.padding = '0 6px 0 12px';
+            el.style.fontSize = '12px';
+            el.style.cursor = 'default';
+            el.style.whiteSpace = 'nowrap';
+            el.style.color = on ? T.text : T.textDim;
+            el.style.background = on ? T.ribbonBg : 'transparent';
+            el.style.borderRight = '1px solid ' + T.border;
+            el.style.borderTop = '2px solid ' + (on ? T.accent : 'transparent');
+
+            var label = document.createElement('span');
+            // 고친 도면은 이름 뒤에 점 (ImGui 의 UnsavedDocument 표시와 같다)
+            label.textContent = tab['name'] + (tab['modified'] ? ' ●' : '');
+            el.appendChild(label);
+
+            var x = document.createElement('span');
+            x.textContent = '×';
+            x.title = '닫기';
+            x.setAttribute('data-doc-close', String(i));
+            x.style.padding = '0 4px';
+            x.style.borderRadius = '2px';
+            x.style.color = T.textDim;
+            x.addEventListener('mouseenter', function() { x.style.background = T.hover; x.style.color = T.text; });
+            x.addEventListener('mouseleave', function() { x.style.background = 'transparent'; x.style.color = T.textDim; });
+            x.addEventListener('mousedown', function(e) { e.preventDefault(); e.stopPropagation(); });
+            x.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (tab['modified'] && !window.confirm('"' + tab['name'] + '" 은(는) 저장하지 않았습니다. 닫을까요?')) return;
+                send('close', i);
+            });
+            el.appendChild(x);
+
+            el.addEventListener('mouseenter', function() { if (!on) el.style.background = T.hover; });
+            el.addEventListener('mouseleave', function() { if (!on) el.style.background = 'transparent'; });
+            el.addEventListener('mousedown', function(e) { e.preventDefault(); });
+            el.addEventListener('click', function() { if (!on) send('activate', i); });
+            strip.appendChild(el);
+        });
+
+        var plus = document.createElement('div');
+        plus.textContent = '+';
+        plus.title = '새 도면';
+        plus.id = 'lot-doc-new';
+        plus.style.padding = '0 12px';
+        plus.style.display = 'flex';
+        plus.style.alignItems = 'center';
+        plus.style.cursor = 'default';
+        plus.style.color = T.textDim;
+        plus.addEventListener('mouseenter', function() { plus.style.background = T.hover; plus.style.color = T.text; });
+        plus.addEventListener('mouseleave', function() { plus.style.background = 'transparent'; plus.style.color = T.textDim; });
+        plus.addEventListener('mousedown', function(e) { e.preventDefault(); });
+        plus.addEventListener('click', function() {
+            var ptr = stringToNewUTF8('#newDoc');
+            _lot_onToolbarKey(ptr, 0);
+            _free(ptr);
+        });
+        strip.appendChild(plus);
+
+        // 저장할 때 내려받는 파일 이름 (lot_panels.js 의 saveLot / saveDxf)
+        dom.docName = (tabs[active] && tabs[active]['name']) || 'scene';
         return 1;
     },
 

@@ -12,7 +12,7 @@
 // 판정은 눈이 아니라 로그다 - "sketch: circle committed" 같은 줄이 있는지. 화면이 이상해
 // 보이면 스크린샷을 열어 본다 (렌더가 깨지는 회귀는 로그로 못 잡는다).
 import { existsSync, mkdirSync } from 'node:fs';
-import { connect } from './cdp.mjs';
+import { connect, sleep } from './cdp.mjs';
 
 const filter = process.argv[2] ?? '';
 const kNativeScene = process.env.LOT_NATIVE_SCENE ?? 'D:/vulkan/3dengine/tests/data/mmWall.lot';
@@ -450,6 +450,58 @@ const scenarios = [
       t.expect(a.has(/scene: loaded 3 meshes, 1 lines, 0 polylines, 1 circles, 0 arcs, 1 dimensions, 1 texts, 1 lights, 1 layers/),
                'reloaded with the same object counts');
       t.expect(a.has(/view: zoom extents/), 'auto zoom extents after load');
+    },
+  },
+  {
+    name: 'document-tabs',
+    async run(t) {
+      const a = t.api;
+      // 탭 줄은 다음 프레임에 바뀐다 - 조금 기다렸다 읽는다
+      const names = async () => { await sleep(200); return (await a.docTabs()).map(x => (x.on ? '*' : '') + x.name).join(' | '); };
+      t.expect(await names() === '*도면1', 'one tab at start');
+
+      // 고치면 점이 붙는다
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(600, 700); await a.click(900, 700); await a.key('Enter');
+      t.expect(await names() === '*도면1 ●', 'an edit marks the tab modified');
+
+      // 새 도면은 빈 종이에 따로 된 히스토리
+      t.expect(await a.newDocTab(), '+ button present');
+      t.expect(a.has(/document: new "도면2" \(2 open\)/), 'new drawing');
+      await a.ctrl('KeyA');
+      t.expect(a.has(/pick: select all - 0 objects/), 'the new drawing is empty');
+      t.expect(await a.cmdActive('edit.undo') === false, 'and has nothing to undo');
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(600, 760); await a.click(800, 760); await a.key('Enter');
+      const text = await a.sceneSave();
+      t.expect(await names() === '도면1 ● | *도면2', 'saving clears the mark');
+
+      // 돌아가면 그 도면 것 그대로
+      t.expect(await a.clickDocTab(0), 'tab click');
+      t.expect(a.has(/document: switched to "도면1" \(1\/2\)/), 'switched back');
+      await a.ctrl('KeyA');
+      t.expect(a.has(/pick: select all - 5 objects/), 'the first drawing kept its objects');
+
+      // 고친 도면이 보이는 중에 파일을 열면 새 탭에, 파일 이름으로
+      await a.sceneLoad(text, 'part.lot');
+      t.expect(a.has(/document: "part" opened \(3 open\)/), 'opened into a new tab');
+      t.expect(await names() === '도면1 ● | 도면2 | *part', 'tab named after the file');
+
+      // 닫기: x 단추 · 명령행. 마지막 하나는 새 빈 도면이 된다
+      t.expect(await a.closeDocTab(2), 'close button');
+      t.expect(a.has(/document: closed "part" \(2 open, showing "도면2"\)/), 'closed, the neighbour shows');
+      await a.command('nexttab');
+      t.expect(a.has(/document: switched to "도면1" \(1\/2\)/), 'nexttab wraps around');
+      await a.command('close');
+      await a.command('close');
+      // 이름 번호는 계속 올라간다 ('part' 탭도 하나를 썼다) - AutoCAD 의 Drawing1, 2 … 와 같다
+      t.expect(a.has(/document: closed "도면2" \(1 open, showing "도면\d+"\)/), 'the last tab becomes a blank drawing');
+      t.expect(/^\*도면\d+$/.test(await names()), 'one blank tab left');
+
+      // 손대지 않은 탭에 열면 새 탭을 만들지 않는다
+      await a.sceneLoad(text, 'part.lot');
+      t.expect(await names() === '*part', 'a pristine tab is reused');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
     },
   },
   {

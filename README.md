@@ -86,6 +86,7 @@ Tool : Visual Studio Code
 | 레이어 | 층 만들기/삭제, 표시·잠금, 현재 층, 선택을 옮기기 | 오른쪽 패널 |
 | 속성 | 색 (층 색 / 오브젝트 색 / ByLayer, 메시 포함), 선종류 (8종) | 오른쪽 패널 |
 | 파일 | `.lot` 저장/열기 (네이티브 호환 JSON), DXF 열기/내보내기, OBJ 열기 | 메뉴 · 리본 |
+| 도면 탭 | 여러 도면을 탭으로 (도면마다 오브젝트·층·히스토리·시점 따로), 고친 탭에 점, 파일은 새 탭에 열림 | `+` · `new` `close` `nexttab` `prevtab` |
 | 명령행 | 이름으로 명령 부르기 (별칭·한글), Tab 자동완성, 지난 명령, 값 입력 | `Space` |
 | 렌더 | 텍스처 재질, 점 광원 (고르고 옮기고 지울 수 있는 오브젝트), 오프스크린 + 외곽선 후처리 | `O` |
 
@@ -111,6 +112,8 @@ Vulkan 쪽 `builtinCommandTable` 과 같은 규약(영문 풀이름 · 짧은 �
 - `lot_sketch_tool` — `SketchTool` 부모 + `SketchController` 레지스트리. 도구를 추가할 때 고칠 게이트가 없다.
 - `lot_transform_tool` — 기준점 변환. 숫자 입력은 `KeyboardMovementController::setNumberCapture`.
 - `lot_history` — 편집 전/후 스냅샷 기반 undo/redo. 도구가 늘어도 `record()` 한 줄.
+- `lot_document` — 도면 하나 (탭 하나). `main.cpp` 는 `doc()` 로만 닿고, 탭을 바꾸면 그 포인터만 옮긴다.
+  고쳐졌나는 히스토리 `revision()` 과 저장 때 값의 비교. 손대지 않은 새 탭에 파일을 열면 그 자리를 쓴다.
 - `lot_scene_io` + `lot_json` — `.lot` 저장/열기. 외부 JSON 라이브러리 없음.
 - `lot_dxf` — DXF 읽기 (LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/SPLINE 근사, 층·ACI 색·선종류)와
   쓰기 (R12 ASCII - 핸들도 서브클래스도 없어 어디서나 열린다). 치수는 DIMENSION 이 블록을

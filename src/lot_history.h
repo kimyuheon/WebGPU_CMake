@@ -74,6 +74,11 @@ public:
     size_t redoCount() const { return redo_.size(); }
     void clear() { undo_.clear(); redo_.clear(); }
 
+    // 기록 · 되돌리기 · 다시 실행마다 하나씩 오른다. 저장할 때의 값과 비교하면
+    // 도면이 고쳐졌는지 안다 (탭 이름 옆 점). clear() 는 건드리지 않는다 -
+    // 파일을 연 직후 그 값을 '저장된 상태'로 잡으면 된다.
+    uint64_t revision() const { return revision_; }
+
     size_t maxEntries = 100;
 
 private:
@@ -83,4 +88,5 @@ private:
 
     std::vector<Edit> undo_;
     std::vector<Edit> redo_;
+    uint64_t revision_ = 0;
 };
