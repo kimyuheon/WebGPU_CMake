@@ -525,6 +525,11 @@ const scenarios = [
     async run(t) {
       const a = t.api;
       const { resolve } = await import('node:path');
+      // 메뉴가 정말 파일 입력/내려받기 링크를 누르는지 엿본다. 헤드리스는 대화상자를 안 띄우므로
+      // 아래 setFileInputFiles 만으로는 '메뉴가 아무것도 안 하는' 회귀를 못 잡는다 (실제로 있었다).
+      await a.evaluate(`window.__lotClicks = [];`
+        + ` const i = HTMLInputElement.prototype.click; HTMLInputElement.prototype.click = function() { window.__lotClicks.push('input ' + this.accept); };`
+        + ` const l = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function() { window.__lotClicks.push('download ' + this.download); };`);
       const pick = async (menuId, accept, file) => {
         const clicked = await a.evaluate(
           `(() => { const b = document.querySelector('[data-cmd="${menuId}"]'); if (b) b.click(); return !!b; })()`);
@@ -542,6 +547,13 @@ const scenarios = [
         t.expect(await pick('file.openLot', '.lot,.json', kNativeScene), '.lot menu item and file input');
         t.expect(a.has(/document: "mmWall" opened/), '.lot opened into a tab named after the file');
       }
+      await a.evaluate(`document.querySelector('[data-cmd="file.saveLot"]').click()`);
+      await a.evaluate(`document.querySelector('[data-cmd="file.saveDxf"]').click()`);
+      const clicks = await a.evaluate(`window.__lotClicks`);
+      t.expect(clicks.includes('input .dxf'), 'DXF 열기 opens the file dialog');
+      if (existsSync(kNativeScene)) t.expect(clicks.includes('input .lot,.json'), '열기 opens the file dialog');
+      t.expect(clicks.some(c => /^download .+\.lot$/.test(c)), '저장 downloads a .lot named after the tab');
+      t.expect(clicks.some(c => /^download .+\.dxf$/.test(c)), 'DXF 내보내기 downloads a .dxf');
       t.expect(!a.has(/ERROR/), 'no ERROR');
     },
   },

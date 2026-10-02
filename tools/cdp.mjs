@@ -41,6 +41,10 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   });
   await new Promise(resolve => ws.addEventListener('open', resolve));
   await send('Runtime.enable');
+  // 캐시를 끈다. http.server 는 Cache-Control 을 안 보내서 크롬이 옛 WebGPUApp.js 를
+  // 그대로 쓴 적이 있다 - 새 빌드의 JS 수정이 시험에 안 잡히고 옛 동작이 돌았다.
+  await send('Network.enable');
+  await send('Network.setCacheDisabled', { cacheDisabled: true });
 
   const mouse = (type, x, y, extra = {}) =>
     send('Input.dispatchMouseEvent', { type, x, y, button: 'left', ...extra });

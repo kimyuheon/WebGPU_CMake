@@ -137,13 +137,16 @@ mergeInto(LibraryManager.library, {
 
         // 버튼 동작 중 키가 아닌 것들. '@이름' 코드로 가리킨다.
         // 메뉴/리본의 '@이름' 명령이 부른다 (src/js/lot_ui.js 의 run)
+        // ⚠️ 키는 따옴표로. run 이 C++ 이 준 문자열("openLot")로 찾는데, 따옴표가 없으면
+        //    Closure(릴리스)가 키를 줄여 버려 아무것도 안 찾아진다 - 메뉴를 눌러도 파일
+        //    대화상자가 안 뜨던 원인이다.
         var actions = dom.actions = {
-            openObj: function() { if (dom.objInput) dom.objInput.click(); },
-            openLot: function() { lotInput.click(); },
-            openDxf: function() { dxfInput.click(); },
+            'openObj': function() { if (dom.objInput) dom.objInput.click(); },
+            'openLot': function() { lotInput.click(); },
+            'openDxf': function() { dxfInput.click(); },
             // 파일 이름은 지금 탭 이름 (js_uiSetTabs 가 dom.docName 에 둔다)
-            saveLot: function() { download(dom.sceneSave(), (dom.docName || 'scene') + '.lot', 'application/json'); },
-            saveDxf: function() { download(dom.dxfSave(), (dom.docName || 'scene') + '.dxf', 'application/dxf'); },
+            'saveLot': function() { download(dom.sceneSave(), (dom.docName || 'scene') + '.lot', 'application/json'); },
+            'saveDxf': function() { download(dom.dxfSave(), (dom.docName || 'scene') + '.dxf', 'application/dxf'); },
         };
 
         // 떠 있던 OBJ 버튼은 메뉴로 들어왔으니 숨긴다
