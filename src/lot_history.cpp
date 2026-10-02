@@ -61,6 +61,7 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.curve = obj.curve;
     r.dim = obj.dim;
     r.text = obj.text;
+    r.light = obj.light;
     return r;
 }
 
@@ -77,6 +78,7 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.curve = curve;
     obj.dim = dim;
     obj.text = text;
+    obj.light = light;
 }
 
 EditHistory::Record EditHistory::snapshot(const LotGameObject::Map& objects, id_t id) {

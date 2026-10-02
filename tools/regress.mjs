@@ -140,7 +140,7 @@ const scenarios = [
 
       // Ctrl+A - 기본 씬의 메시까지 전부 (잠긴 층은 빠진다)
       await a.ctrl('KeyA');
-      t.expect(a.has(/pick: select all - 5 objects/), 'Ctrl+A selects everything selectable');
+      t.expect(a.has(/pick: select all - 6 objects/), 'Ctrl+A selects everything selectable');
 
       // 선택은 편집이 아니다 - Ctrl+Z 는 마지막 스케치를 되돌린다
       await a.ctrl('KeyZ');
@@ -157,9 +157,32 @@ const scenarios = [
 
       // 전체 지우기 - 한 번의 편집이라 Ctrl+Z 로 전부 돌아온다
       await a.command('eraseall');
-      t.expect(a.has(/delete: erase all - 4 objects removed/), 'erase all empties the drawing');
+      t.expect(a.has(/delete: erase all - 5 objects removed/), 'erase all empties the drawing');
       await a.ctrl('KeyZ');
       t.expect(a.has(/history: undo erase all/), 'erase all undoes in one step');
+    },
+  },
+  {
+    name: 'light-is-an-object',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      // 광원은 궤도를 돌므로 자리를 잡아 두고 집는다 - 궤도선을 골라 지우면
+      // 그 안의 십자만 남는다. 둘 다 평범한 오브젝트다.
+      await a.ctrl('KeyA');
+      t.expect(a.has(/pick: select all - 4 objects/), 'the light counts (2 cubes + torus + light)');
+
+      // 전체 지우기 뒤에는 화면에 아무 오브젝트도 남지 않는다 - 전에는 십자가 남았다
+      await a.command('eraseall');
+      t.expect(a.has(/delete: erase all - 4 objects removed/), 'the light goes with everything else');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo erase all/), 'and comes back');
+
+      // .lot 에도 실려 나간다 - 저장하고 다시 열면 그대로다
+      const text = await a.sceneSave();
+      t.expect(/"kind":\s*"light"/.test(text), 'the light is written to .lot');
+      await a.sceneLoad(text);
+      t.expect(a.has(/scene: loaded .* 1 lights/), 'and read back');
     },
   },
   {
@@ -318,7 +341,7 @@ const scenarios = [
       t.expect(await a.layerButton(1, 'Delete layer'), 'delete button');
       t.expect(a.has(/layer: removed 1/), 'layer removed');
       rows = await a.layerRows();
-      t.expect(rows.length === 1 && /0 \(4\)/.test(rows[0]), 'objects survive on layer 0');
+      t.expect(rows.length === 1 && /0 \(5\)/.test(rows[0]), 'objects survive on layer 0');
     },
   },
   {
@@ -424,7 +447,7 @@ const scenarios = [
       t.expect(text.length > 1000 && /"format": "lot"/.test(text), 'scene saved as .lot JSON');
       await a.reload();
       await a.sceneLoad(text);
-      t.expect(a.has(/scene: loaded 3 meshes, 1 lines, 0 polylines, 1 circles, 0 arcs, 1 dimensions, 1 texts, 1 layers/),
+      t.expect(a.has(/scene: loaded 3 meshes, 1 lines, 0 polylines, 1 circles, 0 arcs, 1 dimensions, 1 texts, 1 lights, 1 layers/),
                'reloaded with the same object counts');
       t.expect(a.has(/view: zoom extents/), 'auto zoom extents after load');
     },

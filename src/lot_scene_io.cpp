@@ -82,6 +82,20 @@ JsonValue objectJson(const LotGameObject& obj) {
                            ? -1.0 : static_cast<double>(obj.linetype));
     jo.set("transform", transformJson(obj.transform));
 
+    if (obj.isLight()) {
+        // 점 광원. 네이티브에는 아직 없는 키라 그쪽에서는 조용히 무시된다
+        // (우리 리더도 모르는 kind 는 세고 건너뛴다 - 한쪽만 알아도 파일은 열린다).
+        const auto& l = obj.light;
+        JsonValue jl = JsonValue::makeObject();
+        jl.set("color", j3(l.color));
+        jl.set("intensity", l.intensity);
+        jl.set("markerSize", l.markerSize);
+        jl.set("orbit", l.orbit);
+        jo.set("kind", "light");
+        jo.set("light", jl);
+        return jo;
+    }
+
     if (obj.isText()) {
         // 네이티브 TextData 와 같은 키. origin 은 로컬 0 (위치는 transform 이 든다).
         const auto& t = obj.text;
@@ -294,7 +308,8 @@ std::string save(const LotGameObject::Map& objects, const LotLayers& layers) {
     int count = 0;
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
-        if (!obj.isSketch() && !obj.model && !obj.isDimension() && !obj.isText()) continue;  // 뷰어 같은 빈 오브젝트
+        if (!obj.isSketch() && !obj.model && !obj.isDimension() && !obj.isText()
+            && !obj.isLight()) continue;  // 뷰어 같은 빈 오브젝트
         arr.push(objectJson(obj));
         ++count;
     }
@@ -391,6 +406,22 @@ LoadStats load(const std::string& text, lot_web_device& device,
             const bool closed = jp->find("closed") ? jp->find("closed")->boolOr(false) : false;
             addSketch(objects, std::move(pts), closed, t, color, layerId, linetypeId, colorByLayer);
             ++stats.polylines;
+        } else if (kind == "light") {
+            const JsonValue* jl = jo.find("light");
+            auto obj = LotGameObject::createGameObject();
+            obj.transform = t;
+            obj.color = color;
+            obj.light.valid = true;
+            if (jl) {
+                obj.light.color = getv3(jl->find("color"), vec3{1.0f, 1.0f, 1.0f});
+                obj.light.intensity =
+                    static_cast<float>(jl->find("intensity") ? jl->find("intensity")->numberOr(1.0) : 1.0);
+                obj.light.markerSize =
+                    static_cast<float>(jl->find("markerSize") ? jl->find("markerSize")->numberOr(0.12) : 0.12);
+                obj.light.orbit = jl->find("orbit") ? jl->find("orbit")->boolOr(false) : false;
+            }
+            objects.emplace(obj.getId(), std::move(obj));
+            ++stats.lights;
         } else if (kind == "text" && jo.find("text")) {
             const JsonValue* jt = jo.find("text");
             LotGameObject::Text tx;
@@ -467,7 +498,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
             << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts
-            << " texts, " << stats.layers << " layers"
+            << " texts, " << stats.lights << " lights, " << stats.layers << " layers"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

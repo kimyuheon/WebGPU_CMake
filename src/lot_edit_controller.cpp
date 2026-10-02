@@ -232,6 +232,9 @@ void EditController::applyTranslation(const Context& ctx, const vec3& delta) {
     for (const auto& entry : drag_.startTransforms) {
         if (auto* obj = LotGameObject::find(ctx.objects, entry.first)) {
             obj->transform.translation = entry.second.translation + delta;
+            // 사용자가 자리를 정했으면 공전은 끝이다 - 안 그러면 손을 떼는 순간
+            // 다음 프레임이 도로 궤도로 끌고 간다.
+            obj->light.orbit = false;
         }
     }
 }
@@ -392,6 +395,8 @@ void EditController::finishMarquee(const Context& ctx, float x1, float y1, bool 
         } else if (obj.isText()) {
             vec3 c[4];
             if (lot_text::quadCorners(obj, c)) selected = testPoints(mat4::identity(), {c[0], c[1], c[2], c[3]});
+        } else if (obj.isLight()) {
+            selected = testPoints(mat4::identity(), {obj.transform.translation});
         }
         if (selected) selection_.insert(entry.first);
     }
@@ -521,6 +526,8 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
             if (lot_text::quadCorners(*obj, c)) {
                 for (int i = 0; i < 4; ++i) lines.addLine(c[i], c[(i + 1) % 4], kSelectionColor);
             }
+        } else if (obj->isLight()) {
+            lines.addCross(obj->transform.translation, obj->light.markerSize * 1.6f, kSelectionColor);
         }
     }
 

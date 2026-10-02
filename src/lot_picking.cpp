@@ -244,6 +244,13 @@ LotGameObject::id_t pickSketch(const LotCamera& camera, float mouseX, float mous
             // 치수는 선(보조선/치수선/화살표)으로 집는다 - 글자는 아직 아니다
             const lot_dim::Geometry g = lot_dim::build(obj.dim, obj.transform.mat4Transform(), nullptr);
             for (const auto& s : g.segments) testSegment(s.first, s.second, entry.first);
+        } else if (obj.isLight()) {
+            // 십자 세 팔. 기호가 작아 화면 거리로 집는 편이 레이보다 정확하다.
+            const vec3 p = obj.transform.translation;
+            const float s = obj.light.markerSize;
+            testSegment(p - vec3{s, 0.0f, 0.0f}, p + vec3{s, 0.0f, 0.0f}, entry.first);
+            testSegment(p - vec3{0.0f, s, 0.0f}, p + vec3{0.0f, s, 0.0f}, entry.first);
+            testSegment(p - vec3{0.0f, 0.0f, s}, p + vec3{0.0f, 0.0f, s}, entry.first);
         } else if (obj.isText()) {
             // 문자는 사각형 테두리 + 대각선 - 글자 안쪽을 눌러도 잡히게
             vec3 c[4];

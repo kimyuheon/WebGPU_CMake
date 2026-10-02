@@ -41,6 +41,7 @@ public:
         LotGameObject::Curve curve;
         LotGameObject::Dim dim;
         LotGameObject::Text text;
+        LotGameObject::Light light;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;

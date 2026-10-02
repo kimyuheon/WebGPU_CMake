@@ -134,7 +134,20 @@ public:
         return colorByLayer || color.x != 1.0f || color.y != 1.0f || color.z != 1.0f;
     }
 
+    // 점 광원. 모델이 없어 메시로는 안 보이고 십자 기호로 선다 - 그래도 평범한
+    // 오브젝트라 고르고 옮기고 지울 수 있다. 매 프레임 그려 넣던 때는 그게 안 됐다.
+    struct Light {
+        bool valid = false;
+        vec3 color{1.0f, 1.0f, 1.0f};
+        float intensity = 1.0f;
+        float markerSize = 0.12f;   // 십자 반 길이 (월드)
+        // 기본 씬의 시연용 공전. 사용자가 한 번 옮기면 꺼지고 그 자리에 선다.
+        bool orbit = false;
+    };
+    Light light;
+
     bool isSketch() const { return !points.empty(); }
+    bool isLight() const { return light.valid; }
     bool isText() const { return text.valid; }
     bool hasCurve() const { return curve.kind != Curve::Kind::None; }
     bool isDimension() const { return dim.valid; }

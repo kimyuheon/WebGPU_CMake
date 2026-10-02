@@ -27,6 +27,7 @@ struct LoadStats {
     int arcs = 0;
     int dimensions = 0;
     int texts = 0;
+    int lights = 0;
     int layers = 0;
     int skipped = 0;          // 지원하지 않는 종류
     std::string skippedKinds; // 로그용: "circle, text" 처럼

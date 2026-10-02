@@ -169,6 +169,22 @@ void createGameObjects() {
         doc().objects.emplace(id, std::move(cube));
     }
 
+    // 광원. 전에는 프레임마다 십자를 그려 넣어서 고를 수도 지울 수도 없었고
+    // '전체 지우기' 뒤에도 남아 있었다. 평범한 오브젝트로 둔다.
+    //
+    // 같이 그리던 궤도선·나선·작업영역 상자는 없앴다. 폴리라인 파이프라인이
+    // 도는지 눈으로 보려던 시연용인데, 이제 스케치마다 그 길을 지나므로
+    // 도면에 남을 이유가 없다 (지울 수도 없는 선이 도면에 섞이면 더 나쁘다).
+    {
+        auto light = LotGameObject::createGameObject();
+        light.transform.translation = vec3(kLightSwingX, kLightBaseY, kLightHeight);
+        light.color = vec3(1.0f, 0.95f, 0.6f);
+        light.light.valid = true;
+        light.light.color = vec3(1.0f, 1.0f, 1.0f);
+        light.light.intensity = 4.0f;
+        light.light.orbit = true;   // 옮기면 그 자리에 선다
+        doc().objects.emplace(light.getId(), std::move(light));
+    }
     LOT_LOG("Game objects created: " << doc().objects.size());
 }
 
@@ -408,6 +424,8 @@ static void zoomExtents() {
         } else if (obj.isText()) {
             vec3 c[4];
             if (lot_text::quadCorners(obj, c)) for (int i = 0; i < 4; ++i) grow(c[i]);
+        } else if (obj.isLight()) {
+            grow(obj.transform.translation);
         } else if (obj.model) {
             // 경계 상자 여덟 꼭짓점을 변환한다 (회전한 상자도 안전하게 덮인다)
             const mat4 m = obj.transform.mat4Transform();
@@ -898,12 +916,26 @@ void renderLoop() {
         // (예전의 자동 회전은 뺐다 - 회전/축척 기즈모로 편집한 값을 매 프레임
         //  덮어쓰기 때문이다. 초기 자세는 createGameObjects / placeObjModel 에서 준다.)
 
-        // 광원을 큐브들 주위로 돌린다. 점 광원이라 가까운 면일수록 밝아지는 게
-        // 눈에 보인다 (방향 광원이었다면 어디에 두든 결과가 같다).
-        const float lightAngle = static_cast<float>(g_time) * kLightOrbitSpeed;
-        g_lighting.pointLight.position = vec3(std::cos(lightAngle) * kLightSwingX,
-                                              kLightBaseY + std::sin(lightAngle) * kLightSwingY,
-                                              kLightHeight);
+        // 광원. 공전 표시가 붙은 것만 돌린다 (옮기면 꺼진다). 조명 유니폼은
+        // 씬에 있는 첫 광원 오브젝트에서 읽는다 - 지우면 주변광만 남는다.
+        {
+            const float lightAngle = static_cast<float>(g_time) * kLightOrbitSpeed;
+            g_lighting.pointLight.intensity = 0.0f;
+            for (auto& entry : doc().objects) {
+                LotGameObject& obj = entry.second;
+                if (!obj.isLight()) continue;
+                if (obj.light.orbit) {
+                    obj.transform.translation =
+                        vec3(std::cos(lightAngle) * kLightSwingX,
+                             kLightBaseY + std::sin(lightAngle) * kLightSwingY, kLightHeight);
+                }
+                if (g_lighting.pointLight.intensity == 0.0f) {
+                    g_lighting.pointLight.position = obj.transform.translation;
+                    g_lighting.pointLight.color = obj.light.color;
+                    g_lighting.pointLight.intensity = obj.light.intensity;
+                }
+            }
+        }
 
         // 프레임당 유니폼 갱신. 렌더 시스템 전부가 같은 값을 본다.
         g_globalUniform.update(doc().camera, g_lighting);
@@ -927,14 +959,10 @@ void renderLoop() {
             displayColor,  // '층 따름'이면 층 색
         };
 
-        // 이번 프레임의 보조선. 광원 위치를 십자로, 작업 영역을 상자로.
-        // 프레임마다 다시 채우므로 광원이 움직이면 십자도 따라간다.
+        // 이번 프레임의 보조선.
         g_lineSystem->clear();
         // 바닥 격자. 그리드 스냅(F9) 과 같은 간격으로, 카메라를 따라다닌다.
         lot_grid::draw(*g_lineSystem, doc().camera, doc().gridSpacing, static_cast<float>(sc.getHeight()));
-        g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
-        g_lineSystem->addBox(vec3(-2.4f, -0.9f, 0.0f), vec3(2.4f, 0.9f, 1.5f),
-                             vec3(0.45f, 0.45f, 0.5f));
 
         // 선택 상자 / 박스 선택 사각형 / 스냅 마커
         {
@@ -967,6 +995,8 @@ void renderLoop() {
                 lot_dim::draw(obj, doc().camera, *g_lineSystem, *g_textSystem, color);
             } else if (obj.isText()) {
                 lot_text::draw(obj, *g_textSystem, color);
+            } else if (obj.isLight()) {
+                g_lineSystem->addCross(obj.transform.translation, obj.light.markerSize, color);
             }
         }
         {
@@ -978,27 +1008,6 @@ void renderLoop() {
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
             g_transform.drawOverlay(*g_lineSystem, tctx);
-        }
-
-        // 폴리라인 둘: 광원이 도는 궤도(닫힘)와 가운데를 감는 나선(열림).
-        // 둘을 draw 한 번에 그리므로 restart 인덱스가 실제로 동작하는지도 보인다.
-        {
-            std::vector<vec3> orbit;
-            for (int i = 0; i < 64; ++i) {
-                const float a = 6.2831853f * i / 64.0f;
-                orbit.push_back(vec3(std::cos(a) * kLightSwingX,
-                                     kLightBaseY + std::sin(a) * kLightSwingY, kLightHeight));
-            }
-            g_polylineSystem->addPolyline(orbit, vec3(0.9f, 0.8f, 0.3f), /*closed=*/true);
-
-            std::vector<vec3> spiral;
-            for (int i = 0; i <= 120; ++i) {
-                const float t = i / 120.0f;
-                const float a = t * 6.2831853f * 3.0f;
-                const float r = 0.95f;
-                spiral.push_back(vec3(std::cos(a) * r, std::sin(a) * r, kObjHeight - 0.55f + t * 1.1f));
-            }
-            g_polylineSystem->addPolyline(spiral, vec3(0.4f, 0.9f, 0.9f));
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로
