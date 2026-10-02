@@ -85,6 +85,12 @@ public:
     void resetCadView(CadViewType type) {
         target_ = vec3{0.0f, 0.0f, 0.0f};
         orbitDistance_ = kDefaultOrbitDistance;
+        setCadViewDirection(type);
+    }
+
+    // 표준 뷰의 자세만. 보던 자리와 거리는 그대로 둔다 - 뷰큐브의 면을 누르면
+    // 방향만 돌아야지 화면이 원점으로 튀면 안 된다.
+    void setCadViewDirection(CadViewType type) {
         // Vulkan 쪽 resetCadRotation 과 같은 값들이다.
         const float kHalfPi = 1.57079632679f;
         const vec3 X{1.0f, 0.0f, 0.0f}, Z{0.0f, 0.0f, 1.0f};

@@ -131,6 +131,32 @@ const scenarios = [
     },
   },
   {
+    name: 'view-cube',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      const top = await a.viewCubeMatrix();
+      t.expect(/^matrix3d\(/.test(top), 'the cube carries the camera orientation');
+
+      // 면: 표준 뷰와 같은 자세가 된다 (평면도에서 정면도로)
+      t.expect(await a.viewCube('0,-1,0'), 'the view cube is there');
+      t.expect(a.has(/viewcube: face \(0, -1, 0\)/), 'face click');
+      const front = await a.viewCubeMatrix();
+      t.expect(front !== top, 'the cube turned with the camera');
+
+      // 같은 자리를 F 로 가도 자세가 같아야 한다 - 뷰큐브와 표준 뷰가 갈라지면 안 된다
+      await a.key('KeyT'); await a.key('KeyF');
+      t.expect(await a.viewCubeMatrix() === front, 'a face click equals the standard view');
+
+      // 모서리 · 꼭짓점
+      await a.viewCube('1,0,1');
+      t.expect(a.has(/viewcube: edge \(1, 0, 1\)/), 'edge click');
+      await a.viewCube('-1,-1,1');
+      t.expect(a.has(/viewcube: corner \(-1, -1, 1\)/), 'corner click');
+      t.expect(await a.viewCubeMatrix() !== front, 'a corner is not a standard view');
+    },
+  },
+  {
     name: 'cube-command',
     async run(t) {
       const a = t.api;

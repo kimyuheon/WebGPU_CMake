@@ -72,6 +72,7 @@ Tool : Visual Studio Code
 | 영역 | 내용 | 키 |
 |---|---|---|
 | 카메라 | CAD 궤도 (우클릭 궤도 · 중클릭 팬 · 휠 줌), 표준 뷰, 원근/직교, 전체 보기, 1인칭 | `F/T/R/I` `P` `Z` `V` |
+| 뷰큐브 | 오른쪽 위 상자. 면·모서리·꼭짓점 26 방향을 눌러 그 시점으로 | 마우스 |
 | 선택 | 클릭 · Shift 토글 · 박스 선택 (window/crossing), 선/메시 모두 | 마우스 |
 | 기즈모 | 이동 / 회전 / 축척 (축·평면·균등 핸들) | `1/2/3` |
 | 변환 | 기준점 방식 이동 / 복사 / 회전 / 축척, 숫자 입력 | `M/U/K/X` + 값 + `Enter` |
@@ -117,6 +118,9 @@ Vulkan 쪽 `builtinCommandTable` 과 같은 규약(영문 풀이름 · 짧은 �
 - `lot_cursor_snap` — 커서 보정 한 곳 (osnap > 직교 > 그리드). 도구가 각자 들면 둘이 어긋난다.
 - `lot_linetype` — 선종류. 무늬를 CPU 에서 잘라 선분으로 낸다 (폴리라인 전체가 한 누적 길이).
 - `lot_layers` — 도면층. 렌더/피킹은 층을 모르고 콜백(`FrameInfo::visibleFilter`, `lot_pick::setSelectableFilter`)만 본다.
+- `lot_view_cube` (`src/ui/`) — 뷰큐브. 그리지 않는다: 자세를 CSS `matrix3d` 로 넘기면
+  브라우저가 상자를 돌리고, 면마다 올린 3x3 칸이 26 방향 히트 테스트를 대신한다.
+  뷰 공간은 +Z 가 앞인데 CSS 는 +Z 가 보는 쪽이라 셋째 행 부호만 뒤집어 넘긴다.
 - `src/ui/` — UI 클래스들. `LotMainMenu`/`LotRibbon` 은 명령 표, `LotLayerPanel` 은 층/속성 편집,
   `LotCommandLine` 은 그 표에서 칠 수 있는 이름을 뽑아 둔다. `LotUi` 가 넷을 들고 바뀐 것만 DOM 으로 내보낸다. 그리는 것은 `src/js/lot_ui.js`(메뉴·리본)와
   `src/js/lot_panels.js`(패널·입력창·파일).

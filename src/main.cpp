@@ -367,6 +367,31 @@ static bool runAction(const char* code) {
     return true;   // '#' 로 왔으면 키로 넘기지 않는다
 }
 
+// 뷰큐브에서 누른 칸. 방향 성분은 -1/0/1 조합이다 (면 하나 · 모서리 둘 · 꼭짓점 셋).
+// 표준 뷰와 똑같이 보이도록 축 하나짜리는 resetCadView 로 넘겨 네이티브와 같은 자세를 쓴다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onViewCube(int dx, int dy, int dz) {
+    if (dx == 0 && dy == 0 && dz == 0) return;
+    const int axes = (dx != 0) + (dy != 0) + (dz != 0);
+    if (axes == 1) {
+        LotCamera::CadViewType type = LotCamera::CadViewType::Top;
+        if (dz > 0)      type = LotCamera::CadViewType::Top;
+        else if (dz < 0) type = LotCamera::CadViewType::Bottom;
+        else if (dy > 0) type = LotCamera::CadViewType::Back;
+        else if (dy < 0) type = LotCamera::CadViewType::Front;
+        else if (dx > 0) type = LotCamera::CadViewType::Right;
+        else             type = LotCamera::CadViewType::Left;
+        g_camera.setCadViewDirection(type);   // 보던 자리와 거리는 그대로
+        LOT_LOG("viewcube: face (" << dx << ", " << dy << ", " << dz << ")");
+        return;
+    }
+    g_camera.setViewFromDirection(normalize(vec3(static_cast<float>(dx),
+                                                 static_cast<float>(dy),
+                                                 static_cast<float>(dz))));
+    LOT_LOG("viewcube: " << (axes == 2 ? "edge" : "corner")
+            << " (" << dx << ", " << dy << ", " << dz << ")");
+}
+
 // 툴바 버튼. 키보드 이벤트와 같은 경로를 타게 눌렀다 뗀 것으로 넣는다 -
 // 버튼과 단축키가 어긋날 수 없다. code 는 JS 가 잡은 버퍼라 JS 가 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -862,6 +887,7 @@ void renderLoop() {
             ui.canRedo = g_edit.history().canRedo();
             ui.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
             g_ui.update(ui, g_layers, g_gameObjects, g_edit);
+            g_ui.updateViewCube(g_camera);
         }
 
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면

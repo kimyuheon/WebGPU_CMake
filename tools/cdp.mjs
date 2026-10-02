@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|cube:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|cube:|viewcube:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -159,6 +159,19 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
       await sleep(400);
     },
     async hint() { return api.evaluate(`document.getElementById('lot-hint')?.textContent ?? ''`); },
+
+    // 뷰큐브: 보이는 칸을 좌표로 누른다. dir 은 "dx,dy,dz" (면 하나 · 모서리 둘 · 꼭짓점 셋).
+    async viewCube(dir) {
+      const ok = await api.evaluate(
+        `(() => { if (!Module.lotDom || !Module.lotDom['viewCubeClick']) return false;`
+        + ` Module.lotDom['viewCubeClick'](${JSON.stringify(dir)}); return true; })()`);
+      await sleep(400);
+      return ok;
+    },
+    // 상자에 걸린 CSS 행렬 (자세가 따라 도는지 보려고)
+    async viewCubeMatrix() {
+      return api.evaluate(`document.getElementById('lot-viewcube').firstChild.style.transform`);
+    },
 
     // 레이어 패널: 행 번호(0 부터)의 버튼을 title 로 찾아 누른다. row 가 -1 이면 머리글(+).
     // title 예: 'New layer', 'Hide layer', 'Lock layer', 'Delete layer...', 'Move the selection...'

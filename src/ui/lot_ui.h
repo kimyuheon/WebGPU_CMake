@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lot_command_line.h"
+#include "lot_view_cube.h"
 #include "lot_layer_panel.h"
 #include "lot_main_menu.h"
 #include "lot_ribbon.h"
@@ -46,11 +47,16 @@ public:
     LotLayerPanel& layerPanel() { return layerPanel_; }
     LotCommandLine& commandLine() { return commandLine_; }
 
+    // 뷰큐브: 자세가 바뀐 프레임에만 DOM 으로 넘어간다. 카메라가 필요해 따로 둔다.
+    void updateViewCube(const LotCamera& camera);
+
 private:
     LotMainMenu menu_;
     LotRibbon ribbon_;
     LotLayerPanel layerPanel_;
     LotCommandLine commandLine_;
+    LotViewCube viewCube_;
+    bool viewCubeInstalled_ = false;
     State lastState_;
     bool statePushed_ = false;
     bool installed_ = false;

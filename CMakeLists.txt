@@ -48,6 +48,7 @@ add_link_options(
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_ui.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js"
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_view_cube.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
 )
 

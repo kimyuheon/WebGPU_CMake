@@ -6,6 +6,9 @@ extern "C" {
     extern int js_uiInstall(const char* menuJson, const char* ribbonJson, const char* commandNames);
     extern int js_uiSetState(const char* stateJson);
     extern int js_uiSetLayers(const char* layersJson);
+    // src/js/lot_view_cube.js. 상자는 한 번, 자세는 바뀔 때만.
+    extern int js_viewCubeInstall();
+    extern int js_viewCubeOrient(const char* matrixCss);
 }
 
 namespace lot_ui {
@@ -27,7 +30,20 @@ void LotUi::install() {
 void LotUi::invalidate() {
     installed_ = false;
     statePushed_ = false;
+    viewCubeInstalled_ = false;
+    viewCube_.invalidate();
     layerPanel_.invalidate();
+}
+
+void LotUi::updateViewCube(const LotCamera& camera) {
+    if (!viewCubeInstalled_) {
+        viewCubeInstalled_ = js_viewCubeInstall() != 0;
+        if (!viewCubeInstalled_) return;  // 메뉴/리본이 아직 - 다음 프레임에
+        viewCube_.invalidate();           // 새 DOM 에는 자세를 한 번 밀어 넣는다
+    }
+    if (viewCube_.poll(camera) && js_viewCubeOrient(viewCube_.matrixCss().c_str()) == 0) {
+        viewCube_.invalidate();           // DOM 이 없어졌다 - 다음 프레임에 다시
+    }
 }
 
 void LotUi::update(const State& state, const LotLayers& layers,
