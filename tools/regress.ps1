@@ -50,6 +50,12 @@ $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
             "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
             "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe") |
           Where-Object { Test-Path $_ } | Select-Object -First 1
+# LOT_BROWSER=edge 면 Edge 로 (브라우저마다 다른 문제를 볼 때)
+if ($env:LOT_BROWSER -eq "edge") {
+    $chrome = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+                "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") |
+              Where-Object { Test-Path $_ } | Select-Object -First 1
+}
 if (-not $chrome) { Write-Host "Chrome/Edge 를 찾지 못했습니다" -ForegroundColor Red; exit 1 }
 
 $port = 8123
