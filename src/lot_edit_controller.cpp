@@ -48,8 +48,15 @@ void EditController::update(const Context& ctx) {
         else ++it;
     }
 
-    // 1. 커서 아래 스냅 후보. 드래그 중이면 끌고 있는 것들은 뺀다.
-    {
+    // 1. 커서 아래 스냅 후보.
+    //
+    // 점을 묻고 있을 때만 찾는다 - 열린 도구가 있거나 기즈모를 끌고 있을 때. CAD 에서
+    // osnap 은 명령이 점을 기다릴 때만 뜬다. 그냥 고르려고 커서를 옮기는데 마커가
+    // 깜빡이면 눈이 아프고, 쓰지도 않을 정밀 피킹을 프레임마다 돌리는 셈이기도 하다.
+    // 드래그 중이면 끌고 있는 것들은 후보에서 뺀다 (제 정점에 붙지 않도록).
+    if (!ctx.toolActive && !drag_.active) {
+        snap_ = lot_osnap::Snap{};
+    } else {
         lot_osnap::Query query;
         query.camera = &ctx.camera;
         query.mouseX = ctx.mouse.x();

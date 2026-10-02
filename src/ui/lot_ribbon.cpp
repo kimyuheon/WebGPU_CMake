@@ -71,6 +71,9 @@ LotRibbon::LotRibbon() {
             }},
         }},
         {"3D", {
+            {"만들기", {
+                icon("draw.cube", "큐브", "\xE2\xAC\xA1", "#cube", false, "", "보고 있는 자리에 큐브 하나"),
+            }},
             {"수정", {
                 icon("modify.move",   "이동", "\xE2\x9C\x9B", "KeyM", false, "M", "기준점 이동", "xform:0"),
                 icon("modify.copy",   "복사", "\xE2\x9A\x8A", "KeyU", false, "U", "기준점 복사", "xform:1"),

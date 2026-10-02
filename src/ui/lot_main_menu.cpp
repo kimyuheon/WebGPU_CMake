@@ -55,6 +55,7 @@ LotMainMenu::LotMainMenu() {
             item("draw.arc",      "호",        "KeyA", false, "A", "세 점을 지나는 호", "sketch:4"),
             item("draw.polygon",  "정다각형",  "KeyG", false, "G", "중심과 꼭짓점 ([ ] 로 변 수)", "sketch:5"),
             item("draw.dim",      "치수",      "KeyD", false, "D", "두 점을 재고 치수선 위치", "sketch:6", true),
+            item("draw.cube",     "큐브",       "#cube",  false, "",    "보고 있는 자리에 큐브 하나 (3D)", "", true),
             item("draw.text",     "문자",      "KeyW", false, "W", "시작점을 찍고 입력", "sketch:7"),
             item("draw.finish",   "끝내기",    "Enter", false, "Enter", "그리던 것을 확정", "", true),
         }},

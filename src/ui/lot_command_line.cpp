@@ -38,6 +38,7 @@ const Alias kAliases[] = {
     {"draw.polygon",  "polygon pol"},
     {"draw.dim",      "dim dimension 치수선"},
     {"draw.text",     "text t 글자"},
+    {"draw.cube",     "cube n box 상자"},
     {"draw.finish",   "finish done 확정"},
     {"modify.move",   "move m"},
     {"modify.copy",   "copy co cp"},

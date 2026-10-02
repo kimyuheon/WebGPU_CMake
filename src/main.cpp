@@ -242,6 +242,8 @@ static vec3 displayColor(const LotGameObject& obj) {
     return l ? l->color : obj.color;
 }
 
+static bool runAction(const char* code);   // 아래, 큐브 같은 '키 아닌 명령'
+
 // 명령행에서 친 글자. 이름이면 그 명령을, 숫자면 열린 도구의 값 입력으로 보낸다.
 // 문자열은 JS 가 잡아 준 것이라 JS 가 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -273,6 +275,7 @@ void lot_onCommandLine(const char* typed) {
         return;
     }
     LOT_LOG("command: " << text << " -> " << r.label);
+    if (runAction(r.keyCode.c_str())) return;
     g_cameraController.handleBrowserKey(r.keyCode.c_str(), true, r.ctrl);
     g_cameraController.handleBrowserKey(r.keyCode.c_str(), false, r.ctrl);
 }
@@ -330,11 +333,46 @@ void lot_onTextCancelled() {
     if (g_sketch.waitingForTextInput()) g_sketch.cancel();
 }
 
+// 보고 있는 자리에 큐브 하나. 기본 씬의 큐브와 같은 모델/재질을 쓴다 (정점은 GPU 에
+// 한 번만 올라가 있다). 자리는 카메라가 보는 점의 XY, 높이는 바닥에 딱 얹히게.
+static void addCube() {
+    if (!g_cubeModel) {
+        LOT_ERR("cube: the cube model is not ready yet");
+        return;
+    }
+    const vec3 look = g_camera.getTarget();
+    auto cube = LotGameObject::createGameObject();
+    cube.model = g_cubeModel;
+    cube.material = g_checkerMaterial;
+    cube.transform.translation = vec3(look.x, look.y, kCubeHalf);
+    cube.transform.scale = vec3(0.6f);
+    cube.layer = g_layers.current();
+    const auto id = cube.getId();
+    g_gameObjects.emplace(id, std::move(cube));
+    g_edit.history().recordCreated("cube", g_gameObjects, id);
+    g_edit.setSelection({id});   // 바로 기즈모로 옮길 수 있게
+    LOT_LOG("cube: added object " << id << " at (" << look.x << ", " << look.y << ")");
+}
+
+// 키가 아닌 명령 ('#이름'). 메뉴/리본/명령행이 같은 코드를 보낸다.
+//
+// 그릴 거리가 늘어날수록 알파벳이 모자란다 - 큐브·구·원기둥에 글쇠를 하나씩
+// 떼어 주면 금세 바닥난다. 단축키가 필요 없는 명령은 이 길로 보낸다.
+// true 를 돌려주면 처리한 것.
+static bool runAction(const char* code) {
+    if (code == nullptr || code[0] != '#') return false;
+    const std::string name(code + 1);
+    if (name == "cube") { addCube(); return true; }
+    LOT_ERR("command: no action named \"" << name << "\"");
+    return true;   // '#' 로 왔으면 키로 넘기지 않는다
+}
+
 // 툴바 버튼. 키보드 이벤트와 같은 경로를 타게 눌렀다 뗀 것으로 넣는다 -
 // 버튼과 단축키가 어긋날 수 없다. code 는 JS 가 잡은 버퍼라 JS 가 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onToolbarKey(const char* code, int ctrl) {
     if (code == nullptr) return;
+    if (runAction(code)) return;
     g_cameraController.handleBrowserKey(code, true, ctrl != 0);
     g_cameraController.handleBrowserKey(code, false, ctrl != 0);
 }

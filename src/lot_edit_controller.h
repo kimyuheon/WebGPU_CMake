@@ -36,8 +36,9 @@ public:
         LotGameObject::Map& objects;
         float width;
         float height;
-        // 도구(스케치/변환)가 열려 있으면 클릭은 그쪽 것이다. 스냅은 계속 찾는다
-        // (도구가 그걸 쓴다). 게이트는 이 플래그 하나.
+        // 도구(스케치/변환)가 열려 있으면 클릭은 그쪽 것이다. 게이트는 이 플래그 하나.
+        // osnap 도 이것 (또는 기즈모 드래그) 이 켜져 있을 때만 찾는다 - CAD 에서
+        // osnap 은 명령이 점을 기다릴 때만 뜬다.
         bool toolActive = false;
         // 변환 도구가 선택을 끌고 있을 때 - 끌리는 것들에는 스냅이 걸리지 않게
         bool excludeSelectionFromSnap = false;

@@ -105,6 +105,45 @@ const scenarios = [
     },
   },
   {
+    name: 'osnap-only-in-commands',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(450, 700); await a.click(600, 700); await a.key('Enter');
+      await a.key('KeyL'); await a.click(700, 760); await a.click(900, 760); await a.key('Enter');
+
+      // 명령이 없을 때는 끝점 위를 지나도 스냅이 잡히지 않는다 (AutoCAD 와 같다)
+      const idle = a.count(/snap: /);
+      await a.move(450, 700); await a.move(600, 700); await a.move(900, 760);
+      t.expect(a.count(/snap: /) === idle, 'no osnap while merely selecting');
+
+      // 도구를 열면 같은 자리에서 다시 잡힌다
+      await a.key('KeyL'); await a.move(450, 700);
+      t.expect(a.count(/snap: /) > idle, 'osnap comes back inside a command');
+      await a.key('Escape');
+
+      // 기즈모로 끌 때도 잡힌다 - 그때도 점을 묻고 있는 중이다
+      await a.click(525, 700);
+      t.expect(a.has(/pick: sketch/), 'line picked');
+      const beforeDrag = a.count(/snap: /);
+      await a.key('Digit1'); await a.drag(585, 700, 700, 760);
+      t.expect(a.count(/snap: /) > beforeDrag, 'osnap works while dragging a gizmo');
+    },
+  },
+  {
+    name: 'cube-command',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.command('cube');
+      t.expect(a.has(/cube: added object \d+/), 'cube from the command line');
+      await a.command('큐브');
+      t.expect(a.count(/cube: added object \d+/) === 2, 'the Korean name is the same command');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo cube/), 'adding a cube is undoable');
+    },
+  },
+  {
     name: 'transform-tool',
     async run(t) {
       const a = t.api;
