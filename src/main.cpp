@@ -13,6 +13,7 @@
 #include "lot_json.h"
 #include "lot_layers.h"
 #include "lot_cursor_snap.h"
+#include "lot_document.h"
 #include "lot_dxf.h"
 #include "ui/lot_ui.h"
 #include "lot_cursor_snap.h"
@@ -74,21 +75,19 @@ std::shared_ptr<LotModel> g_objModel = nullptr;
 // 시험용 체커보드 재질. 텍스처 파이프라인과 UV 가 맞는지 눈으로 보는 용도.
 // 큐브와 OBJ 가 같은 재질을 공유한다 (shared_ptr).
 std::shared_ptr<LotMaterial> g_checkerMaterial = nullptr;
-LotGameObject::Map g_gameObjects;
-LotCamera g_camera;
 KeyboardMovementController g_cameraController;
 MouseInput g_mouse;
 SketchController g_sketch;
-LotLayers g_layers;
 lot_ui::LotUi g_ui;
 TransformTool g_transform;
 
-// 선택/기즈모 드래그/스냅. 상호작용은 전부 여기로 모였다.
-EditController g_edit;
+// 열려 있는 도면들과 지금 보고 있는 것. 탭 하나가 도면 하나다.
+// 도면에만 속하는 것(오브젝트·층·히스토리·시점)은 전부 LotDocument 안에 있어,
+// doc() 가 가리키는 곳만 바꾸면 화면이 통째로 그 도면 것이 된다.
+std::vector<std::unique_ptr<LotDocument>> g_documents;
+size_t g_documentIndex = 0;
 
-// 카메라의 위치와 회전을 담아두는 오브젝트. 모델이 없으므로 그려지지 않는다.
-// 카메라를 게임 오브젝트처럼 다루면 나중에 다른 오브젝트에 붙이기도 쉽다.
-LotGameObject g_viewerObject = LotGameObject::createGameObject();
+LotDocument& doc() { return *g_documents[g_documentIndex]; }
 
 // 애니메이션 시간
 static double g_time = 0.0;
@@ -97,11 +96,6 @@ static double g_lastFrameMs = 0.0;
 // 초기화 상태
 static bool g_modelCreated = false;
 static bool g_objRequested = false;   // fetch 를 시작했는지 (한 번만 보낸다)
-static bool g_objPlaced = false;      // 받아온 모델을 장면에 넣었는지
-
-// OBJ 모델이 들어가 있는 오브젝트. 파일을 새로 열면 이 오브젝트의 모델을 갈아끼운다.
-// 인덱스가 아니라 id 라서 다른 오브젝트가 지워져도 어긋나지 않는다.
-static LotGameObject::id_t g_objObjectId = LotGameObject::kInvalidId;
 
 // 불러온 모델이 화면에 차는 크기. 남이 만든 OBJ 는 단위가 제각각이라
 // (몇 백 단위짜리도 흔하다) 파일 값을 그대로 쓰면 안 보이거나 화면을 덮는다.
@@ -118,8 +112,6 @@ static const float kFovY = 50.0f * 3.14159265f / 180.0f;
 // 클립 평면은 씬 크기에 따라 움직인다 (zoomExtents 가 정한다). 기본값은 미터 단위
 // 장난감 씬용이고, mm 도면을 열면 수천 배로 늘어난다. near 를 같이 키워야 깊이
 // 정밀도가 남는다 (near 0.1 에 far 100000 이면 z-fighting 이 심하다).
-static float g_nearZ = 0.1f;
-static float g_farZ = 100.0f;
 static const vec3 kCameraStartPosition{0.0f, -2.5f, 0.6f};  // (FPS 모드) 앞(-Y)에서 눈높이로
 
 // CAD 궤도 조작 감도
@@ -128,16 +120,10 @@ static const float kOrbitRadPerSec = 1.5f;      // 화살표로 돌릴 때
 
 // 투영 모드. P 키로 전환한다.
 // 직교의 halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
-static bool g_orthographic = false;
 // F8 직교 / F9 그리드 스냅. 실제 값은 lot_cursor::settings() 한 벌 - 도구들이 그걸 읽는다.
 // 그리드 간격은 씬 크기에 맞춰 정한다 (zoomExtents).
-static float g_gridSpacing = 0.5f;
 // 전역 선종류 축척 (AutoCAD 의 LTSCALE). 씬을 열 때 크기에 맞춰 잡는다.
-static float g_linetypeScale = 1.0f;
-static float g_orthoHalfHeight = 1.6f;
 static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
-static float g_orthoMinHalfHeight = 0.2f;
-static float g_orthoMaxHalfHeight = 20.0f;
 
 // 조명. 광원은 큐브들 위쪽 앞에 두고 천천히 돌린다.
 // 감쇠가 거리 제곱에 반비례하므로 세기는 거리의 제곱 규모로 잡아야 한다
@@ -180,10 +166,10 @@ void createGameObjects() {
         cube.transform.rotation = quat::angleAxis(0.6f, vec3(0.0f, 0.0f, 1.0f));
 
         const auto id = cube.getId();
-        g_gameObjects.emplace(id, std::move(cube));
+        doc().objects.emplace(id, std::move(cube));
     }
 
-    LOT_LOG("Game objects created: " << g_gameObjects.size());
+    LOT_LOG("Game objects created: " << doc().objects.size());
 }
 
 // 받아온 OBJ 모델을 장면 가운데에 놓는다.
@@ -200,10 +186,10 @@ void placeObjModel() {
     object.transform.rotation = normalize(quat::angleAxis(0.3f, vec3(0.0f, 0.0f, 1.0f))
                                           * quat::angleAxis(1.2f, vec3(1.0f, 0.0f, 0.0f)));
     object.transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
-    g_objObjectId = object.getId();
-    g_gameObjects.emplace(g_objObjectId, std::move(object));
+    doc().objObjectId = object.getId();
+    doc().objects.emplace(doc().objObjectId, std::move(object));
 
-    g_objPlaced = true;
+    doc().objPlaced = true;
     LOT_LOG("OBJ model placed at scene center");
 }
 
@@ -225,20 +211,20 @@ static void pushLinetypes() {
 }
 
 // 층 표를 보는 콜백들. 렌더/피킹 시스템은 층을 모르고 이 함수만 부른다.
-static bool layerVisible(const LotGameObject& obj) { return g_layers.isVisible(obj.layer); }
-static bool layerSelectable(const LotGameObject& obj) { return g_layers.isSelectable(obj.layer); }
+static bool layerVisible(const LotGameObject& obj) { return doc().layers.isVisible(obj.layer); }
+static bool layerSelectable(const LotGameObject& obj) { return doc().layers.isSelectable(obj.layer); }
 
 // 오브젝트가 쓸 선종류. '층 따름'이면 층의 것.
 static uint32_t displayLinetype(const LotGameObject& obj) {
     if (obj.linetype != lot_linetype::kByLayer) return obj.linetype;
-    const LotLayers::Layer* l = g_layers.find(obj.layer);
+    const LotLayers::Layer* l = doc().layers.find(obj.layer);
     return l ? l->linetype : lot_linetype::kContinuous;
 }
 
 // 오브젝트가 화면에 낼 색. '층 따름'이면 층 색.
 static vec3 displayColor(const LotGameObject& obj) {
     if (!obj.colorByLayer) return obj.color;
-    const LotLayers::Layer* l = g_layers.find(obj.layer);
+    const LotLayers::Layer* l = doc().layers.find(obj.layer);
     return l ? l->color : obj.color;
 }
 
@@ -258,10 +244,10 @@ void lot_onCommandLine(const char* typed) {
         if (g_transform.isPreviewing()) {
             g_transform.setNumberBuffer(text);
             const auto& sc = g_renderer->getSwapchain();
-            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+            TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
-            g_transform.finish(tctx, g_edit.history());
+            g_transform.finish(tctx, doc().edit.history());
             LOT_LOG("command: value " << text);
         } else {
             LOT_LOG("command: " << text << " - no tool is waiting for a value");
@@ -285,7 +271,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onLayerCommand(const char* action, int layerId, int value) {
     if (action == nullptr) return;
     g_ui.layerPanel().command(action, static_cast<uint32_t>(layerId), value,
-                              g_layers, g_gameObjects, g_edit);
+                              doc().layers, doc().objects, doc().edit);
 }
 
 // 더블 클릭으로 연 문자 오브젝트 (없으면 kInvalidId). 입력창이 이 오브젝트를 고친다.
@@ -301,28 +287,28 @@ void lot_onTextEntered(const char* text) {
     if (g_editingTextId != LotGameObject::kInvalidId) {
         const LotGameObject::id_t id = g_editingTextId;
         g_editingTextId = LotGameObject::kInvalidId;
-        auto* obj = LotGameObject::find(g_gameObjects, id);
+        auto* obj = LotGameObject::find(doc().objects, id);
         if (!obj || !obj->isText() || obj->text.content == content) return;
         EditHistory::Edit edit;
         edit.label = "text edit";
-        edit.before = EditHistory::snapshot(g_gameObjects, std::set<LotGameObject::id_t>{id});
+        edit.before = EditHistory::snapshot(doc().objects, std::set<LotGameObject::id_t>{id});
         if (content.empty()) {
-            g_gameObjects.erase(id);  // 비우면 지운다 (CAD 관례)
+            doc().objects.erase(id);  // 비우면 지운다 (CAD 관례)
             LOT_LOG("text: object " << id << " removed (empty)");
         } else {
             obj->text.content = content;
-            edit.after = EditHistory::snapshot(g_gameObjects, std::set<LotGameObject::id_t>{id});
+            edit.after = EditHistory::snapshot(doc().objects, std::set<LotGameObject::id_t>{id});
             LOT_LOG("text: object " << id << " edited (\"" << content << "\")");
         }
         if (edit.after.empty() && !content.empty()) return;
-        g_edit.history().record(std::move(edit));
+        doc().edit.history().record(std::move(edit));
         return;
     }
 
-    g_sketch.submitText(content, g_gameObjects);
+    g_sketch.submitText(content, doc().objects);
     if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
-        if (auto* obj = LotGameObject::find(g_gameObjects, id)) obj->layer = g_layers.current();
-        g_edit.history().recordCreated("text", g_gameObjects, id);
+        if (auto* obj = LotGameObject::find(doc().objects, id)) obj->layer = doc().layers.current();
+        doc().edit.history().recordCreated("text", doc().objects, id);
     }
 }
 
@@ -340,17 +326,17 @@ static void addCube() {
         LOT_ERR("cube: the cube model is not ready yet");
         return;
     }
-    const vec3 look = g_camera.getTarget();
+    const vec3 look = doc().camera.getTarget();
     auto cube = LotGameObject::createGameObject();
     cube.model = g_cubeModel;
     cube.material = g_checkerMaterial;
     cube.transform.translation = vec3(look.x, look.y, kCubeHalf);
     cube.transform.scale = vec3(0.6f);
-    cube.layer = g_layers.current();
+    cube.layer = doc().layers.current();
     const auto id = cube.getId();
-    g_gameObjects.emplace(id, std::move(cube));
-    g_edit.history().recordCreated("cube", g_gameObjects, id);
-    g_edit.setSelection({id});   // 바로 기즈모로 옮길 수 있게
+    doc().objects.emplace(id, std::move(cube));
+    doc().edit.history().recordCreated("cube", doc().objects, id);
+    doc().edit.setSelection({id});   // 바로 기즈모로 옮길 수 있게
     LOT_LOG("cube: added object " << id << " at (" << look.x << ", " << look.y << ")");
 }
 
@@ -363,7 +349,7 @@ static bool runAction(const char* code) {
     if (code == nullptr || code[0] != '#') return false;
     const std::string name(code + 1);
     if (name == "cube") { addCube(); return true; }
-    if (name == "eraseAll") { g_edit.deleteAll(g_gameObjects); return true; }
+    if (name == "eraseAll") { doc().edit.deleteAll(doc().objects); return true; }
     LOT_ERR("command: no action named \"" << name << "\"");
     return true;   // '#' 로 왔으면 키로 넘기지 않는다
 }
@@ -382,11 +368,11 @@ void lot_onViewCube(int dx, int dy, int dz) {
         else if (dy < 0) type = LotCamera::CadViewType::Front;
         else if (dx > 0) type = LotCamera::CadViewType::Right;
         else             type = LotCamera::CadViewType::Left;
-        g_camera.setCadViewDirection(type);   // 보던 자리와 거리는 그대로
+        doc().camera.setCadViewDirection(type);   // 보던 자리와 거리는 그대로
         LOT_LOG("viewcube: face (" << dx << ", " << dy << ", " << dz << ")");
         return;
     }
-    g_camera.setViewFromDirection(normalize(vec3(static_cast<float>(dx),
+    doc().camera.setViewFromDirection(normalize(vec3(static_cast<float>(dx),
                                                  static_cast<float>(dy),
                                                  static_cast<float>(dz))));
     LOT_LOG("viewcube: " << (axes == 2 ? "edge" : "corner")
@@ -413,7 +399,7 @@ static void zoomExtents() {
         lo = vec3{std::fmin(lo.x, p.x), std::fmin(lo.y, p.y), std::fmin(lo.z, p.z)};
         hi = vec3{std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
     };
-    for (const auto& entry : g_gameObjects) {
+    for (const auto& entry : doc().objects) {
         const LotGameObject& obj = entry.second;
         if (obj.isSketch()) {
             for (const vec3& p : obj.worldPoints()) grow(p);
@@ -439,29 +425,29 @@ static void zoomExtents() {
     const vec3 half = (hi - lo) * 0.5f;
     const float radius = std::fmax(std::sqrt(dot(half, half)), 0.01f);
 
-    g_camera.setViewMode(LotCamera::ViewMode::Cad);
-    g_camera.frame(center, radius, kFovY);
+    doc().camera.setViewMode(LotCamera::ViewMode::Cad);
+    doc().camera.frame(center, radius, kFovY);
 
     // 직교: 세로 절반에 반지름이 담기게. 한계도 씬 크기에 비례.
-    g_orthoHalfHeight = radius * 1.15f;
-    g_orthoMaxHalfHeight = std::fmax(20.0f, radius * 20.0f);
-    g_orthoMinHalfHeight = std::fmin(0.2f, radius * 0.001f);
+    doc().orthoHalfHeight = radius * 1.15f;
+    doc().orthoMaxHalfHeight = std::fmax(20.0f, radius * 20.0f);
+    doc().orthoMinHalfHeight = std::fmin(0.2f, radius * 0.001f);
 
     // 클립 평면: far 는 최대 궤도 거리 + 씬 반지름을 덮고, near 는 far 의 1e-5 이상.
-    g_farZ = std::fmax(100.0f, g_camera.getMaxOrbitDistance() + radius * 2.0f);
-    g_nearZ = std::fmax(0.01f, g_farZ * 1e-5f);
+    doc().farZ = std::fmax(100.0f, doc().camera.getMaxOrbitDistance() + radius * 2.0f);
+    doc().nearZ = std::fmax(0.01f, doc().farZ * 1e-5f);
 
     // 치수 글자/화살표 기본 크기를 씬에 맞춘다 (mm 도면에서 0.3 짜리 글자는 안 보인다)
     g_sketch.setDimensionStyle(radius * 0.05f, radius * 0.025f);
     g_sketch.setTextHeight(radius * 0.07f);
     // 선종류 무늬도 씬 크기에 맞춘다 (mm 도면에서 0.5 짜리 파선은 실선처럼 보인다)
-    g_linetypeScale = std::fmax(0.01f, radius * 0.25f);
+    doc().linetypeScale = std::fmax(0.01f, radius * 0.25f);
     // 그리드 스냅 간격도 - 화면 가로에 눈금이 20 개쯤 되게 '보기 좋은' 값으로
-    g_gridSpacing = lot_cursor::niceSpacing(radius * 0.1f);
-    if (lot_cursor::settings().gridSpacing > 0.0f) lot_cursor::settings().gridSpacing = g_gridSpacing;
+    doc().gridSpacing = lot_cursor::niceSpacing(radius * 0.1f);
+    if (lot_cursor::settings().gridSpacing > 0.0f) lot_cursor::settings().gridSpacing = doc().gridSpacing;
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
-            << ") radius " << radius << ", clip " << g_nearZ << " .. " << g_farZ);
+            << ") radius " << radius << ", clip " << doc().nearZ << " .. " << doc().farZ);
 }
 
 // DXF 열기. JS 가 코드페이지를 풀어 UTF-8 로 넘긴다 (옛 도면은 CP949 등).
@@ -482,19 +468,19 @@ void lot_onDxfFileLoaded(const char* data, int length) {
     }
 
     g_sketch.cancel();
-    g_transform.cancel(g_gameObjects);
-    g_edit.clearSelection();
-    g_edit.history().clear();
-    g_gameObjects = std::move(loaded);
-    g_layers = std::move(loadedLayers);
-    g_objPlaced = true;  // 도면에는 기본 토러스를 끼워 넣지 않는다
+    g_transform.cancel(doc().objects);
+    doc().edit.clearSelection();
+    doc().edit.history().clear();
+    doc().objects = std::move(loaded);
+    doc().layers = std::move(loadedLayers);
+    doc().objPlaced = true;  // 도면에는 기본 토러스를 끼워 넣지 않는다
     zoomExtents();
 }
 
 // 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.
 extern "C" EMSCRIPTEN_KEEPALIVE
 char* lot_saveScene() {
-    const std::string text = lot_scene::save(g_gameObjects, g_layers);
+    const std::string text = lot_scene::save(doc().objects, doc().layers);
     char* out = static_cast<char*>(std::malloc(text.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, text.c_str(), text.size() + 1);
@@ -504,7 +490,7 @@ char* lot_saveScene() {
 // 씬을 DXF 로. 2D 스케치/문자/치수만 나간다 (메시는 .lot 으로 저장한다).
 extern "C" EMSCRIPTEN_KEEPALIVE
 char* lot_saveDxf() {
-    const std::string text = lot_dxf::save(g_gameObjects, g_layers, g_linetypeScale);
+    const std::string text = lot_dxf::save(doc().objects, doc().layers, doc().linetypeScale);
     char* out = static_cast<char*>(std::malloc(text.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, text.c_str(), text.size() + 1);
@@ -535,12 +521,12 @@ void lot_onLotFileLoaded(const char* data, int length) {
     }
 
     g_sketch.cancel();
-    g_transform.cancel(g_gameObjects);
-    g_edit.clearSelection();
-    g_edit.history().clear();
-    g_gameObjects = std::move(loaded);
-    g_layers = std::move(loadedLayers);
-    g_objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
+    g_transform.cancel(doc().objects);
+    doc().edit.clearSelection();
+    doc().edit.history().clear();
+    doc().objects = std::move(loaded);
+    doc().layers = std::move(loadedLayers);
+    doc().objPlaced = true;  // 파일 씬에는 기본 토러스를 끼워 넣지 않는다
     zoomExtents();       // 단위가 다른 파일(mm 도면)도 바로 보이게
 }
 
@@ -566,11 +552,11 @@ void lot_onObjFileLoaded(const char* data, int length) {
     // 이전 모델은 shared_ptr 이 마지막으로 놓을 때 정리된다
     g_objModel = std::move(model);
 
-    if (auto* object = LotGameObject::find(g_gameObjects, g_objObjectId)) {
+    if (auto* object = LotGameObject::find(doc().objects, doc().objObjectId)) {
         object->model = g_objModel;
         object->transform.scale = vec3(g_objModel->fitScale(kObjTargetSize));
         LOT_LOG("OBJ open: replaced the model at scene center");
-    } else if (g_objPlaced) {
+    } else if (doc().objPlaced) {
         // 자리에 있던 오브젝트가 지워졌다 - 새로 놓는다
         placeObjModel();
     }
@@ -658,7 +644,7 @@ void renderLoop() {
 
     // 4-1. OBJ 모델이 도착했으면 장면에 넣는다 (한 번만).
     //      큐브들은 그 전에 이미 그려지고 있다 - 로딩이 화면을 막지 않는다.
-    if (!g_objPlaced && g_objModel && g_gameObjectsCreated) {
+    if (!doc().objPlaced && g_objModel && g_gameObjectsCreated) {
         placeObjModel();
     }
 
@@ -681,35 +667,35 @@ void renderLoop() {
         // 것과 맞지만, 한 프레임 차이는 눈에 띄지 않으므로 이전 프레임 카메라로 한다.
         {
             const auto& sc = g_renderer->getSwapchain();
-            EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
+            EditController::Context ctx{doc().camera, g_mouse, *g_gizmoSystem, doc().objects,
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
                                                                : g_sketch.referencePoint()};
-            g_edit.update(ctx);
+            doc().edit.update(ctx);
 
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
             g_cameraController.setNumberCapture(g_transform.isPreviewing());
             g_transform.setNumberBuffer(g_cameraController.numberBuffer());
-            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+            TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
-            g_transform.update(tctx, g_edit.history());
+            g_transform.update(tctx, doc().edit.history());
             if (const auto copies = g_transform.consumeCreated(); !copies.empty()) {
-                g_edit.setSelection(copies);  // 놓은 사본을 선택 - 이어서 기즈모로 다듬을 수 있게
+                doc().edit.setSelection(copies);  // 놓은 사본을 선택 - 이어서 기즈모로 다듬을 수 있게
             }
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
-            SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+            SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                            static_cast<float>(sc.getWidth()),
                                            static_cast<float>(sc.getHeight())};
             g_sketch.update(sctx);
             if (const auto id = g_sketch.consumeCommittedId(); id != LotGameObject::kInvalidId) {
                 // 새로 그린 것은 현재 층에
-                if (auto* obj = LotGameObject::find(g_gameObjects, id)) obj->layer = g_layers.current();
-                g_edit.history().recordCreated("sketch", g_gameObjects, id);
+                if (auto* obj = LotGameObject::find(doc().objects, id)) obj->layer = doc().layers.current();
+                doc().edit.history().recordCreated("sketch", doc().objects, id);
             }
             // 문자 도구가 기준점을 찍었으면 브라우저 입력창을 연다 (글자 입력은 DOM 이 받는다)
             if (g_sketch.consumeTextInputRequest()) {
@@ -717,8 +703,8 @@ void renderLoop() {
                 js_showTextInput("text, Enter to place", "");
             }
             // 문자를 더블 클릭하면 그 내용을 고친다
-            if (const auto id = g_edit.consumeDoubleClicked(); id != LotGameObject::kInvalidId) {
-                if (const auto* obj = LotGameObject::find(g_gameObjects, id); obj && obj->isText()) {
+            if (const auto id = doc().edit.consumeDoubleClicked(); id != LotGameObject::kInvalidId) {
+                if (const auto* obj = LotGameObject::find(doc().objects, id); obj && obj->isText()) {
                     g_editingTextId = id;
                     js_showTextInput("edit text, Enter to apply", obj->text.content.c_str());
                     LOT_LOG("text: editing object " << id);
@@ -736,66 +722,66 @@ void renderLoop() {
         }
         if (g_cameraController.consumeGridSnapToggle()) {
             auto& s = lot_cursor::settings();
-            s.gridSpacing = (s.gridSpacing > 0.0f) ? 0.0f : g_gridSpacing;
+            s.gridSpacing = (s.gridSpacing > 0.0f) ? 0.0f : doc().gridSpacing;
             LOT_LOG("grid snap: " << (s.gridSpacing > 0.0f ? "on" : "off")
-                    << " (spacing " << g_gridSpacing << ")");
+                    << " (spacing " << doc().gridSpacing << ")");
         }
         if (const int d = g_cameraController.consumePolygonSidesDelta(); d != 0) {
             g_sketch.changePolygonSides(d);
         }
-        g_cameraController.setCadMode(g_camera.isCadMode());
+        g_cameraController.setCadMode(doc().camera.isCadMode());
 
         // 실행 취소 / 다시 실행. 스케치 중이면 도구부터 닫는다 - 반쯤 그린 것과 섞이지 않게.
         if (g_cameraController.consumeUndo()) {
             g_sketch.cancel();
-            g_transform.cancel(g_gameObjects);
-            g_edit.undo(g_gameObjects);
+            g_transform.cancel(doc().objects);
+            doc().edit.undo(doc().objects);
         }
         if (g_cameraController.consumeRedo()) {
             g_sketch.cancel();
-            g_transform.cancel(g_gameObjects);
-            g_edit.redo(g_gameObjects);
+            g_transform.cancel(doc().objects);
+            doc().edit.redo(doc().objects);
         }
 
         // 스케치 도구 시작 / 끝 / 취소. 도구를 열면 선택은 비운다 (Vulkan 쪽과 같다).
         if (const int tool = g_cameraController.consumeSketchTool(); tool >= 0) {
-            g_transform.cancel(g_gameObjects);
-            g_edit.clearSelection();
-            g_sketch.start(static_cast<SketchController::Kind>(tool), g_camera);
+            g_transform.cancel(doc().objects);
+            doc().edit.clearSelection();
+            g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
         }
         // 변환 도구 (기준점 방식). 선택이 있어야 한다.
         if (const int mode = g_cameraController.consumeTransformMode(); mode >= 0) {
             g_sketch.cancel();
-            g_transform.cancel(g_gameObjects);
-            g_transform.start(static_cast<TransformTool::Mode>(mode + 1), g_edit.selection(),
-                              g_camera, g_gameObjects);
+            g_transform.cancel(doc().objects);
+            g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
+                              doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
             if (g_transform.isActive()) {
-                TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+                TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                             static_cast<float>(g_renderer->getSwapchain().getWidth()),
                                             static_cast<float>(g_renderer->getSwapchain().getHeight())};
-                g_transform.finish(tctx, g_edit.history());
+                g_transform.finish(tctx, doc().edit.history());
                 g_cameraController.clearNumberBuffer();
             } else {
-                g_sketch.finish(g_gameObjects);
+                g_sketch.finish(doc().objects);
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_transform.isActive()) g_transform.cancel(g_gameObjects);
+            if (g_transform.isActive()) g_transform.cancel(doc().objects);
             else if (g_sketch.anyActive()) { g_sketch.cancel(); js_hideTextInput(); }
-            else g_edit.clearSelection();
+            else doc().edit.clearSelection();
         }
 
         // 뷰 모드 전환 / 표준 뷰
         if (g_cameraController.consumeViewModeToggle()) {
-            g_camera.setViewMode(g_camera.isCadMode() ? LotCamera::ViewMode::Fps
+            doc().camera.setViewMode(doc().camera.isCadMode() ? LotCamera::ViewMode::Fps
                                                       : LotCamera::ViewMode::Cad);
-            LOT_LOG("view: " << (g_camera.isCadMode() ? "cad orbit" : "fps"));
+            LOT_LOG("view: " << (doc().camera.isCadMode() ? "cad orbit" : "fps"));
         }
         if (const int preset = g_cameraController.consumeViewPreset(); preset >= 0) {
-            g_camera.setViewMode(LotCamera::ViewMode::Cad);
-            g_camera.resetCadView(static_cast<LotCamera::CadViewType>(preset));
+            doc().camera.setViewMode(LotCamera::ViewMode::Cad);
+            doc().camera.resetCadView(static_cast<LotCamera::CadViewType>(preset));
             static const char* kViewNames[] = {"front", "back", "top", "bottom",
                                                "right", "left", "isometric"};
             LOT_LOG("view: " << kViewNames[preset]);
@@ -806,35 +792,35 @@ void renderLoop() {
         float mouseDx = 0.0f, mouseDy = 0.0f;
         g_mouse.consumeDelta(mouseDx, mouseDy);
         const float wheel = g_mouse.consumeWheel();
-        if (g_camera.isCadMode()) {
+        if (doc().camera.isCadMode()) {
             // 우클릭 궤도, 중클릭 팬, 휠 줌, 화살표 궤도
             if (g_mouse.isRightDown()) {
                 // 부호가 음수인 이유: 팬과 마찬가지로 '장면을 잡고 끄는' 느낌이어야 한다.
                 // 오른쪽으로 끌면 장면이 오른쪽으로 돌아야 하므로 카메라는 왼쪽으로 간다.
-                g_camera.orbitAroundTarget(-mouseDx * kOrbitRadPerPixel, -mouseDy * kOrbitRadPerPixel);
+                doc().camera.orbitAroundTarget(-mouseDx * kOrbitRadPerPixel, -mouseDy * kOrbitRadPerPixel);
             } else if (g_mouse.isMiddleDown()) {
-                g_camera.panTarget(mouseDx, mouseDy,
+                doc().camera.panTarget(mouseDx, mouseDy,
                                    static_cast<float>(g_renderer->getSwapchain().getHeight()));
             }
             float yaw = 0.0f, pitch = 0.0f;
             g_cameraController.orbitInput(yaw, pitch);
             if (yaw != 0.0f || pitch != 0.0f) {
                 const float step = kOrbitRadPerSec * static_cast<float>(deltaSec);
-                g_camera.orbitAroundTarget(yaw * step, pitch * step);
+                doc().camera.orbitAroundTarget(yaw * step, pitch * step);
             }
             if (wheel != 0.0f) {
-                if (g_orthographic) {
-                    g_orthoHalfHeight *= LotCamera::zoomFactor(wheel);
-                    if (g_orthoHalfHeight < g_orthoMinHalfHeight) g_orthoHalfHeight = g_orthoMinHalfHeight;
-                    if (g_orthoHalfHeight > g_orthoMaxHalfHeight) g_orthoHalfHeight = g_orthoMaxHalfHeight;
+                if (doc().orthographic) {
+                    doc().orthoHalfHeight *= LotCamera::zoomFactor(wheel);
+                    if (doc().orthoHalfHeight < doc().orthoMinHalfHeight) doc().orthoHalfHeight = doc().orthoMinHalfHeight;
+                    if (doc().orthoHalfHeight > doc().orthoMaxHalfHeight) doc().orthoHalfHeight = doc().orthoMaxHalfHeight;
                 } else {
-                    g_camera.zoomToTarget(wheel);
+                    doc().camera.zoomToTarget(wheel);
                 }
             }
         } else {
             // 1인칭: 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.
             // 첫 프레임은 deltaSec 이 0 이라 아무 일도 일어나지 않는다.
-            g_cameraController.moveInPlaneXY(static_cast<float>(deltaSec), g_viewerObject);
+            g_cameraController.moveInPlaneXY(static_cast<float>(deltaSec), doc().viewer);
         }
 
         // 투영 전환 / 직교 줌
@@ -846,13 +832,13 @@ void renderLoop() {
         // 도구가 열려 있으면 편집 키를 무시한다 (플래그는 비워야 나중에 튀어나오지 않는다)
         const bool editKeysEnabled = !g_sketch.anyActive() && !g_transform.isActive();
         if (g_cameraController.consumeDuplicate() && editKeysEnabled) {
-            g_edit.duplicateSelection(g_gameObjects);
+            doc().edit.duplicateSelection(doc().objects);
         }
         if (g_cameraController.consumeSelectAll() && editKeysEnabled) {
-            g_edit.selectAll(g_gameObjects);
+            doc().edit.selectAll(doc().objects);
         }
         if (g_cameraController.consumeDelete() && editKeysEnabled) {
-            g_edit.deleteSelection(g_gameObjects);
+            doc().edit.deleteSelection(doc().objects);
         }
         if (g_cameraController.consumeOutlineToggle()) {
             g_postSystem->mode = (g_postSystem->mode == PostProcessSystem::Mode::Outline)
@@ -861,17 +847,17 @@ void renderLoop() {
                                  ? "outline" : "passthrough"));
         }
         if (g_cameraController.consumeProjectionToggle()) {
-            g_orthographic = !g_orthographic;
-            LOT_LOG("projection: " << (g_orthographic ? "orthographic" : "perspective"));
+            doc().orthographic = !doc().orthographic;
+            LOT_LOG("projection: " << (doc().orthographic ? "orthographic" : "perspective"));
         }
-        if (g_orthographic) {
+        if (doc().orthographic) {
             // 지수적으로 줄이고 키워야 어느 배율에서든 같은 '느낌'으로 줌된다
             const int zoom = g_cameraController.zoomDirection();
             if (zoom != 0) {
                 const float factor = std::exp(-zoom * kOrthoZoomSpeed * static_cast<float>(deltaSec));
-                g_orthoHalfHeight *= factor;
-                if (g_orthoHalfHeight < g_orthoMinHalfHeight) g_orthoHalfHeight = g_orthoMinHalfHeight;
-                if (g_orthoHalfHeight > g_orthoMaxHalfHeight) g_orthoHalfHeight = g_orthoMaxHalfHeight;
+                doc().orthoHalfHeight *= factor;
+                if (doc().orthoHalfHeight < doc().orthoMinHalfHeight) doc().orthoHalfHeight = doc().orthoMinHalfHeight;
+                if (doc().orthoHalfHeight > doc().orthoMaxHalfHeight) doc().orthoHalfHeight = doc().orthoMaxHalfHeight;
             }
         }
 
@@ -881,32 +867,32 @@ void renderLoop() {
             ui.gizmoMode = static_cast<int>(g_gizmoSystem->mode);
             ui.sketchTool = g_sketch.activeKind();
             ui.xformMode = g_transform.isActive() ? g_transform.modeIndex() - 1 : -1;
-            ui.view = g_camera.presetViewIndex();
-            ui.fps = !g_camera.isCadMode();
-            ui.ortho = g_orthographic;
+            ui.view = doc().camera.presetViewIndex();
+            ui.fps = !doc().camera.isCadMode();
+            ui.ortho = doc().orthographic;
             ui.orthoTracking = lot_cursor::settings().ortho;
             ui.gridSnap = lot_cursor::settings().gridSpacing > 0.0f;
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
-            ui.canUndo = g_edit.history().canUndo();
-            ui.canRedo = g_edit.history().canRedo();
+            ui.canUndo = doc().edit.history().canUndo();
+            ui.canRedo = doc().edit.history().canRedo();
             ui.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
-            g_ui.update(ui, g_layers, g_gameObjects, g_edit);
-            g_ui.updateViewCube(g_camera);
+            g_ui.update(ui, doc().layers, doc().objects, doc().edit);
+            g_ui.updateViewCube(doc().camera);
         }
 
         // 카메라 갱신. 종횡비는 매 프레임 현재 값으로 넣어두면
         // 리사이즈를 따로 챙기지 않아도 항상 맞는다.
-        if (g_orthographic) {
-            g_camera.setOrthographicProjection(g_orthoHalfHeight, g_renderer->getAspectRatio(),
-                                               g_nearZ, g_farZ);
+        if (doc().orthographic) {
+            doc().camera.setOrthographicProjection(doc().orthoHalfHeight, g_renderer->getAspectRatio(),
+                                               doc().nearZ, doc().farZ);
         } else {
-            g_camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), g_nearZ, g_farZ);
+            doc().camera.setPerspectiveProjection(kFovY, g_renderer->getAspectRatio(), doc().nearZ, doc().farZ);
         }
-        if (g_camera.isCadMode()) {
-            g_camera.updateCadView();
+        if (doc().camera.isCadMode()) {
+            doc().camera.updateCadView();
         } else {
-            g_camera.setViewFromTransform(g_viewerObject.transform.translation,
-                                          g_viewerObject.transform.rotation);
+            doc().camera.setViewFromTransform(doc().viewer.transform.translation,
+                                          doc().viewer.transform.rotation);
         }
 
         // (예전의 자동 회전은 뺐다 - 회전/축척 기즈모로 편집한 값을 매 프레임
@@ -920,7 +906,7 @@ void renderLoop() {
                                               kLightHeight);
 
         // 프레임당 유니폼 갱신. 렌더 시스템 전부가 같은 값을 본다.
-        g_globalUniform.update(g_camera, g_lighting);
+        g_globalUniform.update(doc().camera, g_lighting);
 
         // 패스 1: 장면을 오프스크린 타깃에. 스왑체인과 같은 크기/포맷으로 맞춘다.
         const auto& sc = g_renderer->getSwapchain();
@@ -934,9 +920,9 @@ void renderLoop() {
         FrameInfo frame{
             static_cast<float>(deltaSec),
             scenePass,
-            g_camera,
+            doc().camera,
             g_globalUniform.getBindGroup(),
-            g_gameObjects,
+            doc().objects,
             layerVisible,  // 꺼진 층의 메시는 건너뛴다
             displayColor,  // '층 따름'이면 층 색
         };
@@ -945,23 +931,23 @@ void renderLoop() {
         // 프레임마다 다시 채우므로 광원이 움직이면 십자도 따라간다.
         g_lineSystem->clear();
         // 바닥 격자. 그리드 스냅(F9) 과 같은 간격으로, 카메라를 따라다닌다.
-        lot_grid::draw(*g_lineSystem, g_camera, g_gridSpacing, static_cast<float>(sc.getHeight()));
+        lot_grid::draw(*g_lineSystem, doc().camera, doc().gridSpacing, static_cast<float>(sc.getHeight()));
         g_lineSystem->addCross(g_lighting.pointLight.position, 0.12f, vec3(1.0f, 0.95f, 0.6f));
         g_lineSystem->addBox(vec3(-2.4f, -0.9f, 0.0f), vec3(2.4f, 0.9f, 1.5f),
                              vec3(0.45f, 0.45f, 0.5f));
 
         // 선택 상자 / 박스 선택 사각형 / 스냅 마커
         {
-            EditController::Context ctx{g_camera, g_mouse, *g_gizmoSystem, g_gameObjects,
+            EditController::Context ctx{doc().camera, g_mouse, *g_gizmoSystem, doc().objects,
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
-            g_edit.drawOverlay(*g_lineSystem, ctx);
+            doc().edit.drawOverlay(*g_lineSystem, ctx);
         }
 
         // 스케치 오브젝트 + 치수 + 그리는 중인 프리뷰
         g_polylineSystem->clear();
         g_textSystem->clear();
-        for (const auto& entry : g_gameObjects) {
+        for (const auto& entry : doc().objects) {
             const LotGameObject& obj = entry.second;
             if (!layerVisible(obj)) continue;  // 꺼진 층
             const vec3 color = displayColor(obj);
@@ -972,23 +958,23 @@ void renderLoop() {
                 } else {
                     // 무늬가 있으면 선분으로 잘라 낸다. 화면에서 한 주기가 4px 보다
                     // 짧아지면 (줌 아웃) 실선으로 떨어뜨려 뭉개지지 않게.
-                    const float minDash = g_camera.worldPerPixel(obj.transform.translation,
+                    const float minDash = doc().camera.worldPerPixel(obj.transform.translation,
                                                                  static_cast<float>(sc.getHeight())) * 4.0f;
                     lot_linetype::emit(*g_lineSystem, obj.worldPoints(), obj.closed, color, lt,
-                                       g_linetypeScale, minDash);
+                                       doc().linetypeScale, minDash);
                 }
             } else if (obj.isDimension()) {
-                lot_dim::draw(obj, g_camera, *g_lineSystem, *g_textSystem, color);
+                lot_dim::draw(obj, doc().camera, *g_lineSystem, *g_textSystem, color);
             } else if (obj.isText()) {
                 lot_text::draw(obj, *g_textSystem, color);
             }
         }
         {
-            SketchController::Context sctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+            SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                            static_cast<float>(sc.getWidth()),
                                            static_cast<float>(sc.getHeight())};
             g_sketch.drawPreview(*g_polylineSystem, *g_lineSystem, *g_textSystem, sctx);
-            TransformTool::Context tctx{g_camera, g_mouse, g_gameObjects, g_edit.snap(),
+            TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
             g_transform.drawOverlay(*g_lineSystem, tctx);
@@ -1038,7 +1024,7 @@ void renderLoop() {
         g_polylineSystem->render(frame);
         g_textSystem->render(frame);  // 반투명 - 불투명한 것들 뒤에
         // 기즈모는 뎁스를 무시하므로 맨 마지막. 선택이 있을 때만.
-        g_edit.drawGizmo(frame, *g_gizmoSystem);
+        doc().edit.drawGizmo(frame, *g_gizmoSystem);
         g_renderer->endRenderPass();
 
         // 프레임 종료
@@ -1051,6 +1037,9 @@ int main() {
     LOT_LOG("==================================");
     LOT_LOG("WebGPU 3D Engine - Perspective Cubes");
     LOT_LOG("==================================");
+
+    // 첫 도면. doc() 을 건드리는 것은 전부 이 뒤에 온다.
+    g_documents.push_back(std::make_unique<LotDocument>());
 
     // Renderer 생성 (동적 크기 - 브라우저 창 크기에 맞춤)
     g_renderer = std::make_unique<LotWebRenderer>();
@@ -1066,8 +1055,8 @@ int main() {
 
     // 카메라: CAD 궤도가 기본. 앞-왼쪽-위에서 내려다보는 3/4 뷰로 시작한다.
     // 1인칭(V) 용 뷰어 오브젝트 위치도 같이 잡아둔다.
-    g_camera.setViewFromDirection(normalize(vec3{-0.45f, -1.0f, 0.45f}));  // 앞-왼쪽-위
-    g_viewerObject.transform.translation = kCameraStartPosition;
+    doc().camera.setViewFromDirection(normalize(vec3{-0.45f, -1.0f, 0.45f}));  // 앞-왼쪽-위
+    doc().viewer.transform.translation = kCameraStartPosition;
     g_cameraController.init();
     // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다
 
