@@ -10,6 +10,9 @@ struct GlobalUniforms {
     ambientLightColor: vec4<f32>,
     lightPosition: vec4<f32>,
     lightColor: vec4<f32>,
+    keyLight: vec4<f32>,           // 방향 (빛이 나아가는 쪽) + 세기
+    fillLight: vec4<f32>,          // 방향 + 세기
+    cameraPosition: vec4<f32>,     // xyz (하이라이트 계산용)
 };
 
 @group(0) @binding(0) var<uniform> global: GlobalUniforms;

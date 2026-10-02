@@ -8,6 +8,11 @@ struct GlobalUniforms {
     ambientLightColor: vec4<f32>,  // rgb + 세기
     lightPosition: vec4<f32>,      // xyz (w 는 안 씀)
     lightColor: vec4<f32>,         // rgb + 세기
+    // CAD 기본 조명 (네이티브 render_coordinator 와 같은 값). 점 광원이 없어도
+    // 면이 구별되게 하는 평행광 둘 - 앞에서 비추는 주광, 반대쪽에서 약한 보조광.
+    keyLight: vec4<f32>,           // 방향 (빛이 나아가는 쪽) + 세기
+    fillLight: vec4<f32>,          // 방향 + 세기
+    cameraPosition: vec4<f32>,     // xyz (하이라이트 계산용)
 };
 
 // 오브젝트마다 dynamic offset 으로 다른 슬롯을 본다.
@@ -68,26 +73,33 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // 방향 광원과 달리 조각마다 광원까지의 방향이 다르다.
-    let toLight = global.lightPosition.xyz - input.positionWorld;
-
-    // 거리 제곱에 반비례하는 감쇠. dot(v, v) 가 곧 거리의 제곱이라
-    // sqrt 를 부르지 않아도 된다.
-    let attenuation = 1.0 / dot(toLight, toLight);
-
-    let lightColor = global.lightColor.rgb * global.lightColor.a * attenuation;
     let ambientLight = global.ambientLightColor.rgb * global.ambientLightColor.a;
 
     // 보간을 거치면 길이가 1 이 아니게 되므로 여기서 다시 정규화한다.
     let normal = normalize(input.normalWorld);
 
-    // 램버트 확산광: 면이 광원을 정면으로 볼수록 밝다.
-    // 등지는 면은 dot 이 음수가 되므로 0 으로 잘라낸다.
-    let diffuse = lightColor * max(dot(normal, normalize(toLight)), 0.0);
+    // 평행광 둘 (감쇠 없음). 방향은 빛이 나아가는 쪽이라 뒤집어 면과 견준다.
+    var diffuse = vec3<f32>(max(dot(normal, -normalize(global.keyLight.xyz)), 0.0) * global.keyLight.w);
+    diffuse += vec3<f32>(max(dot(normal, -normalize(global.fillLight.xyz)), 0.0) * global.fillLight.w);
+
+    // 점 광원. 방향 광원과 달리 조각마다 광원까지의 방향이 다르고,
+    // 거리 제곱에 반비례해 어두워진다 (dot(v, v) 가 곧 거리의 제곱).
+    let toLight = global.lightPosition.xyz - input.positionWorld;
+    let attenuation = 1.0 / max(dot(toLight, toLight), 1e-6);
+    let lightColor = global.lightColor.rgb * global.lightColor.a * attenuation;
+    let toLightN = normalize(toLight);
+
+    // 램버트 확산광: 면이 광원을 정면으로 볼수록 밝다. 등지는 면은 0 으로 자른다.
+    diffuse += lightColor * max(dot(normal, toLightN), 0.0);
+
+    // 블린-퐁 하이라이트 (점 광원만, 네이티브와 같은 32 제곱)
+    let toCamera = normalize(global.cameraPosition.xyz - input.positionWorld);
+    let halfway = normalize(toLightN + toCamera);
+    let specular = lightColor * pow(clamp(dot(normal, halfway), 0.0, 1.0), 32.0);
 
     // 텍스처 색 * 정점 색 * 조명. 정점 색이 흰색이면 텍스처 그대로,
     // 텍스처가 없으면(1x1 흰색) 정점 색 그대로다.
     let texel = textureSample(materialTexture, materialSampler, input.uv);
     let base = mix(input.color * texel.rgb, object.objectColor.rgb * texel.rgb, object.objectColor.a);
-    return vec4<f32>((diffuse + ambientLight) * base, 1.0);
+    return vec4<f32>((diffuse + ambientLight) * base + specular, 1.0);
 }

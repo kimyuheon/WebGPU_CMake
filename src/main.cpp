@@ -102,6 +102,7 @@ static bool g_objRequested = false;   // fetch 를 시작했는지 (한 번만 �
 static const float kObjTargetSize = 1.4f;
 static const float kObjHeight = 0.6f;       // 가운데 모델의 중심 높이 (바닥 위)
 static const float kCubeHalf = 0.3f;        // 큐브 반 변 (scale 0.6) - 바닥에 딱 얹히게
+static const vec3 kMeshEdgeColor{0.08f, 0.08f, 0.08f};  // 메시 모서리 선 (거의 검정)
 static bool g_pipelineCreated = false;
 static bool g_uniformCreated = false;
 static bool g_overlayCreated = false;
@@ -130,7 +131,7 @@ static const float kOrthoZoomSpeed = 2.0f;      // 초당 배율
 // (거리 1.5 면 감쇠가 1/2.25 이라, 세기 4 정도는 되어야 눈에 찬다).
 static SceneLighting g_lighting = [] {
     SceneLighting lighting;
-    lighting.ambientIntensity = 0.03f;
+    lighting.ambientIntensity = 0.15f;   // 네이티브의 최솟값 (평행광이 있어 0.03 이면 그늘이 새까맣다)
     lighting.pointLight.color = vec3(1.0f, 1.0f, 1.0f);
     lighting.pointLight.intensity = 4.0f;
     return lighting;
@@ -158,8 +159,9 @@ void createGameObjects() {
     for (const auto& translation : spawns) {
         auto cube = LotGameObject::createGameObject();
 
+        // 재질 없이 면마다 다른 정점 색 (네이티브 기본 씬의 큐브와 같다).
+        // 체커 텍스처는 텍스처 길을 보여 주는 토러스에만 남긴다.
         cube.model = g_cubeModel;
-        cube.material = g_checkerMaterial;
         cube.transform.translation = translation;
         cube.transform.scale = vec3(0.6f);
         // 세 면이 다 보이게 위 축(Z) 둘레로 살짝 돌린다 (바닥에 얹힌 채로)
@@ -335,8 +337,9 @@ void lot_onTextCancelled() {
     if (g_sketch.waitingForTextInput()) g_sketch.cancel();
 }
 
-// 보고 있는 자리에 큐브 하나. 기본 씬의 큐브와 같은 모델/재질을 쓴다 (정점은 GPU 에
+// 보고 있는 자리에 큐브 하나. 기본 씬의 큐브와 같은 모델을 쓴다 (정점은 GPU 에
 // 한 번만 올라가 있다). 자리는 카메라가 보는 점의 XY, 높이는 바닥에 딱 얹히게.
+// 색은 네이티브 addNewCube 처럼 아무 색이나 하나 - 여러 개를 놓아도 구별된다.
 static void addCube() {
     if (!g_cubeModel) {
         LOT_ERR("cube: the cube model is not ready yet");
@@ -345,9 +348,11 @@ static void addCube() {
     const vec3 look = doc().camera.getTarget();
     auto cube = LotGameObject::createGameObject();
     cube.model = g_cubeModel;
-    cube.material = g_checkerMaterial;
     cube.transform.translation = vec3(look.x, look.y, kCubeHalf);
     cube.transform.scale = vec3(0.6f);
+    cube.color = vec3((std::rand() % 100) / 100.0f, (std::rand() % 100) / 100.0f,
+                      (std::rand() % 100) / 100.0f);
+    cube.colorByLayer = false;
     cube.layer = doc().layers.current();
     const auto id = cube.getId();
     doc().objects.emplace(id, std::move(cube));
@@ -634,8 +639,10 @@ void lot_onLotFileLoaded(const char* data, int length, const char* fileName) {
     // 파싱이 실패하면 현재 씬을 건드리지 않도록 임시 맵에 먼저 읽는다
     LotGameObject::Map loaded;
     LotLayers loadedLayers;
+    // 파일 메시에는 텍스처를 입히지 않는다 (네이티브와 같다). 체커는 UV 가 맞는지 보려던
+    // 시험용이라, mm 도면처럼 UV 가 큰 메시에서는 잔무늬로 뭉개져 면이 안 보인다.
     const lot_scene::LoadStats stats =
-        lot_scene::load(text, g_renderer->getDevice(), g_checkerMaterial, loaded, loadedLayers);
+        lot_scene::load(text, g_renderer->getDevice(), nullptr, loaded, loadedLayers);
     if (!stats.error.empty()) {
         LOT_ERR(stats.error);
         return;
@@ -1097,6 +1104,19 @@ void renderLoop() {
                 lot_text::draw(obj, *g_textSystem, color);
             } else if (obj.isLight()) {
                 g_lineSystem->addCross(obj.transform.translation, obj.light.markerSize, color);
+            } else if (obj.model && !obj.model->getFeatureEdges().empty()) {
+                // 메시 모서리 (네이티브의 ShadedEdge). 면 위에 딱 붙은 선은 뎁스가 면과 같아
+                // 깜빡이므로 카메라 쪽으로 조금 당긴다 - 거리의 0.2%, 화면에서는 안 보이는 만큼.
+                const mat4 m = obj.transform.mat4Transform();
+                const vec3 eye = doc().camera.getPosition();
+                const std::vector<vec3>& e = obj.model->getFeatureEdges();
+                for (size_t i = 0; i + 1 < e.size(); i += 2) {
+                    vec3 a = transformPoint(m, e[i]);
+                    vec3 b = transformPoint(m, e[i + 1]);
+                    a = a + (eye - a) * 0.002f;
+                    b = b + (eye - b) * 0.002f;
+                    g_lineSystem->addLine(a, b, kMeshEdgeColor);
+                }
             }
         }
         {

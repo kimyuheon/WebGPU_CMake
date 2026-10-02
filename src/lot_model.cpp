@@ -5,7 +5,10 @@
 #include "lot_log.h"
 
 #include <emscripten/emscripten.h>
+#include <algorithm>
 #include <cmath>
+#include <map>
+#include <tuple>
 #include <utility>
 
 LotModel::LotModel(lot_web_device& device, const Builder& builder) {
@@ -48,8 +51,79 @@ LotModel::LotModel(lot_web_device& device, const Builder& builder) {
         boundsMax_.z = std::fmax(boundsMax_.z, v.position[2]);
     }
 
+    buildFeatureEdges(35.0f);   // 네이티브가 메시에 쓰는 값
+
     LOT_LOG("LotModel: " << vertexCount_ << " vertices, "
-              << indexCount_ << " indices");
+              << indexCount_ << " indices, " << featureEdges_.size() / 2 << " feature edges");
+}
+
+// 네이티브 LotModel::Builder::buildFeatureEdges 와 같은 규칙.
+// 1) 위치를 1e-5 단위로 반올림해 같은 자리 정점을 하나로 본다 (면마다 정점을 따로 둔
+//    큐브도 모서리를 공유하게). 2) 삼각형 변마다 붙은 면의 법선을 모은다.
+// 3) 면이 하나뿐이면 가장자리, 멀쩡한 면 둘이면 법선 사이 각이 임계보다 클 때 모서리,
+//    셋 이상이면 비다양체라 일단 그린다.
+// 바늘/퇴화 삼각형(높이 < 가장 긴 변의 0.1%)은 법선이 제멋대로라 개수로만 센다 -
+// 꺾임 판정에 넣으면 평평한 벽 한가운데에 선이 그어진다.
+void LotModel::buildFeatureEdges(float angleThresholdDeg) {
+    featureEdges_.clear();
+    const size_t triCount = getTriangleCount();
+    if (triCount == 0) return;
+
+    using Key = std::tuple<long long, long long, long long>;
+    auto quantize = [](const vec3& p) {
+        return Key{std::llround(p.x * 100000.0), std::llround(p.y * 100000.0),
+                   std::llround(p.z * 100000.0)};
+    };
+    std::map<Key, uint32_t> welded;   // 자리 -> 대표 번호
+    auto weld = [&](const vec3& p) {
+        const uint32_t next = static_cast<uint32_t>(welded.size());
+        return welded.emplace(quantize(p), next).first->second;
+    };
+
+    struct EdgeInfo {
+        vec3 a, b;
+        vec3 normal0, normal1;
+        int faces = 0;    // 붙은 삼각형 전부
+        int strong = 0;   // 그중 바늘/퇴화가 아닌 것 - normal0/1 은 이것들의 법선
+    };
+    std::map<std::pair<uint32_t, uint32_t>, EdgeInfo> edges;
+
+    for (size_t t = 0; t < triCount; ++t) {
+        vec3 p[3];
+        if (!getTriangle(t, p[0], p[1], p[2])) continue;
+        const vec3 e1 = p[1] - p[0], e2 = p[2] - p[0], e3 = p[2] - p[1];
+        const vec3 n = cross(e1, e2);
+        const float len = std::sqrt(dot(n, n));
+        const float longest2 = std::fmax(dot(e1, e1), std::fmax(dot(e2, e2), dot(e3, e3)));
+        const bool weak = len < 1e-8f || len < 1e-3f * longest2;
+        const vec3 normal = (len > 0.0f) ? n * (1.0f / len) : vec3{0.0f, 0.0f, 1.0f};
+        const uint32_t w[3] = {weld(p[0]), weld(p[1]), weld(p[2])};
+        for (int e = 0; e < 3; ++e) {
+            const int f = (e + 1) % 3;
+            if (w[e] == w[f]) continue;
+            const auto key = std::minmax(w[e], w[f]);
+            EdgeInfo& info = edges[{key.first, key.second}];
+            if (info.faces == 0) { info.a = p[e]; info.b = p[f]; }
+            ++info.faces;
+            if (weak) continue;
+            if (info.strong == 0) info.normal0 = normal;
+            else if (info.strong == 1) info.normal1 = normal;
+            ++info.strong;
+        }
+    }
+
+    const float cosThreshold = std::cos(angleThresholdDeg * 3.14159265f / 180.0f);
+    for (const auto& entry : edges) {
+        const EdgeInfo& info = entry.second;
+        bool feature = false;
+        if (info.faces == 1) feature = true;                   // 가장자리
+        else if (info.strong < 2) continue;                    // 바늘 삼각형 사이
+        else if (info.strong == 2) feature = dot(info.normal0, info.normal1) < cosThreshold;
+        else feature = true;                                   // 비다양체
+        if (!feature) continue;
+        featureEdges_.push_back(info.a);
+        featureEdges_.push_back(info.b);
+    }
 }
 
 size_t LotModel::getTriangleCount() const {

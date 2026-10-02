@@ -18,5 +18,13 @@ struct SceneLighting {
     vec3 ambientColor{1.0f, 1.0f, 1.0f};
     float ambientIntensity = 0.02f;
 
+    // CAD 기본 조명 - 해처럼 감쇠 없는 평행광 둘. 네이티브 render_coordinator 와 같은 값.
+    // 점 광원이 없는 도면(새 도면, 광원을 지운 도면)에서도 면이 구별된다.
+    // 방향은 빛이 나아가는 쪽이다.
+    vec3 keyDirection = normalize(vec3{-0.5f, -1.0f, -0.3f});
+    float keyIntensity = 0.8f;
+    vec3 fillDirection = normalize(vec3{0.5f, 1.0f, 0.3f});
+    float fillIntensity = 0.35f;
+
     PointLight pointLight{};
 };

@@ -28,8 +28,11 @@ public:
         float ambientLightColor[4];   // offset 128, rgb + 세기
         float lightPosition[4];       // offset 144, xyz + 패딩
         float lightColor[4];          // offset 160, rgb + 세기
+        float keyLight[4];            // offset 176, 방향 + 세기
+        float fillLight[4];           // offset 192, 방향 + 세기
+        float cameraPosition[4];      // offset 208, xyz + 패딩
     };
-    static_assert(sizeof(Data) == 176, "Global uniform layout must match the shaders");
+    static_assert(sizeof(Data) == 224, "Global uniform layout must match the shaders");
 
     LotGlobalUniform() = default;
     ~LotGlobalUniform();

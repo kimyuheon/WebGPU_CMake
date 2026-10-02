@@ -209,6 +209,20 @@ const scenarios = [
       await a.viewCube('-1,-1,1');
       t.expect(a.has(/viewcube: corner \(-1, -1, 1\)/), 'corner click');
       t.expect(await a.viewCubeMatrix() !== front, 'a corner is not a standard view');
+
+      // 왼쪽 아래 좌표축 (네이티브 lot_gizmo). 앞-왼쪽-위에서 보면 X 는 오른쪽 위,
+      // Y 는 왼쪽 위, Z 는 위로 선다. 끝점은 SVG 중심(reach, reach) 기준.
+      const axes = await a.evaluate(
+        `(() => { const s = document.getElementById('lot-axis-gizmo'); if (!s) return null;`
+        + ` const c = Number(s.getAttribute('width')) / 2;`
+        + ` return [...s.querySelectorAll('line')].map(l => ({ stroke: l.getAttribute('stroke'),`
+        + ` dx: Number(l.getAttribute('x2')) - c, dy: Number(l.getAttribute('y2')) - c })); })()`);
+      t.expect(axes && axes.length === 3, 'axis indicator with three axes');
+      const ax = (rgb) => (axes || []).find(x => x.stroke === rgb) || { dx: 0, dy: 0 };
+      const X = ax('rgb(220,60,60)'), Y = ax('rgb(60,200,60)'), Z = ax('rgb(70,110,235)');
+      t.expect(X.dx > 0 && X.dy < 0, 'X points right and up');
+      t.expect(Y.dx < 0 && Y.dy < 0, 'Y points left and up');
+      t.expect(Math.abs(Z.dx) < 1 && Z.dy < 0, 'Z points straight up');
     },
   },
   {

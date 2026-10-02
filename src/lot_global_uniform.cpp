@@ -74,6 +74,11 @@ void LotGlobalUniform::update(const LotCamera& camera, const SceneLighting& ligh
          lighting.pointLight.position.z, 0.0f},
         {lighting.pointLight.color.x, lighting.pointLight.color.y,
          lighting.pointLight.color.z, lighting.pointLight.intensity},
+        {lighting.keyDirection.x, lighting.keyDirection.y, lighting.keyDirection.z,
+         lighting.keyIntensity},
+        {lighting.fillDirection.x, lighting.fillDirection.y, lighting.fillDirection.z,
+         lighting.fillIntensity},
+        {camera.getPosition().x, camera.getPosition().y, camera.getPosition().z, 0.0f},
     };
     wgpuQueueWriteBuffer(queue_, buffer_->getHandle(), 0, &data, sizeof(data));
 }

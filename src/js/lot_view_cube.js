@@ -132,6 +132,28 @@ mergeInto(LibraryManager.library, {
         dom.viewCubeWrap = wrap;
         dom['viewCubeClick'] = function(dir) { send(dir); };   // 테스트 도구가 부른다
 
+        // ── 좌표축 표시 (왼쪽 아래) ─────────────────────────────
+        // 네이티브 lot_gizmo.cpp 와 같은 모양: 월드 X/Y/Z 를 빨강·초록·파랑 선 + 원뿔 화살촉 +
+        // 글자로. 뷰큐브와 같은 회전을 받아 js_viewCubeOrient 에서 다시 그린다 (누를 데는 없다).
+        var SVGNS = 'http://www.w3.org/2000/svg';
+        var axisSvg = document.createElementNS(SVGNS, 'svg');
+        axisSvg.id = 'lot-axis-gizmo';
+        var AX = dom.axisGizmo = {
+            size: 52, line: 3, coneLen: 16, coneR: 6.5, labelPx: 15, labelGap: 11,
+            svg: axisSvg,
+        };
+        AX.reach = AX.size + AX.labelGap + AX.labelPx + 4;   // 중심에서 글자 끝까지
+        axisSvg.setAttribute('width', String(AX.reach * 2));
+        axisSvg.setAttribute('height', String(AX.reach * 2));
+        axisSvg.style.position = 'fixed';
+        axisSvg.style.left = '4px';
+        // 명령행(맨 아래 띠) 위에 놓는다
+        var cmdH = dom.cmdInput ? dom.cmdInput.parentNode.offsetHeight : 28;
+        axisSvg.style.bottom = (cmdH + 4) + 'px';
+        axisSvg.style.zIndex = '10';
+        axisSvg.style.pointerEvents = 'none';   // 장식이다 - 캔버스 클릭을 가로채지 않게
+        document.body.appendChild(axisSvg);
+
         // 레이어 패널은 상자 아래로. 둘 다 오른쪽 위를 노리므로 자리를 나눈다.
         var panelTop = dom.statusBar.offsetHeight + dom.uiHeight() + 8 + BOX + 8;
         dom.layerPanel.style.top = panelTop + 'px';
@@ -140,10 +162,93 @@ mergeInto(LibraryManager.library, {
     },
 
     // 자세 갱신. C++ 이 바뀔 때만 부른다.
-    js_viewCubeOrient__deps: ['$UTF8ToString'],
+    js_viewCubeOrient__deps: ['$UTF8ToString', '$lotDrawAxisGizmo'],
     js_viewCubeOrient: function(matrixPtr) {
         if (!Module.lotDom || !Module.lotDom.viewCube) return 0;
-        Module.lotDom.viewCube.style.transform = 'matrix3d(' + UTF8ToString(matrixPtr) + ')';
+        var css = UTF8ToString(matrixPtr);
+        Module.lotDom.viewCube.style.transform = 'matrix3d(' + css + ')';
+        if (Module.lotDom.axisGizmo) lotDrawAxisGizmo(Module.lotDom.axisGizmo, css.split(',').map(Number));
         return 1;
+    },
+
+    // 좌표축 표시를 다시 그린다. m 은 뷰큐브에 건 matrix3d 16 개 (열 우선, 셋째 행 부호가
+    // 뒤집혀 있다). 월드 축 i 가 화면에서 향하는 쪽 = 열 i: x 오른쪽, y 아래, -z 깊이(앞).
+    $lotDrawAxisGizmo: function(AX, m) {
+        var SVGNS = 'http://www.w3.org/2000/svg';
+        var svg = AX.svg;
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var cx = AX.reach, cy = AX.reach;
+        var rot = function(v) {   // 월드 -> 뷰 (x, y 는 화면 픽셀 방향, z 는 클수록 멀다)
+            return [m[0] * v[0] + m[4] * v[1] + m[8] * v[2],
+                    m[1] * v[0] + m[5] * v[1] + m[9] * v[2],
+                    -(m[2] * v[0] + m[6] * v[1] + m[10] * v[2])];
+        };
+        var axes = [
+            { dir: [1, 0, 0], color: 'rgb(220,60,60)',  label: 'X' },
+            { dir: [0, 1, 0], color: 'rgb(60,200,60)',  label: 'Y' },
+            { dir: [0, 0, 1], color: 'rgb(70,110,235)', label: 'Z' },
+        ];
+        axes.forEach(function(a) { a.eye = rot(a.dir); });
+        // 먼 축부터 그려 앞쪽 원뿔이 위에 오게 (네이티브와 같은 화가 알고리즘)
+        axes.sort(function(l, r) { return r.eye[2] - l.eye[2]; });
+
+        var add = function(tag, attrs) {
+            var el = document.createElementNS(SVGNS, tag);
+            for (var k in attrs) el.setAttribute(k, String(attrs[k]));
+            svg.appendChild(el);
+            return el;
+        };
+        // 점들의 볼록 껍질 (원뿔을 투영한 윤곽 = 꼭지점 + 밑면 원의 껍질)
+        var hull = function(pts) {
+            pts.sort(function(a, b) { return a[0] - b[0] || a[1] - b[1]; });
+            var cross = function(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); };
+            var lower = [], upper = [];
+            pts.forEach(function(p) {
+                while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+                lower.push(p);
+            });
+            for (var i = pts.length - 1; i >= 0; --i) {
+                var p = pts[i];
+                while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+                upper.push(p);
+            }
+            return lower.slice(0, -1).concat(upper.slice(0, -1));
+        };
+
+        axes.forEach(function(a) {
+            var dx = a.eye[0], dy = a.eye[1];
+            // 선은 원뿔이 시작하는 데까지만 (원뿔 안으로 비치지 않게)
+            var lineLen = AX.size - AX.coneLen * 0.9;
+            add('line', { x1: cx, y1: cy, x2: cx + dx * lineLen, y2: cy + dy * lineLen,
+                          stroke: a.color, 'stroke-width': AX.line, 'stroke-linecap': 'round' });
+
+            // 원뿔: 축에 수직인 두 벡터로 밑면 원을 만들어 투영한다
+            var d = a.dir;
+            var ref = Math.abs(d[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+            var u = [d[1] * ref[2] - d[2] * ref[1], d[2] * ref[0] - d[0] * ref[2], d[0] * ref[1] - d[1] * ref[0]];
+            var ul = Math.hypot(u[0], u[1], u[2]);
+            u = [u[0] / ul, u[1] / ul, u[2] / ul];
+            var v = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]];
+            var pts = [[cx + dx * AX.size, cy + dy * AX.size]];
+            var base = AX.size - AX.coneLen;
+            for (var i = 0; i < 16; ++i) {
+                var t = i / 16 * Math.PI * 2;
+                var c = Math.cos(t) * AX.coneR, s = Math.sin(t) * AX.coneR;
+                var e = rot([d[0] * base + u[0] * c + v[0] * s,
+                             d[1] * base + u[1] * c + v[1] * s,
+                             d[2] * base + u[2] * c + v[2] * s]);
+                pts.push([cx + e[0], cy + e[1]]);
+            }
+            add('polygon', { points: hull(pts).map(function(p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' '),
+                             fill: a.color });
+
+            // 글자 - 늘 정면으로 읽히게 화면 공간에
+            var t2 = add('text', { x: cx + dx * (AX.size + AX.labelGap), y: cy + dy * (AX.size + AX.labelGap),
+                                   fill: a.color, 'font-size': AX.labelPx, 'font-weight': 'bold',
+                                   'font-family': 'Segoe UI, sans-serif',
+                                   'text-anchor': 'middle', 'dominant-baseline': 'central' });
+            t2.textContent = a.label;
+        });
+        add('circle', { cx: cx, cy: cy, r: 4, fill: 'rgb(210,210,210)' });   // 원점
     },
 });

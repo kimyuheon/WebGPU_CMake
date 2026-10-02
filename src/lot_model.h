@@ -64,6 +64,11 @@ public:
     // 지오메트리를 건드리지 않고 transform 으로만 맞춘다.
     float fitScale(float targetSize) const;
 
+    // 모서리 선 (로컬, 두 점씩 한 선분). 이웃한 두 면이 35도 넘게 꺾이는 곳과 열린 가장자리.
+    // 매끈한 곡면(토러스)은 비어 있다. CAD 처럼 면 위에 어두운 선으로 그려 형태를 읽게 한다
+    // (네이티브 LotModel::Builder::buildFeatureEdges 와 같은 규칙).
+    const std::vector<vec3>& getFeatureEdges() const { return featureEdges_; }
+
     // 정육면체 (한 변 1.0, 중심이 원점)
     static std::unique_ptr<LotModel> createCube(lot_web_device& device);
 
@@ -95,4 +100,7 @@ private:
     std::vector<Vertex> vertices_;
     std::vector<vec3> positions_;
     std::vector<uint32_t> indices_;
+    std::vector<vec3> featureEdges_;
+
+    void buildFeatureEdges(float angleThresholdDeg);
 };
