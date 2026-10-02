@@ -64,7 +64,8 @@ KeyboardMovementController::KeyId KeyboardMovementController::lookupKey(const ch
         {"BracketLeft", PolygonSidesDown}, {"BracketRight", PolygonSidesUp},
         {"Enter", Enter}, {"NumpadEnter", Enter}, {"Escape", Escape},
         {"KeyZ", ZoomExtents},
-        {"F8", OrthoTracking}, {"F9", GridSnap},
+        {"F3", OsnapToggle}, {"F7", GridDisplay},
+        {"F8", OrthoTracking}, {"F9", GridSnap}, {"F10", PolarTracking},
     };
 
     for (const auto& entry : kTable) {
@@ -230,6 +231,24 @@ bool KeyboardMovementController::consumeOrthoToggle() {
 bool KeyboardMovementController::consumeGridSnapToggle() {
     const bool was = justPressed_[GridSnap];
     justPressed_[GridSnap] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeOsnapToggle() {
+    const bool was = justPressed_[OsnapToggle];
+    justPressed_[OsnapToggle] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeGridDisplayToggle() {
+    const bool was = justPressed_[GridDisplay];
+    justPressed_[GridDisplay] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumePolarToggle() {
+    const bool was = justPressed_[PolarTracking];
+    justPressed_[PolarTracking] = false;
     return was;
 }
 

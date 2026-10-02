@@ -28,6 +28,9 @@ struct LoadStats {
     int skipped = 0;      // 지원하지 않는 엔티티
     std::string skippedKinds;
     int layers = 0;
+    // 원점에서 먼 도면은 이만큼 빼고 읽는다 (float 정밀도). 다시 쓸 때 더한다.
+    double originX = 0.0;
+    double originY = 0.0;
     std::string error;    // 비어 있지 않으면 실패
 };
 
@@ -61,6 +64,7 @@ struct SaveStats {
 
 // linetypeScale 은 헤더의 $LTSCALE 로 나간다.
 std::string save(const LotGameObject::Map& objects, const LotLayers& layers,
-                 float linetypeScale = 1.0f, SaveStats* stats = nullptr);
+                 float linetypeScale = 1.0f, SaveStats* stats = nullptr,
+                 double originX = 0.0, double originY = 0.0);
 
 }  // namespace lot_dxf

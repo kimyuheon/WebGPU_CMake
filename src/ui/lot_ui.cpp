@@ -3,7 +3,8 @@
 extern "C" {
     // src/js/lot_ui.js. 메뉴/리본 뼈대는 한 번, 상태와 층은 바뀔 때만.
     // 셋 다 DOM 이 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
-    extern int js_uiInstall(const char* menuJson, const char* ribbonJson, const char* commandNames);
+    extern int js_uiInstall(const char* menuJson, const char* ribbonJson, const char* commandNames,
+                            const char* statusBarJson);
     extern int js_uiSetState(const char* stateJson);
     extern int js_uiSetLayers(const char* layersJson);
     extern int js_uiSetTabs(const char* tabsJson);
@@ -18,6 +19,8 @@ bool State::operator==(const State& o) const {
     return gizmoMode == o.gizmoMode && sketchTool == o.sketchTool && xformMode == o.xformMode
         && view == o.view && fps == o.fps && ortho == o.ortho
         && orthoTracking == o.orthoTracking && gridSnap == o.gridSnap && outline == o.outline
+        && osnap == o.osnap && polar == o.polar && gridShow == o.gridShow && dims == o.dims
+        && visualStyle == o.visualStyle && osnapKinds == o.osnapKinds
         && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
 }
 
@@ -25,7 +28,7 @@ void LotUi::install() {
     if (installed_) return;
     commandLine_.build(menu_, ribbon_);
     installed_ = js_uiInstall(menu_.toJson().c_str(), ribbon_.toJson().c_str(),
-                              commandLine_.namesJson().c_str()) != 0;
+                              commandLine_.namesJson().c_str(), menu_.statusBarJson().c_str()) != 0;
 }
 
 void LotUi::invalidate() {
@@ -71,6 +74,15 @@ void LotUi::update(const State& state, const LotLayers& layers,
         if (state.ortho) add("ortho");
         if (state.orthoTracking) add("orthoTrack");
         if (state.gridSnap) add("gridSnap");
+        if (state.osnap) add("osnap");
+        if (state.polar) add("polar");
+        if (state.gridShow) add("gridShow");
+        if (state.dims) add("dims");
+        add("style:" + std::to_string(state.visualStyle));
+        if (state.visualStyle != 2 && state.visualStyle != 3) add("shaded");   // 면이 칠해지는 스타일
+        for (unsigned k = 1; k < 32; ++k) {
+            if (state.osnapKinds & (1u << k)) add("osnapKind:" + std::to_string(k));
+        }
         if (state.outline) add("outline");
         j += "],\"disabled\":[";
         first = true;

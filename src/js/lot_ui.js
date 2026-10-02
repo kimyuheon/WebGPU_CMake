@@ -33,18 +33,19 @@ mergeInto(LibraryManager.library, {
                          'lot_onTextCancelled', 'lot_saveScene', 'lot_onLotFileLoaded',
                          'lot_onDxfFileLoaded', 'lot_onCommandLine', '$LotUiTheme',
                          '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
-    js_uiInstall: function(menuPtr, ribbonPtr, namesPtr) {
+    js_uiInstall: function(menuPtr, ribbonPtr, namesPtr, statusPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         var dom = Module.lotDom;
         if (!dom.statusBar) return 0;          // 캔버스/상태바가 아직
         if (dom.uiRoot) return 1;              // 이미 만들었다
 
         var T = LotUiTheme;
-        var menus, ribbon, commandNames;
+        var menus, ribbon, commandNames, statusCmds;
         try {
             menus = JSON.parse(UTF8ToString(menuPtr));
             ribbon = JSON.parse(UTF8ToString(ribbonPtr));
             commandNames = JSON.parse(UTF8ToString(namesPtr));
+            statusCmds = JSON.parse(UTF8ToString(statusPtr));
         } catch (e) { return 0; }
 
         var top = dom.statusBar.offsetHeight;
@@ -353,7 +354,8 @@ mergeInto(LibraryManager.library, {
         document.body.appendChild(root);
         applyTabs();
 
-        // ── 명령행 (화면 아래) ────────────────────────────────
+        // ── 하단 상태바: 명령행 + 토글 단추 ─────────────────────
+        // [        명령: [            ][^]        [치수][그리드]...[객체스냅]]
         // AutoCAD 처럼 이름을 쳐서 명령을 부른다. 캔버스의 단축키와 섞이지 않도록
         // 키 이벤트를 여기서 멈춘다 (stopPropagation) - 문자 입력창과 같은 이유다.
         var cmdBox = document.createElement('div');
@@ -366,22 +368,38 @@ mergeInto(LibraryManager.library, {
         cmdBox.style.display = 'flex';
         cmdBox.style.alignItems = 'center';
         cmdBox.style.gap = '6px';
-        cmdBox.style.padding = '3px 8px';
+        cmdBox.style.height = '30px';
+        cmdBox.style.boxSizing = 'border-box';
+        cmdBox.style.padding = '0 8px';
         cmdBox.style.background = T.menuBg;
         cmdBox.style.borderTop = '1px solid ' + T.border;
         cmdBox.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';
         cmdBox.style.fontSize = '12px';
+        cmdBox.style.userSelect = 'none';
+
+        // 왼쪽 칸: 명령행을 가운데쯤에 (남는 폭을 차지하고 그 안에서 가운데 정렬)
+        var cmdArea = document.createElement('div');
+        cmdArea.style.flex = '1 1 auto';
+        cmdArea.style.minWidth = '0';
+        cmdArea.style.display = 'flex';
+        cmdArea.style.alignItems = 'center';
+        cmdArea.style.justifyContent = 'center';
+        cmdArea.style.gap = '6px';
+        cmdArea.style.position = 'relative';
+        cmdBox.appendChild(cmdArea);
 
         var prompt = document.createElement('span');
         prompt.textContent = '명령:';
         prompt.style.color = T.textDim;
-        cmdBox.appendChild(prompt);
+        prompt.style.whiteSpace = 'nowrap';
+        cmdArea.appendChild(prompt);
 
         var cmdInput = document.createElement('input');
         cmdInput.type = 'text';
         cmdInput.id = 'lot-cmdline-input';
         cmdInput.title = '명령 이름을 치고 Enter (line, c, move, zoom …). Space 로 여기에 커서';
-        cmdInput.style.flex = '1 1 auto';
+        cmdInput.style.flex = '0 1 420px';
+        cmdInput.style.minWidth = '80px';
         cmdInput.style.padding = '2px 6px';
         cmdInput.style.color = T.text;
         cmdInput.style.background = '#101010';
@@ -389,41 +407,117 @@ mergeInto(LibraryManager.library, {
         cmdInput.style.borderRadius = '2px';
         cmdInput.style.font = 'inherit';
         cmdInput.style.outline = 'none';
-        cmdBox.appendChild(cmdInput);
+        cmdArea.appendChild(cmdInput);
 
-        var suggest = document.createElement('span');
-        suggest.style.color = T.textDim;
-        suggest.style.whiteSpace = 'nowrap';
-        suggest.style.maxWidth = '40%';
-        suggest.style.overflow = 'hidden';
-        cmdBox.appendChild(suggest);
+        // 상태바 단추 공용 모양
+        var mkBarButton = function(text, title) {
+            var b = document.createElement('button');
+            b.textContent = text;
+            b.title = title;
+            b.style.padding = '2px 10px';
+            b.style.height = '22px';
+            b.style.border = '1px solid ' + T.border;
+            b.style.borderRadius = '2px';
+            b.style.background = '#2a2a2a';
+            b.style.color = T.textDim;
+            b.style.font = 'inherit';
+            b.style.whiteSpace = 'nowrap';
+            b.style.cursor = 'default';
+            b.addEventListener('mousedown', function(e) { e.preventDefault(); });   // 포커스를 뺏지 않게
+            return b;
+        };
+
+        // ^ : 지난 명령 목록. 입력 중이면 같은 자리에 자동완성 후보가 뜬다.
+        var histButton = mkBarButton('^', '지난 명령');
+        histButton.id = 'lot-cmdline-history';
+        histButton.style.padding = '2px 7px';
+        cmdArea.appendChild(histButton);
+
+        var popup = document.createElement('div');
+        popup.id = 'lot-cmdline-popup';
+        popup.style.position = 'absolute';
+        popup.style.bottom = '28px';
+        popup.style.minWidth = '220px';
+        popup.style.maxHeight = '260px';
+        popup.style.overflowY = 'auto';
+        popup.style.background = T.windowBg;
+        popup.style.border = '1px solid ' + T.border;
+        popup.style.boxShadow = '0 -4px 10px rgba(0,0,0,0.5)';
+        popup.style.padding = '3px';
+        popup.style.display = 'none';
+        cmdArea.appendChild(popup);
 
         var history = [];
         var histIndex = -1;
 
+        var runText = function(text) {
+            history.push(text);
+            histIndex = history.length;
+            var ptr = stringToNewUTF8(text);
+            _lot_onCommandLine(ptr);
+            _free(ptr);
+        };
+        var hidePopup = function() { popup.style.display = 'none'; popup.__lotKind = ''; };
+        // 목록을 띄운다. 항목을 누르면 pick(그 글자).
+        var showPopup = function(kind, items, pick) {
+            popup.textContent = '';
+            if (!items.length) { hidePopup(); return; }
+            items.forEach(function(text) {
+                var row = document.createElement('div');
+                row.textContent = text;
+                row.style.padding = '3px 8px';
+                row.style.color = T.text;
+                row.style.whiteSpace = 'nowrap';
+                row.addEventListener('mouseenter', function() { row.style.background = T.accentDim; });
+                row.addEventListener('mouseleave', function() { row.style.background = 'transparent'; });
+                row.addEventListener('mousedown', function(e) { e.preventDefault(); });
+                row.addEventListener('click', function() { hidePopup(); pick(text); });
+                popup.appendChild(row);
+            });
+            // 입력창 왼쪽 끝에 맞춘다
+            popup.style.left = cmdInput.offsetLeft + 'px';
+            popup.style.display = 'block';
+            popup.__lotKind = kind;
+            popup.scrollTop = popup.scrollHeight;   // 최근 것이 아래 (입력창 바로 위)
+        };
+
+        histButton.addEventListener('click', function() {
+            if (popup.__lotKind === 'history') { hidePopup(); return; }
+            // 같은 명령은 마지막 한 번만, 최근 것이 아래로
+            var seen = {};
+            var recent = [];
+            for (var i = history.length - 1; i >= 0 && recent.length < 15; --i) {
+                if (seen[history[i]]) continue;
+                seen[history[i]] = true;
+                recent.unshift(history[i]);
+            }
+            if (!recent.length) recent = ['(아직 친 명령이 없습니다)'];
+            showPopup('history', recent, function(text) {
+                if (seen[text]) runText(text);
+            });
+        });
+        document.addEventListener('mousedown', function(e) {
+            if (!cmdArea.contains(e.target)) hidePopup();
+        });
+
         var updateSuggest = function() {
             var v = cmdInput.value.trim().toLowerCase();
-            if (!v) { suggest.textContent = ''; return; }
-            var hits = commandNames.filter(function(n) { return n.indexOf(v) === 0; }).slice(0, 6);
-            suggest.textContent = hits.length ? hits.join('  ') : '?';
+            if (!v) { if (popup.__lotKind === 'suggest') hidePopup(); return; }
+            var hits = commandNames.filter(function(n) { return n.indexOf(v) === 0; }).slice(0, 8);
+            showPopup('suggest', hits, function(text) { cmdInput.value = text; cmdInput.focus(); });
         };
 
         cmdInput.addEventListener('input', updateSuggest);
+        cmdInput.addEventListener('blur', function() { if (popup.__lotKind === 'suggest') hidePopup(); });
         cmdInput.addEventListener('keydown', function(e) {
             e.stopPropagation();
             if (e.key === 'Enter') {
                 var text = cmdInput.value.trim();
                 // 빈 Enter 는 직전 명령 되풀이 (AutoCAD 관례)
                 if (!text && history.length) text = history[history.length - 1];
-                if (text) {
-                    history.push(text);
-                    histIndex = history.length;
-                    var ptr = stringToNewUTF8(text);
-                    _lot_onCommandLine(ptr);
-                    _free(ptr);
-                }
+                if (text) runText(text);
                 cmdInput.value = '';
-                suggest.textContent = '';
+                hidePopup();
             } else if (e.key === 'Tab') {
                 e.preventDefault();
                 var v = cmdInput.value.trim().toLowerCase();
@@ -439,7 +533,7 @@ mergeInto(LibraryManager.library, {
                 updateSuggest();
             } else if (e.key === 'Escape') {
                 cmdInput.value = '';
-                suggest.textContent = '';
+                hidePopup();
                 cmdInput.blur();
             }
         });
@@ -455,6 +549,131 @@ mergeInto(LibraryManager.library, {
             e.preventDefault();
             cmdInput.focus();
         });
+
+        // 오른쪽 칸: 토글 단추들 (C++ 의 LotMainMenu::statusBarJson). 켜지면 파랗게.
+        var toggles = document.createElement('div');
+        toggles.id = 'lot-status-toggles';
+        toggles.style.display = 'flex';
+        toggles.style.gap = '3px';
+        toggles.style.flex = '0 0 auto';
+        // 단추 위로 펼치는 메뉴 (객체스냅 설정 / 비주얼 스타일). 항목마다 켜지면 오른쪽에 ✓.
+        var openBarMenu = null;
+        var closeBarMenu = function() {
+            if (openBarMenu) { openBarMenu.style.display = 'none'; openBarMenu = null; }
+        };
+        document.addEventListener('mousedown', function(e) {
+            if (openBarMenu && !openBarMenu.contains(e.target) && !(openBarMenu.__lotOwner && openBarMenu.__lotOwner.contains(e.target))) closeBarMenu();
+        });
+        var makeBarMenu = function(cmd, owner, keepOpen) {
+            var m = document.createElement('div');
+            m.setAttribute('data-menu-for', cmd['id']);
+            m.style.position = 'fixed';
+            m.style.bottom = '31px';
+            m.style.minWidth = '170px';
+            m.style.background = T.windowBg;
+            m.style.border = '1px solid ' + T.border;
+            m.style.boxShadow = '0 -4px 10px rgba(0,0,0,0.5)';
+            m.style.padding = '3px 0';
+            m.style.zIndex = '12';
+            m.style.display = 'none';
+            m.__lotOwner = owner;
+            var title = document.createElement('div');
+            title.textContent = cmd['menuTitle'];
+            title.style.padding = '4px 12px 6px';
+            title.style.color = T.textDim;
+            title.style.borderBottom = '1px solid ' + T.border;
+            title.style.marginBottom = '3px';
+            m.appendChild(title);
+            cmd['menu'].forEach(function(item) {
+                if (item['sep']) {
+                    var hr = document.createElement('div');
+                    hr.style.height = '1px';
+                    hr.style.margin = '3px 6px';
+                    hr.style.background = T.border;
+                    m.appendChild(hr);
+                }
+                var row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.justifyContent = 'space-between';
+                row.style.gap = '24px';
+                row.style.padding = '4px 12px';
+                row.style.color = T.text;
+                row.title = item['tip'] || '';
+                var name = document.createElement('span');
+                name.textContent = item['label'];
+                var check = document.createElement('span');
+                check.style.color = T.text;
+                check.style.minWidth = '12px';
+                row.appendChild(name);
+                row.appendChild(check);
+                row.addEventListener('mouseenter', function() { row.style.background = T.accentDim; });
+                row.addEventListener('mouseleave', function() { row.style.background = 'transparent'; });
+                row.addEventListener('mousedown', function(e) { e.preventDefault(); });
+                row.addEventListener('click', function() {
+                    run(item);
+                    if (!keepOpen) closeBarMenu();
+                });
+                if (item['state']) {
+                    register(item, row, function(on) {
+                        row.setAttribute('data-on', on ? '1' : '0');
+                        check.textContent = on ? '\u2714' : '';
+                    });
+                }
+                m.appendChild(row);
+            });
+            document.body.appendChild(m);
+            return m;
+        };
+        var toggleBarMenu = function(menu, anchor) {
+            if (openBarMenu === menu) { closeBarMenu(); return; }
+            closeBarMenu();
+            menu.style.display = 'block';
+            // 단추 오른쪽 끝에 맞추되 화면 밖으로 나가지 않게
+            var r = anchor.getBoundingClientRect();
+            var left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 4);
+            menu.style.left = Math.max(4, left) + 'px';
+            openBarMenu = menu;
+        };
+
+        statusCmds.forEach(function(cmd) {
+            var hasMenu = cmd['menu'] && cmd['menu'].length;
+            var b = mkBarButton(cmd['label'],
+                cmd['tip'] + (cmd['shortcut'] ? '  (' + cmd['shortcut'] + ')' : ''));
+            register(cmd, b, function(on, enabled) {
+                b.__lotOn = on;
+                b.setAttribute('data-on', on ? '1' : '0');
+                b.style.background = on ? T.accentDim : '#2a2a2a';
+                b.style.borderColor = on ? T.accent : T.border;
+                b.style.color = on ? '#ffffff' : T.textDim;
+                b.disabled = !enabled;
+            });
+            if (!hasMenu) {
+                b.addEventListener('click', function() { closeMenu(); run(cmd); });
+                toggles.appendChild(b);
+                return;
+            }
+            if (!cmd['key']) {
+                // 키가 없는 단추 (셰이딩): 누르면 메뉴. 고르면 닫힌다 (하나만 고르는 메뉴).
+                var menu = makeBarMenu(cmd, b, false);
+                b.addEventListener('click', function() { closeMenu(); toggleBarMenu(menu, b); });
+                toggles.appendChild(b);
+                return;
+            }
+            // 키가 있는 단추 (객체스냅): 단추는 켜기/끄기, 옆 ▴ 는 설정 메뉴 (여러 개를 바꾸므로 열어 둔다)
+            var group = document.createElement('div');
+            group.style.display = 'flex';
+            var arrow = mkBarButton('\u25b4', cmd['menuTitle']);
+            arrow.setAttribute('data-menu-arrow', cmd['id']);
+            arrow.style.padding = '2px 5px';
+            arrow.style.marginLeft = '-1px';
+            b.addEventListener('click', function() { closeMenu(); run(cmd); });
+            var menu2 = makeBarMenu(cmd, group, true);
+            arrow.addEventListener('click', function() { closeMenu(); toggleBarMenu(menu2, group); });
+            group.appendChild(b);
+            group.appendChild(arrow);
+            toggles.appendChild(group);
+        });
+        cmdBox.appendChild(toggles);
 
         document.body.appendChild(cmdBox);
         dom.cmdInput = cmdInput;

@@ -21,8 +21,12 @@ public:
     // [{title, items:[...]}, ...]
     std::string toJson() const;
 
+    // 하단 상태바 토글들 (메뉴 명령의 짧은 이름 사본). [{...command}, ...]
+    std::string statusBarJson() const;
+
 private:
     std::vector<Group> menus_;
+    std::vector<Command> statusBar_;
 };
 
 }  // namespace lot_ui

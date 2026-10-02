@@ -25,6 +25,12 @@ struct State {
     bool ortho = false;        // 평행 투영
     bool orthoTracking = false;
     bool gridSnap = false;
+    bool osnap = false;
+    bool polar = false;
+    bool gridShow = false;     // 바닥 격자 표시
+    bool dims = false;         // 치수 표시
+    int visualStyle = 0;       // main 의 DisplaySettings::Style
+    unsigned osnapKinds = 0;   // lot_osnap::enabledKinds()
     bool outline = false;
     bool canUndo = false;
     bool canRedo = false;

@@ -25,6 +25,7 @@ struct ObjectUniforms {
     normalMatrix: mat4x4<f32>,
     // 오브젝트 색 (rgb) + 섞는 세기 (w). w = 0 이면 정점 색 그대로, 1 이면 오브젝트 색만.
     // 메시는 보통 정점 색/텍스처를 쓰지만, 사용자가 색을 지정하면 그것이 이긴다.
+    // w = 2 는 '숨은선 제거' 스타일: 조명 없이 rgb 한 색으로 칠한다 (배경색 = 뒤 선을 가린다).
     objectColor: vec4<f32>,
 };
 
@@ -73,6 +74,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    if (object.objectColor.a > 1.5) {
+        return vec4<f32>(object.objectColor.rgb, 1.0);
+    }
     let ambientLight = global.ambientLightColor.rgb * global.ambientLightColor.a;
 
     // 보간을 거치면 길이가 1 이 아니게 되므로 여기서 다시 정규화한다.

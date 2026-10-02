@@ -10,6 +10,7 @@
 #include "lot_edit_controller.h"
 #include "lot_scene_io.h"
 #include "lot_dimension.h"
+#include "lot_osnap.h"
 #include "lot_json.h"
 #include "lot_layers.h"
 #include "lot_cursor_snap.h"
@@ -42,7 +43,7 @@
 #include <vector>
 
 extern "C" {
-    // 파일 선택창은 사용자 제스처로만 열 수 있어서 JS 쪽에 버튼을 만든다.
+    // OBJ 로더(Module.lotDom.objLoad)를 등록한다. 파일 선택은 통합 열기 대화상자(lot_panels.js).
     extern void js_setupObjFileInput();
     // 툴바 (src/js/lot_toolbar.js). 버튼은 단축키 코드를 lot_onToolbarKey 로 돌려보낸다.
     extern void js_setupPanels();
@@ -88,6 +89,19 @@ std::vector<std::unique_ptr<LotDocument>> g_documents;
 size_t g_documentIndex = 0;
 
 LotDocument& doc() { return *g_documents[g_documentIndex]; }
+
+// 화면 표시 토글 (하단 상태바). 도면이 아니라 보는 사람의 설정이라 탭을 바꿔도 그대로다.
+struct DisplaySettings {
+    bool grid = true;      // F7 바닥 격자
+    bool dims = true;      // 치수 표시 (끄면 고를 수도 없다)
+    // 비주얼 스타일 (상태바의 셰이딩 메뉴)
+    enum Style { Shaded, ShadedEdges, WireMesh, WireEdges, HiddenLine, StyleCount };
+    int style = ShadedEdges;
+    bool fillFaces() const { return style == Shaded || style == ShadedEdges || style == HiddenLine; }
+    bool featureEdges() const { return style == ShadedEdges || style == WireEdges || style == HiddenLine; }
+};
+static const char* kStyleNames[] = {"shaded", "shaded + edges", "wireframe (mesh)", "wireframe (edges)", "hidden line"};
+static DisplaySettings g_display;
 
 // 애니메이션 시간
 static double g_time = 0.0;
@@ -228,9 +242,29 @@ static void pushLinetypes() {
     js_uiSetLinetypes(j.c_str());
 }
 
+// 문자는 문자열마다 비트맵을 구워 텍스처로 올린다. 큰 도면은 글자가 수천~수만 개라
+// 다 구우면 멈추고 GPU 메모리도 모자란다. 화면 밖이거나 너무 작아 읽을 수 없는 것은
+// 건너뛴다 - 줌인해서 보일 때 그때 굽는다 (한 번 구운 것은 캐시에 남는다).
+static bool textWorthDrawing(const LotGameObject& obj, float width, float height) {
+    constexpr float kMinPx = 2.0f;   // 이보다 작으면 읽을 수 없다
+    const vec3& at = obj.transform.translation;
+    const float wpp = doc().camera.worldPerPixel(at, height);
+    if (!(wpp > 0.0f)) return true;
+    const float px = obj.text.height / wpp;
+    if (px < kMinPx) return false;
+    float sx = 0.0f, sy = 0.0f;
+    if (!doc().camera.projectToScreen(at, width, height, sx, sy)) return false;
+    // 글자 폭은 모르니 넉넉히 (UTF-8 바이트 수 x 높이 - 한글은 3 바이트라 더 넉넉하다)
+    const float reach = px * (2.0f + static_cast<float>(obj.text.content.size()));
+    return sx > -reach && sx < width + reach && sy > -reach && sy < height + reach;
+}
+
 // 층 표를 보는 콜백들. 렌더/피킹 시스템은 층을 모르고 이 함수만 부른다.
 static bool layerVisible(const LotGameObject& obj) { return doc().layers.isVisible(obj.layer); }
-static bool layerSelectable(const LotGameObject& obj) { return doc().layers.isSelectable(obj.layer); }
+static bool layerSelectable(const LotGameObject& obj) {
+    if (!g_display.dims && obj.isDimension()) return false;  // 안 보이는 치수는 안 잡힌다
+    return doc().layers.isSelectable(obj.layer);
+}
 
 // 오브젝트가 쓸 선종류. '층 따름'이면 층의 것.
 static uint32_t displayLinetype(const LotGameObject& obj) {
@@ -456,6 +490,36 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    if (name == "dims") {
+        g_display.dims = !g_display.dims;
+        LOT_LOG("display: dimensions " << (g_display.dims ? "on" : "off"));
+        return true;
+    }
+    // 비주얼 스타일 '#style:N'
+    if (name.rfind("style:", 0) == 0) {
+        const int st = std::atoi(name.c_str() + 6);
+        if (st >= 0 && st < DisplaySettings::StyleCount) {
+            g_display.style = st;
+            LOT_LOG("display: style " << kStyleNames[st]);
+        }
+        return true;
+    }
+    // 객체스냅 종류 '#osnapKind:N' (켜고 끄기), 전체 켜기/끄기
+    if (name.rfind("osnapKind:", 0) == 0) {
+        const auto kind = static_cast<lot_osnap::Kind>(std::atoi(name.c_str() + 10));
+        if (kind > lot_osnap::Kind::None && kind < lot_osnap::Kind::Count) {
+            lot_osnap::enabledKinds() ^= lot_osnap::kindBit(kind);
+            LOT_LOG("osnap: " << lot_osnap::kindName(kind) << (lot_osnap::isEnabled(kind) ? " on" : " off"));
+        }
+        return true;
+    }
+    if (name == "osnapAll" || name == "osnapNone") {
+        unsigned all = 0;
+        for (int k = 1; k < static_cast<int>(lot_osnap::Kind::Count); ++k) all |= lot_osnap::kindBit(static_cast<lot_osnap::Kind>(k));
+        lot_osnap::enabledKinds() = (name == "osnapAll") ? all : 0u;
+        LOT_LOG("osnap: all kinds " << (name == "osnapAll" ? "on" : "off"));
+        return true;
+    }
     LOT_ERR("command: no action named \"" << name << "\"");
     return true;   // '#' 로 왔으면 키로 넘기지 않는다
 }
@@ -597,6 +661,8 @@ void lot_onDxfFileLoaded(const char* data, int length, const char* fileName) {
     }
 
     openIntoDocument(std::move(loaded), std::move(loadedLayers), fileName);
+    doc().dxfOriginX = stats.originX;
+    doc().dxfOriginY = stats.originY;
 }
 
 // 씬 저장. JS 가 파일로 내려준다. 문자열은 malloc 으로 잡아 넘기고 JS 가 free 한다.
@@ -616,7 +682,8 @@ char* lot_saveScene() {
 // 씬을 DXF 로. 2D 스케치/문자/치수만 나간다 (메시는 .lot 으로 저장한다).
 extern "C" EMSCRIPTEN_KEEPALIVE
 char* lot_saveDxf() {
-    const std::string text = lot_dxf::save(doc().objects, doc().layers, doc().linetypeScale);
+    const std::string text = lot_dxf::save(doc().objects, doc().layers, doc().linetypeScale, nullptr,
+                                           doc().dxfOriginX, doc().dxfOriginY);
     char* out = static_cast<char*>(std::malloc(text.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, text.c_str(), text.size() + 1);
@@ -833,7 +900,8 @@ void renderLoop() {
             }
         }
 
-        if (g_cameraController.consumeZoomExtents()) {
+        // Z 키 · 메뉴 · 리본 · 명령행 zoom, 그리고 휠 더블 클릭 (AutoCAD 손짓)
+        if (g_cameraController.consumeZoomExtents() | g_mouse.consumeMiddleDoubleClick()) {
             zoomExtents();
         }
         if (g_cameraController.consumeOrthoToggle()) {
@@ -846,6 +914,20 @@ void renderLoop() {
             s.gridSpacing = (s.gridSpacing > 0.0f) ? 0.0f : doc().gridSpacing;
             LOT_LOG("grid snap: " << (s.gridSpacing > 0.0f ? "on" : "off")
                     << " (spacing " << doc().gridSpacing << ")");
+        }
+        if (g_cameraController.consumeOsnapToggle()) {
+            auto& s = lot_cursor::settings();
+            s.osnap = !s.osnap;
+            LOT_LOG("osnap: " << (s.osnap ? "on" : "off"));
+        }
+        if (g_cameraController.consumePolarToggle()) {
+            auto& s = lot_cursor::settings();
+            s.polar = !s.polar;
+            LOT_LOG("polar tracking: " << (s.polar ? "on" : "off"));
+        }
+        if (g_cameraController.consumeGridDisplayToggle()) {
+            g_display.grid = !g_display.grid;
+            LOT_LOG("display: grid " << (g_display.grid ? "on" : "off"));
         }
         if (const int d = g_cameraController.consumePolygonSidesDelta(); d != 0) {
             g_sketch.changePolygonSides(d);
@@ -993,6 +1075,12 @@ void renderLoop() {
             ui.ortho = doc().orthographic;
             ui.orthoTracking = lot_cursor::settings().ortho;
             ui.gridSnap = lot_cursor::settings().gridSpacing > 0.0f;
+            ui.osnap = lot_cursor::settings().osnap;
+            ui.polar = lot_cursor::settings().polar;
+            ui.gridShow = g_display.grid;
+            ui.dims = g_display.dims;
+            ui.visualStyle = g_display.style;
+            ui.osnapKinds = lot_osnap::enabledKinds();
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
@@ -1069,7 +1157,9 @@ void renderLoop() {
         // 이번 프레임의 보조선.
         g_lineSystem->clear();
         // 바닥 격자. 그리드 스냅(F9) 과 같은 간격으로, 카메라를 따라다닌다.
-        lot_grid::draw(*g_lineSystem, doc().camera, doc().gridSpacing, static_cast<float>(sc.getHeight()));
+        if (g_display.grid) {
+            lot_grid::draw(*g_lineSystem, doc().camera, doc().gridSpacing, static_cast<float>(sc.getHeight()));
+        }
 
         // 선택 상자 / 박스 선택 사각형 / 스냅 마커
         {
@@ -1099,12 +1189,27 @@ void renderLoop() {
                                        doc().linetypeScale, minDash);
                 }
             } else if (obj.isDimension()) {
-                lot_dim::draw(obj, doc().camera, *g_lineSystem, *g_textSystem, color);
+                if (g_display.dims) lot_dim::draw(obj, doc().camera, *g_lineSystem, *g_textSystem, color);
             } else if (obj.isText()) {
-                lot_text::draw(obj, *g_textSystem, color);
+                if (textWorthDrawing(obj, static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()))) {
+                    lot_text::draw(obj, *g_textSystem, color);
+                }
             } else if (obj.isLight()) {
                 g_lineSystem->addCross(obj.transform.translation, obj.light.markerSize, color);
-            } else if (obj.model && !obj.model->getFeatureEdges().empty()) {
+            } else if (obj.model && g_display.style == DisplaySettings::WireMesh) {
+                // 와이어프레임: 면 대신 삼각형 변을 전부 (색은 오브젝트 색)
+                const mat4 m = obj.transform.mat4Transform();
+                const std::vector<vec3>& pos = obj.model->getPositions();
+                const std::vector<uint32_t>& idx = obj.model->getIndices();
+                for (size_t i = 0; i + 2 < idx.size(); i += 3) {
+                    const vec3 a = transformPoint(m, pos[idx[i]]);
+                    const vec3 b = transformPoint(m, pos[idx[i + 1]]);
+                    const vec3 c = transformPoint(m, pos[idx[i + 2]]);
+                    g_lineSystem->addLine(a, b, color);
+                    g_lineSystem->addLine(b, c, color);
+                    g_lineSystem->addLine(c, a, color);
+                }
+            } else if (obj.model && g_display.featureEdges() && !obj.model->getFeatureEdges().empty()) {
                 // 메시 모서리 (네이티브의 ShadedEdge). 면 위에 딱 붙은 선은 뎁스가 면과 같아
                 // 깜빡이므로 카메라 쪽으로 조금 당긴다 - 거리의 0.2%, 화면에서는 안 보이는 만큼.
                 const mat4 m = obj.transform.mat4Transform();
@@ -1115,7 +1220,8 @@ void renderLoop() {
                     vec3 b = transformPoint(m, e[i + 1]);
                     a = a + (eye - a) * 0.002f;
                     b = b + (eye - b) * 0.002f;
-                    g_lineSystem->addLine(a, b, kMeshEdgeColor);
+                    // 면이 칠해진 셰이딩+엣지는 검은 테두리, 면이 없거나 배경색이면 오브젝트 색
+                    g_lineSystem->addLine(a, b, g_display.style == DisplaySettings::ShadedEdges ? kMeshEdgeColor : color);
                 }
             }
         }
@@ -1132,7 +1238,10 @@ void renderLoop() {
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로
         // (선 하나하나가 뎁스 불연속이라 전부 외곽선으로 잡힌다) 패스 3 으로 미룬다.
-        g_renderSystem->render(frame);
+        if (g_display.fillFaces()) {
+            g_renderSystem->flatFill = (g_display.style == DisplaySettings::HiddenLine);
+            g_renderSystem->render(frame);
+        }
 
         if (scenePass) {
             wgpuRenderPassEncoderEnd(scenePass);
@@ -1187,7 +1296,7 @@ int main() {
     g_cameraController.init();
     // 마우스는 캔버스가 생긴 뒤에 (렌더 루프 1 단계) 등록한다
 
-    // OBJ 열기 버튼
+    // OBJ 로더
     js_setupObjFileInput();
 
     LOT_LOG("Renderer initialized (fullscreen canvas).");

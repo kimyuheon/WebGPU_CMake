@@ -39,6 +39,9 @@ public:
     bool consumeLeftDoubleClick();
     bool consumeLeftRelease();
 
+    // 가운데 버튼(휠) 더블 클릭 - AutoCAD 의 전체 보기 (Zoom Extents) 손짓.
+    bool consumeMiddleDoubleClick();
+
     // 브라우저 이벤트 콜백에서만 부른다.
     void onMove(float x, float y);
     void onButton(int button, bool down, float x, float y, bool shift);
@@ -63,6 +66,8 @@ private:
     double lastPressMs_ = -1000.0;
     float lastPressX_ = 0.0f;
     float lastPressY_ = 0.0f;
+    bool middleDoubleClick_ = false;
+    double lastMiddleMs_ = -1000.0;
     bool leftReleased_ = false;  // 프레임 사이에 왼쪽 뗌이 있었나
     bool shiftAtPress_ = false;
 };

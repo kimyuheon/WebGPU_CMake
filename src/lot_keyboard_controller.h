@@ -84,6 +84,10 @@ public:
     // 직교 트랙킹 토글 (F8) / 그리드 스냅 토글 (F9). 누른 순간만.
     bool consumeOrthoToggle();
     bool consumeGridSnapToggle();
+    // 객체 스냅 (F3) / 격자 표시 (F7) / 극좌표 트랙킹 (F10) 토글. 누른 순간만.
+    bool consumeOsnapToggle();
+    bool consumeGridDisplayToggle();
+    bool consumePolarToggle();
 
     // CAD 모드에서 화살표로 궤도. 좌/우 = yaw (-1/+1), 위/아래 = pitch (-1/+1).
     // 안 눌렸으면 둘 다 0. 1인칭 모드에서는 moveInPlaneXY 가 같은 키를 시선으로 쓴다.
@@ -149,6 +153,9 @@ private:
         ZoomExtents,
         OrthoTracking,
         GridSnap,
+        OsnapToggle,
+        GridDisplay,
+        PolarTracking,
         KeyCount,
     };
 

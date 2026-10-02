@@ -82,7 +82,10 @@ const TextRenderSystem::Entry* TextRenderSystem::lookup(const std::string& text)
     entry.aspect = static_cast<float>(w) / static_cast<float>(h);
     // 폰트 크기(em) 64px 에서 대문자/숫자 높이는 대략 0.72em. 비트맵에는 위아래 여백이 있어
     // 사각형을 글자 높이의 이 배수로 잡아야 보이는 글자가 요청한 높이가 된다.
-    entry.quadPerHeight = static_cast<float>(h) / (static_cast<float>(kBitmapHeightPx) * 0.72f);
+    // 아주 긴 줄은 JS 가 폭 4096 에 맞춰 더 작은 글꼴로 굽는다 (lot_text.js). 그때는 비트맵
+    // 높이가 글꼴의 1.6 배(1.3 + 위아래 여백 0.15 x 2)이므로 거기서 글꼴 크기를 되짚는다.
+    const float px = (w >= 4000) ? static_cast<float>(h) / 1.6f : static_cast<float>(kBitmapHeightPx);
+    entry.quadPerHeight = static_cast<float>(h) / (px * 0.72f);
     auto inserted = cache_.emplace(text, std::move(entry));
     return &inserted.first->second;
 }

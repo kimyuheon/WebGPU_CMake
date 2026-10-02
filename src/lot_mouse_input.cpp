@@ -94,6 +94,12 @@ bool MouseInput::consumeLeftDoubleClick() {
     return was;
 }
 
+bool MouseInput::consumeMiddleDoubleClick() {
+    const bool was = middleDoubleClick_;
+    middleDoubleClick_ = false;
+    return was;
+}
+
 bool MouseInput::consumeLeftPress() {
     const bool was = leftPressed_;
     leftPressed_ = false;
@@ -139,6 +145,16 @@ void MouseInput::onButton(int button, bool down, float x, float y, bool shift) {
             lastPressY_ = y;
         }
         if (!down && down_[0]) leftReleased_ = true;
+    }
+    if (button == 1 && down && !down_[1]) {
+        // 가운데 버튼은 끌면 팬이라, 두 번 누름 사이에 크게 움직이지 않았을 때만
+        const double now = emscripten_get_now();
+        if (now - lastMiddleMs_ < 400.0) {
+            middleDoubleClick_ = true;
+            lastMiddleMs_ = -1000.0;
+        } else {
+            lastMiddleMs_ = now;
+        }
     }
     down_[button] = down;
 }

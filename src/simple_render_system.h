@@ -42,6 +42,10 @@ public:
     // 게임 오브젝트들 렌더링
     void render(FrameInfo& frame);
 
+    // 숨은선 제거 스타일: 켜면 메시를 조명 없이 flatColor 한 색으로 칠한다 (뒤의 선을 가리는 용도)
+    bool flatFill = false;
+    vec3 flatColor{0.1f, 0.1f, 0.1f};
+
     // 재질을 만들 때 필요한 @group(2) 레이아웃. createUniformBuffer 뒤에 유효하다.
     WGPUBindGroupLayout getMaterialLayout() const { return materialLayout_; }
 

@@ -20,6 +20,7 @@ Settings& settings() { return g_settings; }
 std::string statusSuffix() {
     std::string s;
     if (g_settings.ortho) s += "  ORTHO";
+    else if (g_settings.polar) s += "  POLAR";
     if (g_settings.gridSpacing > 0.0f) {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "  SNAP %g", g_settings.gridSpacing);
@@ -47,6 +48,23 @@ vec3 apply(const vec3& point, const SketchPlane& plane, const vec3* reference) {
         const float dr = dot(d, plane.right), du = dot(d, plane.up);
         p = (std::fabs(dr) >= std::fabs(du)) ? *reference + plane.right * dr
                                              : *reference + plane.up * du;
+    } else if (g_settings.polar && reference && g_settings.polarStepDeg > 0.0f) {
+        // 극좌표 트랙킹: 직교와 달리 늘 붙지 않고, 배수 각도에서 kPolarCatchDeg 안일 때만
+        // 그 방향 선 위로 내린다 (AutoCAD 와 같다 - 멀면 커서를 그대로 둔다).
+        constexpr float kPolarCatchDeg = 4.0f;
+        constexpr float kDegPerRad = 57.2957795f;
+        const vec3 d = p - *reference;
+        const float dr = dot(d, plane.right), du = dot(d, plane.up);
+        const float len = std::sqrt(dr * dr + du * du);
+        if (len > 0.0f) {
+            const float deg = std::atan2(du, dr) * kDegPerRad;
+            const float snapped = std::round(deg / g_settings.polarStepDeg) * g_settings.polarStepDeg;
+            if (std::fabs(deg - snapped) <= kPolarCatchDeg) {
+                const float a = snapped / kDegPerRad;
+                const vec3 dir = plane.right * std::cos(a) + plane.up * std::sin(a);
+                p = *reference + dir * (dr * std::cos(a) + du * std::sin(a));
+            }
+        }
     }
 
     // 그리드 스냅: 평면 좌표계에서 눈금에 맞춘다. 직교 트랙킹 뒤에 하므로

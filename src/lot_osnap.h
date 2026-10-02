@@ -29,9 +29,22 @@ enum class Kind {
     Center,         // 원/호의 중심 - 마커는 원 (CAD 관례)
     Intersection,   // 두 스케치 세그먼트의 교점 - 마커는 X
     Perpendicular,  // 기준점에서 세그먼트에 내린 수선의 발 - 마커는 ⊥
+    FaceCenter,     // 커서 아래 메시 면(같은 평면의 삼각형들)의 가운데 - 마커는 사각형 + 점
+    Node,           // 점 객체: 문자 기준점, 광원 - 마커는 원 + X
+    Quadrant,       // 원/호의 0·90·180·270도 점 - 마커는 마름모
+    Tangent,        // 기준점에서 원/호에 그은 접선의 접점 - 마커는 원 + 윗선
+    Nearest,        // 선 위에서 커서에 가장 가까운 점 (다른 스냅이 없을 때만) - 마커는 모래시계
+    Count,
 };
 
 const char* kindName(Kind kind);
+// 상태바 메뉴에 보이는 이름 (끝점, 중간점 ...)
+const char* kindLabel(Kind kind);
+
+// 종류별 켜짐 (비트 = 1 << Kind). 상태바의 객체스냅 설정 메뉴가 바꾼다.
+inline unsigned kindBit(Kind kind) { return 1u << static_cast<unsigned>(kind); }
+unsigned& enabledKinds();
+inline bool isEnabled(Kind kind) { return (enabledKinds() & kindBit(kind)) != 0; }
 
 struct Snap {
     Kind kind = Kind::None;

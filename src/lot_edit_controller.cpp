@@ -1,5 +1,6 @@
 #include "lot_edit_controller.h"
 #include "gizmo_render_system.h"
+#include "lot_cursor_snap.h"
 #include "lot_dimension.h"
 #include "line_render_system.h"
 #include "lot_model.h"
@@ -54,7 +55,7 @@ void EditController::update(const Context& ctx) {
     // osnap 은 명령이 점을 기다릴 때만 뜬다. 그냥 고르려고 커서를 옮기는데 마커가
     // 깜빡이면 눈이 아프고, 쓰지도 않을 정밀 피킹을 프레임마다 돌리는 셈이기도 하다.
     // 드래그 중이면 끌고 있는 것들은 후보에서 뺀다 (제 정점에 붙지 않도록).
-    if (!ctx.toolActive && !drag_.active) {
+    if ((!ctx.toolActive && !drag_.active) || !lot_cursor::settings().osnap) {
         snap_ = lot_osnap::Snap{};
     } else {
         lot_osnap::Query query;
@@ -503,6 +504,13 @@ void EditController::redo(LotGameObject::Map& objects) {
 }
 
 void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {
+    // 선택 강조선은 도면 선과 같은 자리라 뎁스가 같다 - 폴리선 시스템이 나중에 그리며
+    // 덮어 버린다 (큰 도면에서 특히). 카메라 쪽으로 거리의 0.2% 당겨 늘 위에 오게 한다
+    // (메시 모서리와 같은 방법, 화면에서는 안 보이는 만큼).
+    const vec3 eye = ctx.camera.getPosition();
+    auto lift = [&](const vec3& p) { return p + (eye - p) * 0.002f; };
+    auto highlight = [&](const vec3& a, const vec3& b) { lines.addLine(lift(a), lift(b), kSelectionColor); };
+
     // 선택 상자 (OBB). 오브젝트 변환을 그대로 타서 회전하면 같이 돈다.
     for (id_t id : selection_) {
         const auto* obj = LotGameObject::find(ctx.objects, id);
@@ -516,15 +524,15 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
             const size_t n = pts.size();
             const size_t segments = obj->closed ? n : n - 1;
             for (size_t i = 0; i < segments; ++i) {
-                lines.addLine(pts[i], pts[(i + 1) % n], kSelectionColor);
+                highlight(pts[i], pts[(i + 1) % n]);
             }
         } else if (obj->isDimension()) {
             const lot_dim::Geometry g = lot_dim::build(obj->dim, obj->transform.mat4Transform(), nullptr);
-            for (const auto& s : g.segments) lines.addLine(s.first, s.second, kSelectionColor);
+            for (const auto& s : g.segments) highlight(s.first, s.second);
         } else if (obj->isText()) {
             vec3 c[4];
             if (lot_text::quadCorners(*obj, c)) {
-                for (int i = 0; i < 4; ++i) lines.addLine(c[i], c[(i + 1) % 4], kSelectionColor);
+                for (int i = 0; i < 4; ++i) highlight(c[i], c[(i + 1) % 4]);
             }
         } else if (obj->isLight()) {
             lines.addCross(obj->transform.translation, obj->light.markerSize * 1.6f, kSelectionColor);
@@ -538,7 +546,8 @@ void EditController::drawOverlay(LineRenderSystem& lines, const Context& ctx) co
         const vec3 color = crossing ? kMarqueeCrossingColor : kMarqueeWindowColor;
         auto corner = [&](float sx, float sy) {
             const lot_pick::Ray r = lot_pick::screenToRay(ctx.camera, sx, sy, ctx.width, ctx.height);
-            return r.origin + r.direction * kMarqueeDepth;
+            // 큰 도면은 근평면이 멀리 밀려 있다 (zoomExtents) - 그 안쪽이면 잘려 안 보인다
+            return r.origin + r.direction * std::fmax(kMarqueeDepth, ctx.camera.nearClip() * 4.0f);
         };
         const vec3 c0 = corner(marquee_.x0, marquee_.y0);
         const vec3 c1 = corner(x1, marquee_.y0);

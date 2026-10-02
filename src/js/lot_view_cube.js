@@ -25,20 +25,28 @@ mergeInto(LibraryManager.library, {
         if (dom.viewCube) return 1;       // 이미 만들었다
 
         var T = LotUiTheme;
-        var HALF = 42;                    // 상자 반 변 (px)
-        var PAD = 16;                     // 상자가 돌 때 모서리가 잘리지 않을 여백
-        var BOX = (HALF + PAD) * 2;
+        var HALF = 34;                    // 상자 반 변 (px)
+        var RING = 58;                    // 나침반 고리 반지름 (상자 밑면에 눕는다)
+        var PAD = 8;                      // 돌 때 고리 끝이 잘리지 않을 여백
+        var BOX = (RING + PAD) * 2;
 
         // 면: 바깥 법선 n, 면의 오른쪽 u, 면의 위 v (모두 월드 축).
         // u x v 가 n 이 되게 잡아야 글자가 뒤집히지 않는다.
         var FACES = [
-            { label: '평면', n: [0, 0, 1],  u: [1, 0, 0],  v: [0, 1, 0]  },
-            { label: '저면', n: [0, 0, -1], u: [1, 0, 0],  v: [0, -1, 0] },
-            { label: '정면', n: [0, -1, 0], u: [1, 0, 0],  v: [0, 0, 1]  },
-            { label: '배면', n: [0, 1, 0],  u: [-1, 0, 0], v: [0, 0, 1]  },
-            { label: '우측', n: [1, 0, 0],  u: [0, 1, 0],  v: [0, 0, 1]  },
-            { label: '좌측', n: [-1, 0, 0], u: [0, -1, 0], v: [0, 0, 1]  },
+            { label: 'TOP',    n: [0, 0, 1],  u: [1, 0, 0],  v: [0, 1, 0]  },
+            { label: 'BOTTOM', n: [0, 0, -1], u: [1, 0, 0],  v: [0, -1, 0] },
+            { label: 'FRONT',  n: [0, -1, 0], u: [1, 0, 0],  v: [0, 0, 1]  },
+            { label: 'BACK',   n: [0, 1, 0],  u: [-1, 0, 0], v: [0, 0, 1]  },
+            { label: 'RIGHT',  n: [1, 0, 0],  u: [0, 1, 0],  v: [0, 0, 1]  },
+            { label: 'LEFT',   n: [-1, 0, 0], u: [0, -1, 0], v: [0, 0, 1]  },
         ];
+        // 요소의 로컬 축을 월드 축에 꽂는 행렬: +X -> u, +Y(아래) -> -v, +Z -> n.
+        var basis = function(u, v, n) {
+            return 'matrix3d(' + [u[0], u[1], u[2], 0,
+                                  -v[0], -v[1], -v[2], 0,
+                                  n[0], n[1], n[2], 0,
+                                  0, 0, 0, 1].join(',') + ')';
+        };
 
         var wrap = document.createElement('div');
         wrap.id = 'lot-viewcube';
@@ -49,6 +57,8 @@ mergeInto(LibraryManager.library, {
         wrap.style.height = BOX + 'px';
         wrap.style.zIndex = '10';
         wrap.style.userSelect = 'none';
+        // 틀은 고리까지 담느라 상자보다 크다 - 빈 자리 클릭은 캔버스로 흘려보내고 칸만 받는다
+        wrap.style.pointerEvents = 'none';
         // 원근을 주지 않는다 - 직교라야 줌/시점과 상관없이 늘 같은 크기로 보인다.
         wrap.style.perspective = 'none';
 
@@ -75,20 +85,16 @@ mergeInto(LibraryManager.library, {
             el.style.width = (HALF * 2) + 'px';
             el.style.height = (HALF * 2) + 'px';
             el.style.backfaceVisibility = 'hidden';
-            el.style.background = 'rgba(40, 44, 52, 0.92)';
-            el.style.border = '1px solid ' + T.border;
+            // 밝은 회색 상자 (AutoCAD 뷰큐브 느낌) - 어두운 도면 위에서 잘 보인다
+            el.style.background = 'linear-gradient(160deg, #f4f4f6 0%, #d2d3d8 100%)';
+            el.style.border = '1px solid #7c7f88';
             el.style.boxSizing = 'border-box';
             el.style.display = 'grid';
             el.style.gridTemplateColumns = '1fr 1fr 1fr';
             el.style.gridTemplateRows = '1fr 1fr 1fr';
 
-            // 요소의 로컬 축을 월드 축에 꽂는다: +X -> u, +Y(아래) -> -v, +Z -> n.
-            // 그 뒤 translateZ 로 상자 반 변만큼 바깥으로 민다.
-            var m = [face.u[0], face.u[1], face.u[2], 0,
-                     -face.v[0], -face.v[1], -face.v[2], 0,
-                     face.n[0], face.n[1], face.n[2], 0,
-                     0, 0, 0, 1];
-            el.style.transform = 'matrix3d(' + m.join(',') + ') translateZ(' + HALF + 'px)';
+            // 면을 월드 축에 꽂고 translateZ 로 상자 반 변만큼 바깥으로 민다.
+            el.style.transform = basis(face.u, face.v, face.n) + ' translateZ(' + HALF + 'px)';
 
             for (var j = 0; j < 3; ++j) {
                 for (var i = 0; i < 3; ++i) {
@@ -101,13 +107,16 @@ mergeInto(LibraryManager.library, {
                     cell.style.display = 'flex';
                     cell.style.alignItems = 'center';
                     cell.style.justifyContent = 'center';
-                    cell.style.color = T.text;
+                    cell.style.color = '#3a3d45';
                     cell.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';
-                    cell.style.fontSize = '11px';
+                    cell.style.fontSize = face.label.length > 4 ? '10px' : '12px';
+                    cell.style.fontWeight = '700';
+                    cell.style.letterSpacing = '0.5px';
                     cell.style.cursor = 'pointer';
+                    cell.style.pointerEvents = 'auto';
                     if (i === 1 && j === 1) cell.textContent = face.label;
                     cell.addEventListener('mouseenter', function() {
-                        this.style.background = T.accent;
+                        this.style.background = 'rgba(66, 150, 250, 0.55)';
                     });
                     cell.addEventListener('mouseleave', function() {
                         this.style.background = '';
@@ -124,6 +133,39 @@ mergeInto(LibraryManager.library, {
             }
             return el;
         };
+
+        // 나침반 고리: 상자 밑면 높이의 월드 XY 평면에 눕힌다. 상자와 같은 틀 안이라
+        // 함께 돈다 - 평면도에서는 둥근 고리, 비스듬히 보면 타원이 된다. N = +Y.
+        var ring = document.createElement('div');
+        ring.style.position = 'absolute';
+        ring.style.left = -RING + 'px';
+        ring.style.top = -RING + 'px';
+        ring.style.width = (RING * 2) + 'px';
+        ring.style.height = (RING * 2) + 'px';
+        ring.style.boxSizing = 'border-box';
+        ring.style.borderRadius = '50%';
+        ring.style.border = '7px solid rgba(150, 153, 162, 0.75)';
+        ring.style.pointerEvents = 'none';    // 장식 - 뒤의 캔버스 클릭을 막지 않게
+        ring.style.transform = basis([1, 0, 0], [0, 1, 0], [0, 0, 1]) + ' translateZ(' + (-HALF) + 'px)';
+        // 글자: 로컬 (x, y) 는 화면 아래가 +y 이므로 N(+Y 월드) 은 위쪽(-y)
+        [['N', 0, -1], ['E', 1, 0], ['S', 0, 1], ['W', -1, 0]].forEach(function(c) {
+            var t = document.createElement('div');
+            t.textContent = c[0];
+            t.style.position = 'absolute';
+            t.style.left = (RING - 7 + c[1] * (RING - 3.5) - 1) + 'px';
+            t.style.top = (RING - 7 + c[2] * (RING - 3.5) - 1) + 'px';
+            t.style.width = '14px';
+            t.style.height = '14px';
+            t.style.lineHeight = '14px';
+            t.style.textAlign = 'center';
+            t.style.fontFamily = '"Segoe UI", sans-serif';
+            t.style.fontSize = '11px';
+            t.style.fontWeight = '700';
+            t.style.color = '#e8e8ec';
+            t.style.textShadow = '0 0 2px #000';
+            ring.appendChild(t);
+        });
+        box.appendChild(ring);
 
         for (var f = 0; f < FACES.length; ++f) box.appendChild(makeFace(FACES[f]));
 

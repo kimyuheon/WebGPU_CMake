@@ -530,28 +530,31 @@ const scenarios = [
       await a.evaluate(`window.__lotClicks = [];`
         + ` const i = HTMLInputElement.prototype.click; HTMLInputElement.prototype.click = function() { window.__lotClicks.push('input ' + this.accept); };`
         + ` const l = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function() { window.__lotClicks.push('download ' + this.download); };`);
-      const pick = async (menuId, accept, file) => {
+      // 열기 대화상자는 하나 - 확장자로 로더가 갈린다
+      const kAccept = '.lot,.json,.dxf,.obj';
+      const pick = async (file) => {
         const clicked = await a.evaluate(
-          `(() => { const b = document.querySelector('[data-cmd="${menuId}"]'); if (b) b.click(); return !!b; })()`);
+          `(() => { const b = document.querySelector('[data-cmd="file.open"]'); if (b) b.click(); return !!b; })()`);
         const doc = await a.send('DOM.getDocument', {});
-        const q = await a.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: `input[type=file][accept="${accept}"]` });
+        const q = await a.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: `input[type=file][accept="${kAccept}"]` });
         if (!q.nodeId) return false;
         await a.send('DOM.setFileInputFiles', { nodeId: q.nodeId, files: [resolve(file)] });
         await sleep(1200);
         return clicked;
       };
-      t.expect(await pick('file.openDxf', '.dxf', 'tests/data/sample.dxf'), 'DXF menu item and file input');
+      t.expect(await pick('tests/data/sample.dxf'), 'open menu item and file input (.dxf)');
       t.expect(a.has(/dxf: /), 'the DXF was read');
       t.expect(a.has(/document: "sample" opened/), 'into a tab named after the file');
+      t.expect(await pick('models/torus.obj'), 'open menu item and file input (.obj)');
+      t.expect(a.has(/LotModel: loaded \(opened file\)/), 'the OBJ was read through the same dialog');
       if (existsSync(kNativeScene)) {
-        t.expect(await pick('file.openLot', '.lot,.json', kNativeScene), '.lot menu item and file input');
+        t.expect(await pick(kNativeScene), 'open menu item and file input (.lot)');
         t.expect(a.has(/document: "mmWall" opened/), '.lot opened into a tab named after the file');
       }
       await a.evaluate(`document.querySelector('[data-cmd="file.saveLot"]').click()`);
       await a.evaluate(`document.querySelector('[data-cmd="file.saveDxf"]').click()`);
       const clicks = await a.evaluate(`window.__lotClicks`);
-      t.expect(clicks.includes('input .dxf'), 'DXF 열기 opens the file dialog');
-      if (existsSync(kNativeScene)) t.expect(clicks.includes('input .lot,.json'), '열기 opens the file dialog');
+      t.expect(clicks.includes('input ' + kAccept), '열기 opens the one file dialog');
       t.expect(clicks.some(c => /^download .+\.lot$/.test(c)), '저장 downloads a .lot named after the tab');
       t.expect(clicks.some(c => /^download .+\.dxf$/.test(c)), 'DXF 내보내기 downloads a .dxf');
       t.expect(!a.has(/ERROR/), 'no ERROR');
@@ -606,6 +609,84 @@ const scenarios = [
         + ` return s['objects'].filter(o => o['kind'] === 'polyline')`
         + `.map(o => o['polyline']['verts'].length).sort((x, y) => y - x); })()`);
       t.expect(counts[0] > 4, `bulge tessellated (${counts.join(',')})`);
+    },
+  },
+  {
+    // 블록(INSERT) 은 놓인 자리로 펼치고, MTEXT 는 서식을 벗겨 줄마다 문자로
+    name: 'dxf-blocks-and-mtext',
+    async run(t) {
+      const a = t.api;
+      t.expect(await a.loadDxfFile('tests/data/blocks_mtext.dxf'), 'blocks_mtext.dxf loads');
+      t.expect(a.has(/dxf: 1 lines, 1 circles, 0 arcs, 0 polylines, 3 texts, .* 1 inserts, 1 blocks/),
+               'block contents + MTEXT lines counted');
+      const s = await a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const texts = s.filter(o => o['kind'] === 'text').map(o => o['text']['content']);
+      t.expect(texts.includes('구조평면도') && texts.includes('축척 1/100'), `MTEXT split, formatting stripped (${texts.join(' | ')})`);
+      t.expect(texts.includes('문⌀12'), '%%c became the diameter sign');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
+    name: 'status-bar',
+    async run(t) {
+      const a = t.api;
+      const toggle = async (id) => {
+        await a.evaluate(`document.querySelector('#lot-status-toggles [data-cmd="${id}"]').click()`);
+        await sleep(150);
+        return a.evaluate(`document.querySelector('#lot-status-toggles [data-cmd="${id}"]').getAttribute('data-on')`);
+      };
+      const on = id => a.evaluate(`document.querySelector('#lot-status-toggles [data-cmd="${id}"]')?.getAttribute('data-on')`);
+      t.expect(await on('snap.osnap') === '1' && await on('view.grid') === '1', 'osnap and grid start on');
+      t.expect(await toggle('snap.osnap') === '0' && a.has(/osnap: off/), '객체스냅 off');
+      t.expect(await toggle('snap.osnap') === '1' && a.has(/osnap: on/), '객체스냅 on');
+      t.expect(await toggle('snap.polar') === '1' && a.has(/polar tracking: on/), '극좌표 on');
+      await toggle('snap.polar');
+      t.expect(await toggle('view.grid') === '0' && a.has(/display: grid off/), '그리드 off');
+      await toggle('view.grid');
+      // 셰이딩 단추 = 비주얼 스타일 메뉴. 고르면 닫히고 ✓ 가 옮겨 간다.
+      const menuRow = (owner, label) => `[...document.querySelectorAll('[data-menu-for="${owner}"] > div')].find(r => r.firstChild && r.firstChild.textContent === '${label}')`;
+      await a.evaluate(`document.querySelector('#lot-status-toggles [data-cmd="status.style"]').click()`);
+      t.expect(await a.evaluate(`document.querySelector('[data-menu-for="status.style"]').style.display`) === 'block', '셰이딩 opens the visual style menu');
+      await a.evaluate(`${menuRow('status.style', '와이어프레임 (메쉬)')}.click()`);
+      await sleep(200);
+      t.expect(a.has(/display: style wireframe \(mesh\)/), 'wireframe (mesh) chosen');
+      t.expect(await a.evaluate(`${menuRow('status.style', '와이어프레임 (메쉬)')}.getAttribute('data-on')`) === '1', '✓ on the chosen style');
+      t.expect(await on('status.style') === '0', '셰이딩 button is off in a wireframe style');
+      t.expect(await a.evaluate(`document.querySelector('[data-menu-for="status.style"]').style.display`) === 'none', 'menu closes after a pick');
+      for (const st of ['숨은선 제거', '와이어프레임 (엣지)', '셰이딩', '셰이딩 + 엣지']) {
+        await a.evaluate(`document.querySelector('#lot-status-toggles [data-cmd="status.style"]').click()`);
+        await a.evaluate(`${menuRow('status.style', st)}.click()`);
+        await sleep(150);
+      }
+      t.expect(a.has(/display: style hidden line/) && a.has(/display: style shaded \+ edges/), 'every style selectable');
+
+      // 객체스냅 ▴ = 종류 설정. 끝점 끄기/켜기, 전체 끄기/켜기
+      await a.evaluate(`document.querySelector('[data-menu-arrow="snap.osnap"]').click()`);
+      t.expect(await a.evaluate(`${menuRow('snap.osnap', '끝점')}.getAttribute('data-on')`) === '1', '끝점 starts checked');
+      t.expect(await a.evaluate(`${menuRow('snap.osnap', '근처점')}.getAttribute('data-on')`) === '0', '근처점 starts unchecked');
+      await a.evaluate(`${menuRow('snap.osnap', '끝점')}.click()`);
+      await sleep(150);
+      t.expect(a.has(/osnap: endpoint off/), '끝점 off');
+      t.expect(await a.evaluate(`document.querySelector('[data-menu-for="snap.osnap"]').style.display`) === 'block', 'osnap menu stays open');
+      await a.evaluate(`${menuRow('snap.osnap', '전체 끄기')}.click()`);
+      await sleep(150);
+      t.expect(await a.evaluate(`${menuRow('snap.osnap', '교차점')}.getAttribute('data-on')`) === '0', '전체 끄기 unchecks all');
+      await a.evaluate(`${menuRow('snap.osnap', '전체 켜기')}.click()`);
+      await sleep(150);
+      t.expect(await a.evaluate(`${menuRow('snap.osnap', '근처점')}.getAttribute('data-on')`) === '1', '전체 켜기 checks all');
+      await a.evaluate(`${menuRow('snap.osnap', '근처점')}.click()`);   // 기본값으로 되돌린다
+      t.expect(await toggle('view.dims') === '0' && a.has(/display: dimensions off/), '치수 off');
+      await toggle('view.dims');
+      // 키로도 같은 상태가 된다 (F3)
+      await a.key('F3');
+      t.expect(await on('snap.osnap') === '0', 'F3 flips the same button');
+      await a.key('F3');
+      // ^ 는 지난 명령 목록
+      await a.commandType('zoom');
+      await a.evaluate(`document.getElementById('lot-cmdline-history').click()`);
+      const list = await a.evaluate(`document.getElementById('lot-cmdline-popup').textContent`);
+      t.expect(/zoom/.test(list), `^ shows recent commands (${list})`);
+      t.expect(!a.has(/ERROR/), 'no ERROR');
     },
   },
   {

@@ -169,10 +169,13 @@ void SimpleRenderSystem::render(FrameInfo& frame) {
         // 틀어놓기 때문이다. 그래서 별도로 하나 더 보낸다.
         // 오브젝트 색은 '지정했을 때만' 쓴다 - 지정하지 않은 메시는 정점 색/텍스처 그대로.
         const vec3 c = frame.colorOf(obj);
+        // 숨은선 제거면 w = 2 (셰이더가 조명 없이 한 색으로 칠한다)
+        const vec3 fill = flatFill ? flatColor : c;
+        const float mode = flatFill ? 2.0f : (obj.hasOwnColor() ? 1.0f : 0.0f);
         const UniformData uniform{
             obj.transform.mat4Transform(),
             obj.transform.normalMatrix(),
-            {c.x, c.y, c.z, obj.hasOwnColor() ? 1.0f : 0.0f},
+            {fill.x, fill.y, fill.z, mode},
         };
 
         const uint32_t byteOffset = slot * uniformStride_;

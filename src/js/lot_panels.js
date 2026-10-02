@@ -22,30 +22,31 @@ mergeInto(LibraryManager.library, {
         // 캔버스는 상태바 아래에서 시작한다. 상태바가 아직 없으면 (호출 순서가 바뀌면) 0.
         var statusBarHeight = dom.statusBar ? dom.statusBar.offsetHeight : 0;
 
-        // .lot 파일 입력 (숨김). 파일 선택창은 사용자 제스처로만 열리므로 버튼이 click() 한다.
-        var lotInput = document.createElement('input');
-        lotInput.type = 'file';
-        lotInput.accept = '.lot,.json';
-        lotInput.style.display = 'none';
-        // DXF 파일 입력. 옛 도면은 CP949 같은 코드페이지라 브라우저 TextDecoder 로 푼다
-        // ($DWGCODEPAGE 를 앞부분에서 찾아 고른다). C++ 은 UTF-8 만 받는다.
-        var dxfInput = document.createElement('input');
-        dxfInput.type = 'file';
-        dxfInput.accept = '.dxf';
-        dxfInput.style.display = 'none';
+        // 열기 대화상자 하나 (숨김). 파일 선택창은 사용자 제스처로만 열리므로 버튼이 click() 한다.
+        // 고른 파일의 확장자로 로더를 고른다 - 아래 openFile.
+        var fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.lot,.json,.dxf,.obj';
+        fileInput.style.display = 'none';
         // name 은 탭 이름이 된다 (테스트 도구는 안 넘긴다).
         var withName = function(name, fn) {
             var namePtr = name ? stringToNewUTF8(name) : 0;
             fn(namePtr);
             if (namePtr) _free(namePtr);
         };
+        // 옛 DXF 도면은 CP949 같은 코드페이지라 브라우저 TextDecoder 로 푼다
+        // ($DWGCODEPAGE 를 앞부분에서 찾아 고른다). C++ 은 UTF-8 만 받는다.
         dom.dxfLoad = function(buffer, name) {
             var bytes = new Uint8Array(buffer);
             // 앞 4KB 만 아스키로 훑어 코드페이지를 찾는다
             var head = '';
             for (var i = 0; i < Math.min(bytes.length, 4096); ++i) head += String.fromCharCode(bytes[i]);
             var label = 'utf-8';
-            var m = head.match(/\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n\s*([A-Za-z0-9_]+)/);
+            // AutoCAD 2007(AC1021) 이후 DXF 는 $DWGCODEPAGE 가 ANSI_949 여도 본문이 UTF-8 이다.
+            // 코드페이지를 믿으면 한글 층 이름/문자가 깨진다.
+            var ver = head.match(/\$ACADVER\s*\r?\n\s*1\s*\r?\n\s*AC(\d+)/);
+            var unicodeDxf = ver && parseInt(ver[1], 10) >= 1021;
+            var m = unicodeDxf ? null : head.match(/\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n\s*([A-Za-z0-9_]+)/);
             if (m) {
                 var cp = m[1].toLowerCase();
                 if (cp.indexOf('949') >= 0) label = 'euc-kr';
@@ -65,16 +66,6 @@ mergeInto(LibraryManager.library, {
             withName(name, function(n) { _lot_onDxfFileLoaded(ptr, utf8.length, n); });  // 버퍼 해제는 C++ 쪽
             return true;
         };
-        dxfInput.addEventListener('change', function() {
-            var file = dxfInput.files && dxfInput.files[0];
-            if (!file) return;
-            var reader = new FileReader();
-            reader.onload = function() { dom.dxfLoad(reader.result, file.name); };
-            reader.onerror = function() { console.error('dxf: could not read ' + file.name); };
-            reader.readAsArrayBuffer(file);
-            dxfInput.value = '';
-        });
-        document.body.appendChild(dxfInput);
         dom['dxfLoad'] = dom.dxfLoad;  // 테스트 도구가 부른다 (Closure 이름 고정)
 
         // 씬 텍스트 <-> C++. 파일 대화상자와 분리해 두면 테스트 도구(tools/click.mjs)가
@@ -109,17 +100,32 @@ mergeInto(LibraryManager.library, {
         dom['dxfSave'] = dom.dxfSave;
         dom['sceneLoad'] = dom.sceneLoad;
 
-        lotInput.addEventListener('change', function() {
-            var file = lotInput.files && lotInput.files[0];
-            if (!file) return;
+        // 확장자 -> 로더. .lot/.dxf 는 새 탭에 열리고, .obj 는 지금 씬에 얹힌다.
+        var openFile = function(file) {
+            var dot = file.name.lastIndexOf('.');
+            var ext = dot >= 0 ? file.name.slice(dot + 1).toLowerCase() : '';
             var reader = new FileReader();
-            reader.onload = function() { dom.sceneLoad(reader.result, file.name); };
-            reader.onerror = function() { console.error('scene: could not read ' + file.name); };
-            reader.readAsText(file);
-            lotInput.value = '';
+            reader.onerror = function() { console.error('open: could not read ' + file.name); };
+            if (ext === 'lot' || ext === 'json') {
+                reader.onload = function() { dom.sceneLoad(reader.result, file.name); };
+                reader.readAsText(file);
+            } else if (ext === 'dxf') {
+                reader.onload = function() { dom.dxfLoad(reader.result, file.name); };
+                reader.readAsArrayBuffer(file);
+            } else if (ext === 'obj') {
+                reader.onload = function() { if (dom.objLoad) dom.objLoad(reader.result); };
+                reader.readAsArrayBuffer(file);
+            } else {
+                console.error('open: unsupported file type - ' + file.name + ' (.lot .json .dxf .obj)');
+            }
+        };
+        fileInput.addEventListener('change', function() {
+            var file = fileInput.files && fileInput.files[0];
+            if (file) openFile(file);
+            fileInput.value = '';  // 같은 파일을 다시 골라도 change 가 오도록
         });
-        document.body.appendChild(lotInput);
-        dom.lotInput = lotInput;
+        document.body.appendChild(fileInput);
+        dom.fileInput = fileInput;
 
         // 만든 텍스트를 파일로 내려준다. a[download] 는 사용자 제스처 안에서만 열린다.
         var download = function(text, name, mime) {
@@ -137,20 +143,15 @@ mergeInto(LibraryManager.library, {
 
         // 버튼 동작 중 키가 아닌 것들. '@이름' 코드로 가리킨다.
         // 메뉴/리본의 '@이름' 명령이 부른다 (src/js/lot_ui.js 의 run)
-        // ⚠️ 키는 따옴표로. run 이 C++ 이 준 문자열("openLot")로 찾는데, 따옴표가 없으면
+        // ⚠️ 키는 따옴표로. run 이 C++ 이 준 문자열("open")로 찾는데, 따옴표가 없으면
         //    Closure(릴리스)가 키를 줄여 버려 아무것도 안 찾아진다 - 메뉴를 눌러도 파일
         //    대화상자가 안 뜨던 원인이다.
         var actions = dom.actions = {
-            'openObj': function() { if (dom.objInput) dom.objInput.click(); },
-            'openLot': function() { lotInput.click(); },
-            'openDxf': function() { dxfInput.click(); },
+            'open': function() { fileInput.click(); },
             // 파일 이름은 지금 탭 이름 (js_uiSetTabs 가 dom.docName 에 둔다)
             'saveLot': function() { download(dom.sceneSave(), (dom.docName || 'scene') + '.lot', 'application/json'); },
             'saveDxf': function() { download(dom.dxfSave(), (dom.docName || 'scene') + '.dxf', 'application/dxf'); },
         };
-
-        // 떠 있던 OBJ 버튼은 메뉴로 들어왔으니 숨긴다
-        if (dom.objButton) dom.objButton.style.display = 'none';
 
         // 문자 도구 입력창. 기준점을 찍으면 C++ 이 js_showTextInput 으로 연다.
         // 여기서 잡은 키는 window 로 올라가지 않게 (stopPropagation) - 안 그러면 C++ 키 핸들러가
@@ -228,7 +229,7 @@ mergeInto(LibraryManager.library, {
         hint.style.position = 'fixed';
         hint.style.left = '50%';
         hint.style.transform = 'translateX(-50%)';
-        hint.style.bottom = '14px';
+        hint.style.bottom = '40px';   // 하단 상태바(30px) 위
         hint.style.zIndex = '11';
         hint.style.padding = '5px 12px';
         hint.style.fontFamily = '"Segoe UI", "Malgun Gothic", sans-serif';

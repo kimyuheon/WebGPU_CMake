@@ -154,6 +154,7 @@ public:
         projection_ = mat4::perspective(fovY, aspect, nearZ, farZ);
         orthographic_ = false;
         orthoHalfHeight_ = 0.0f;
+        nearZ_ = nearZ;
     }
 
     // 직교 투영. halfHeight 는 화면 세로 절반에 담기는 월드 길이 - 곧 줌이다.
@@ -165,9 +166,12 @@ public:
                                          nearZ, farZ);
         orthographic_ = true;
         orthoHalfHeight_ = halfHeight;
+        nearZ_ = nearZ;
     }
 
     bool isOrthographic() const { return orthographic_; }
+    // 근평면 거리. 화면에 붙여 그리는 보조선(박스 선택 사각형)이 이보다 앞이면 잘린다.
+    float nearClip() const { return nearZ_; }
     float getOrthoHalfHeight() const { return orthoHalfHeight_; }
 
     // 카메라 위치와 '바라보는 방향'
@@ -268,6 +272,7 @@ private:
     mat4 view_ = mat4::identity();
     bool orthographic_ = false;
     float orthoHalfHeight_ = 0.0f;
+    float nearZ_ = 0.01f;
 
     ViewMode viewMode_ = ViewMode::Cad;
     quat orbitRotation_{};

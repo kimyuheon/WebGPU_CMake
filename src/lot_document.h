@@ -40,6 +40,9 @@ struct LotDocument {
     LotGameObject viewer = LotGameObject::createGameObject();
 
     // 씬 크기에서 따라오는 값들. zoomExtents 가 한꺼번에 잡는다.
+    // DXF 에서 연 도면이 원점에서 멀었으면 읽을 때 뺀 양 (내보낼 때 더한다)
+    double dxfOriginX = 0.0;
+    double dxfOriginY = 0.0;
     float gridSpacing = 0.5f;        // F9 스냅 간격
     float linetypeScale = 1.0f;      // AutoCAD 의 LTSCALE
     float nearZ = 0.1f;

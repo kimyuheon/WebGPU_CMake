@@ -25,9 +25,8 @@ LotRibbon::LotRibbon() {
         {"홈", {
             {"파일", {
                 icon("file.newDoc",  "새 도면", "\xE2\x96\xA1", "#newDoc", false, "", "빈 도면을 새 탭에"),
-                icon("file.openLot", "열기",  "\xE2\x96\xA4", "@openLot", false, "", "저장해 둔 도면을 새 탭에 열기"),
+                icon("file.open",    "열기",  "\xE2\x96\xA4", "@open",    false, "", "열기 (.lot .dxf .obj)"),
                 icon("file.saveLot", "저장",  "\xE2\x96\xA3", "@saveLot", false, "", "씬을 .lot 으로 저장"),
-                icon("file.openDxf", "DXF",   "\xE2\x97\xA7", "@openDxf", false, "", "DXF 도면 열기"),
                 icon("file.saveDxf", "DXF 저장", "\xE2\x97\xA8", "@saveDxf", false, "", "2D 도면을 DXF 로 내보내기"),
             }},
             {"편집", {
@@ -86,9 +85,6 @@ LotRibbon::LotRibbon() {
                 icon("view.parallel", "평행",   "\xE2\x96\xB1", "KeyP", false, "P", "원근 / 평행 투영", "ortho"),
                 icon("view.fps",      "1인칭",  "\xE2\x9E\x94", "KeyV", false, "V", "CAD 궤도 / 1인칭", "fps"),
                 icon("view.outline",  "외곽선", "\xE2\x97\x8E", "KeyO", false, "O", "선택 외곽선", "outline"),
-            }},
-            {"파일", {
-                icon("file.openObj", "OBJ", "\xE2\x9B\xB6", "@openObj", false, "", "OBJ 모델 가져오기"),
             }},
         }},
     };

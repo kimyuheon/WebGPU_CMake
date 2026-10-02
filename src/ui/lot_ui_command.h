@@ -16,13 +16,16 @@ namespace lot_ui {
 struct Command {
     std::string id;        // "view.top" 처럼 고유. 테스트와 상태 표시가 이걸로 가리킨다
     std::string label;     // 화면에 보이는 이름 (한국어)
-    std::string keyCode;   // KeyboardEvent.code. "@openLot" 처럼 @ 로 시작하면 JS 쪽 동작
+    std::string keyCode;   // KeyboardEvent.code. "@open" 처럼 @ 로 시작하면 JS 쪽 동작
     bool ctrl = false;     // Ctrl 조합인가
     std::string shortcut;  // 메뉴 오른쪽에 회색으로 붙는 글자 ("Ctrl+Z", "T")
     std::string tip;       // 툴팁
     std::string state;     // 켜짐 표시를 볼 상태 키 ("view:2", "ortho"). 비면 표시 없음
     std::string icon;      // 리본에 쓸 짧은 기호 (없으면 label 앞 글자)
     bool separatorBefore = false;
+    // 상태바 단추의 위로 펼치는 메뉴 (객체스냅 설정, 비주얼 스타일). 비면 없음.
+    std::string menuTitle;
+    std::vector<Command> menu;
 };
 
 struct Group {

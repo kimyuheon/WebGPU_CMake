@@ -15,8 +15,38 @@ const char* kindName(Kind kind) {
     case Kind::Center: return "center";
     case Kind::Intersection: return "intersection";
     case Kind::Perpendicular: return "perpendicular";
+    case Kind::FaceCenter: return "face center";
+    case Kind::Node: return "node";
+    case Kind::Quadrant: return "quadrant";
+    case Kind::Tangent: return "tangent";
+    case Kind::Nearest: return "nearest";
     default: return "none";
     }
+}
+
+const char* kindLabel(Kind kind) {
+    switch (kind) {
+    case Kind::Endpoint: return "끝점";
+    case Kind::Midpoint: return "중간점";
+    case Kind::Center: return "중심점";
+    case Kind::FaceCenter: return "면 중심";
+    case Kind::Node: return "노드";
+    case Kind::Quadrant: return "사분점";
+    case Kind::Intersection: return "교차점";
+    case Kind::Perpendicular: return "수직점";
+    case Kind::Tangent: return "접선";
+    case Kind::Nearest: return "근처점";
+    default: return "";
+    }
+}
+
+unsigned& enabledKinds() {
+    // 근처점만 끈 채로 시작한다 - 켜 두면 선 위 아무 데나 붙어 다른 스냅을 가린다
+    static unsigned mask = kindBit(Kind::Endpoint) | kindBit(Kind::Midpoint) | kindBit(Kind::Center)
+                         | kindBit(Kind::FaceCenter) | kindBit(Kind::Node) | kindBit(Kind::Quadrant)
+                         | kindBit(Kind::Intersection) | kindBit(Kind::Perpendicular)
+                         | kindBit(Kind::Tangent);
+    return mask;
 }
 
 namespace {
@@ -66,6 +96,7 @@ float screenDistance(const Query& q, const vec3& world) {
 // 후보 하나를 대본다. 더 가까우면 best 를 갱신.
 void consider(const Query& q, Kind kind, const vec3& worldPoint, LotGameObject::id_t id,
               Snap& best) {
+    if (!isEnabled(kind)) return;
     const float d = screenDistance(q, worldPoint);
     if (d > q.radiusPx) return;
     // 같은 거리면 끝점을 중점보다 우선한다 - CAD 에서 끝점이 더 '강한' 스냅이다
@@ -111,6 +142,30 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
             consider(q, Kind::Midpoint, (wa + wb) * 0.5f, hit.id, best);
             consider(q, Kind::Midpoint, (wb + wc) * 0.5f, hit.id, best);
             consider(q, Kind::Midpoint, (wc + wa) * 0.5f, hit.id, best);
+
+            // 면 중심: 맞은 삼각형과 같은 평면의 삼각형들을 모아 그 정점들의 평균.
+            // 사각 면은 삼각형 둘이라, 삼각형 하나의 무게중심으로는 면 가운데가 안 나온다.
+            if (isEnabled(Kind::FaceCenter)) {
+                const vec3 n0 = normalize(cross(b - a, c - a));
+                const float size = std::sqrt(dot(b - a, b - a)) + 1e-6f;
+                vec3 sum{0.0f, 0.0f, 0.0f};
+                int count = 0;
+                const size_t triangles = obj->model->getTriangleCount();
+                for (size_t i = 0; i < triangles; ++i) {
+                    vec3 p0, p1, p2;
+                    if (!obj->model->getTriangle(i, p0, p1, p2)) continue;
+                    const vec3 n = cross(p1 - p0, p2 - p0);
+                    const float nl = std::sqrt(dot(n, n));
+                    if (nl < 1e-12f || dot(n, n0) / nl < 0.999f) continue;
+                    if (std::fabs(dot(n0, p0 - a)) > size * 1e-3f) continue;
+                    sum = sum + p0 + p1 + p2;
+                    count += 3;
+                }
+                if (count > 0) {
+                    consider(q, Kind::FaceCenter, transformPoint(m, sum * (1.0f / static_cast<float>(count))),
+                             hit.id, best);
+                }
+            }
         }
     }
 
@@ -131,8 +186,52 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
         }
         if (obj.hasCurve()) {
             // 원/호의 중심. 쪼갠 점들의 중점이 아니라 정의된 중심이다.
-            consider(q, Kind::Center, transformPoint(obj.transform.mat4Transform(), obj.curve.center),
-                     entry.first, best);
+            const mat4 m = obj.transform.mat4Transform();
+            const LotGameObject::Curve& cv = obj.curve;
+            const vec3 center = transformPoint(m, cv.center);
+            consider(q, Kind::Center, center, entry.first, best);
+
+            // 곡선 평면의 두 축 (월드). 반지름은 축척을 탄 길이로.
+            const vec3 ax = transformPoint(m, cv.center + cv.right) - center;
+            const vec3 ay = transformPoint(m, cv.center + cv.up) - center;
+            const float r = cv.radius * std::sqrt(dot(ax, ax));
+            const vec3 ux = normalize(ax), uy = normalize(ay);
+            constexpr float kTwoPi = 6.2831853f;
+            // 호 범위 안의 각인가 (원은 늘)
+            auto onCurve = [&](float t) {
+                if (cv.kind != LotGameObject::Curve::Kind::Arc) return true;
+                float lo = cv.start, hi = cv.end;
+                if (hi < lo) std::swap(lo, hi);
+                while (t < lo) t += kTwoPi;
+                while (t > lo + kTwoPi) t -= kTwoPi;
+                return t <= hi + 1e-4f;
+            };
+            for (int k = 0; k < 4; ++k) {
+                const float t = kTwoPi * 0.25f * static_cast<float>(k);
+                if (onCurve(t)) consider(q, Kind::Quadrant, center + (ux * std::cos(t) + uy * std::sin(t)) * r, entry.first, best);
+            }
+            // 접선: 기준점에서 원에 그은 두 접선의 접점
+            if (q.fromPoint && isEnabled(Kind::Tangent)) {
+                const vec3 d = *q.fromPoint - center;
+                const float dx = dot(d, ux), dy = dot(d, uy);
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                if (dist > r * 1.0001f) {
+                    const float base = std::atan2(dy, dx);
+                    const float alpha = std::acos(r / dist);
+                    for (float t : {base + alpha, base - alpha}) {
+                        if (onCurve(t)) consider(q, Kind::Tangent, center + (ux * std::cos(t) + uy * std::sin(t)) * r, entry.first, best);
+                    }
+                }
+            }
+        }
+    }
+
+    // 1-2a. 노드: 점 객체 (문자 기준점, 광원)
+    if (isEnabled(Kind::Node)) {
+        for (const auto& entry : objects) {
+            if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
+            const LotGameObject& obj = entry.second;
+            if (obj.isText() || obj.isLight()) consider(q, Kind::Node, obj.transform.translation, entry.first, best);
         }
     }
 
@@ -178,6 +277,20 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
                 const float tol = q.camera->worldPerPixel(p1, q.height) * 1.0f;
                 if (dot(gap, gap) > tol * tol) continue;
                 consider(q, Kind::Intersection, (p1 + p2) * 0.5f, near[i].id, best);
+            }
+        }
+
+        // 근처점: 다른 스냅이 하나도 없을 때만, 커서에 가장 가까운 선 위의 점
+        if (!best.valid() && isEnabled(Kind::Nearest)) {
+            for (const Segment& sg : near) {
+                float ax, ay, bx, by;
+                if (!q.camera->projectToScreen(sg.a, q.width, q.height, ax, ay)) continue;
+                if (!q.camera->projectToScreen(sg.b, q.width, q.height, bx, by)) continue;
+                const float ex = bx - ax, ey = by - ay;
+                const float ee = ex * ex + ey * ey;
+                float t = (ee > 1e-9f) ? ((q.mouseX - ax) * ex + (q.mouseY - ay) * ey) / ee : 0.0f;
+                t = std::fmin(std::fmax(t, 0.0f), 1.0f);
+                consider(q, Kind::Nearest, sg.a + (sg.b - sg.a) * t, sg.id, best);
             }
         }
 
@@ -240,6 +353,44 @@ void addMarker(LineRenderSystem& lines, const Snap& snap, const LotCamera& camer
             lines.addLine(prev, cur, color);
             prev = cur;
         }
+    } else if (snap.kind == Kind::FaceCenter) {
+        // 사각형 + 가운데 점
+        const vec3 color{1.0f, 0.8f, 0.4f};
+        lines.addLine(p - r - u, p + r - u, color);
+        lines.addLine(p + r - u, p + r + u, color);
+        lines.addLine(p + r + u, p - r + u, color);
+        lines.addLine(p - r + u, p - r - u, color);
+        lines.addLine(p - r * 0.15f, p + r * 0.15f, color);
+        lines.addLine(p - u * 0.15f, p + u * 0.15f, color);
+    } else if (snap.kind == Kind::Node || snap.kind == Kind::Tangent) {
+        // 원 + (노드는 X, 접선은 윗선)
+        const vec3 color = snap.kind == Kind::Node ? vec3{1.0f, 1.0f, 1.0f} : vec3{0.6f, 1.0f, 0.9f};
+        vec3 prev = p + r;
+        for (int i = 1; i <= 12; ++i) {
+            const float t = 6.2831853f * static_cast<float>(i) / 12.0f;
+            const vec3 cur = p + r * std::cos(t) + u * std::sin(t);
+            lines.addLine(prev, cur, color);
+            prev = cur;
+        }
+        if (snap.kind == Kind::Node) {
+            lines.addLine(p - (r + u) * 0.7f, p + (r + u) * 0.7f, color);
+            lines.addLine(p - (r - u) * 0.7f, p + (r - u) * 0.7f, color);
+        } else {
+            lines.addLine(p - r * 1.2f + u, p + r * 1.2f + u, color);
+        }
+    } else if (snap.kind == Kind::Quadrant) {
+        const vec3 color{1.0f, 0.6f, 0.9f};
+        lines.addLine(p + u, p + r, color);
+        lines.addLine(p + r, p - u, color);
+        lines.addLine(p - u, p - r, color);
+        lines.addLine(p - r, p + u, color);
+    } else if (snap.kind == Kind::Nearest) {
+        // 모래시계
+        const vec3 color{0.8f, 0.8f, 0.8f};
+        lines.addLine(p - r + u, p + r + u, color);
+        lines.addLine(p + r + u, p - r - u, color);
+        lines.addLine(p - r - u, p + r - u, color);
+        lines.addLine(p + r - u, p - r + u, color);
     } else if (snap.kind == Kind::Endpoint) {
         const vec3 color{1.0f, 0.9f, 0.2f};
         const vec3 c0 = p - r - u, c1 = p + r - u, c2 = p + r + u, c3 = p - r + u;

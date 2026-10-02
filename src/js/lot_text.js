@@ -23,13 +23,24 @@ mergeInto(LibraryManager.library, {
         if (!ctx) return 0;
 
         // 도면 글자에 가까운 굵기. 폰트 크기는 em 이라 실제 글자 높이보다 조금 크다.
-        var font = 'bold ' + pxHeight + 'px "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+        var family = 'px "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+        var font = 'bold ' + pxHeight + family;
         ctx.font = font;
         var metrics = ctx.measureText(text);
+        // 텍스처 폭 한도(4096)를 넘는 긴 줄은 해상도를 낮춰 굽는다 - 버리면 글자가 통째로 사라진다.
+        // 화면 크기는 C++ 이 가로세로 비로 정하므로 해상도만 줄어든다.
+        var kMaxW = 4096;
+        var need = metrics.width + pxHeight * 0.3;
+        if (need > kMaxW) {
+            pxHeight = Math.max(8, Math.floor(pxHeight * kMaxW / need));
+            font = 'bold ' + pxHeight + family;
+            ctx.font = font;
+            metrics = ctx.measureText(text);
+        }
         var pad = Math.ceil(pxHeight * 0.15);
         var w = Math.ceil(metrics.width) + pad * 2;
         var h = Math.ceil(pxHeight * 1.3) + pad * 2;
-        if (w <= 0 || h <= 0 || w > 4096) return 0;
+        if (w <= 0 || h <= 0 || w > kMaxW) return 0;
 
         canvas.width = w;
         canvas.height = h;

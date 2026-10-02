@@ -10,12 +10,16 @@
 // 우선순위는 AutoCAD 와 같다:
 //   1. 오브젝트 스냅(osnap) 이 잡혔으면 그 점 - 다른 보정은 하지 않는다.
 //   2. 직교 트랙킹(F8) 이 켜져 있고 기준점이 있으면 한 축으로만.
+//      직교가 꺼져 있고 극좌표 트랙킹(F10) 이 켜져 있으면 각도 배수 근처일 때 그 방향으로.
 //   3. 그리드 스냅(F9) 이 켜져 있으면 격자 눈금으로.
 // 스케치 도구와 변환 도구가 같은 규칙을 쓰도록 여기 한 곳에 둔다.
 namespace lot_cursor {
 
 struct Settings {
+    bool osnap = true;        // F3. 끄면 오브젝트 스냅을 찾지 않는다
     bool ortho = false;       // F8
+    bool polar = false;       // F10. 기준점에서 polarStepDeg 배수 각도 근처면 그 방향에 붙인다
+    float polarStepDeg = 15.0f;
     float gridSpacing = 0.0f; // F9. 0 이면 끔 (월드 단위)
 };
 

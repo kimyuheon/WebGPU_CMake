@@ -30,6 +30,14 @@ std::string commandJson(const Command& c) {
                   + ",\"state\":" + quote(c.state);
     if (!c.icon.empty()) j += ",\"icon\":" + quote(c.icon);
     if (c.separatorBefore) j += ",\"sep\":1";
+    if (!c.menu.empty()) {
+        j += ",\"menuTitle\":" + quote(c.menuTitle) + ",\"menu\":[";
+        for (size_t i = 0; i < c.menu.size(); ++i) {
+            if (i) j += ",";
+            j += commandJson(c.menu[i]);
+        }
+        j += "]";
+    }
     j += "}";
     return j;
 }
