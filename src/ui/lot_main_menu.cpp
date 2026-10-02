@@ -34,7 +34,9 @@ LotMainMenu::LotMainMenu() {
             item("edit.undo",     "실행 취소",  "KeyZ",   true,  "Ctrl+Z", "마지막 편집을 되돌린다", "undo"),
             item("edit.redo",     "다시 실행",  "KeyY",   true,  "Ctrl+Y", "되돌린 편집을 다시 한다", "redo"),
             item("edit.dup",      "복제",       "KeyD",   true,  "Ctrl+D", "선택을 제자리에 복제한다", "", true),
+            item("edit.selectAll","전체 선택",  "KeyA",   true,  "Ctrl+A", "고를 수 있는 것을 모두 선택한다 (잠긴 층 제외)", "", true),
             item("edit.delete",   "삭제",       "Delete", false, "Del",    "선택을 지운다"),
+            item("edit.eraseAll", "전체 지우기","#eraseAll", false, "",    "도면을 통째로 비운다 (Ctrl+Z 로 되돌릴 수 있다)"),
             item("edit.cancel",   "선택 해제",  "Escape", false, "Esc",    "도구를 닫거나 선택을 푼다"),
         }},
         {"뷰", {

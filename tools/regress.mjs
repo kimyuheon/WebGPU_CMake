@@ -131,6 +131,38 @@ const scenarios = [
     },
   },
   {
+    name: 'select-all-and-erase',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(450, 700); await a.click(600, 700); await a.key('Enter');
+      await a.key('KeyL'); await a.click(700, 760); await a.click(900, 760); await a.key('Enter');
+
+      // Ctrl+A - 기본 씬의 메시까지 전부 (잠긴 층은 빠진다)
+      await a.ctrl('KeyA');
+      t.expect(a.has(/pick: select all - 5 objects/), 'Ctrl+A selects everything selectable');
+
+      // 선택은 편집이 아니다 - Ctrl+Z 는 마지막 스케치를 되돌린다
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo sketch/), 'select all is not an edit');
+
+      // 잠긴 층 것은 빠진다 (층 0 은 잠글 수 없어 새 층으로 옮겨 잠근다)
+      await a.layerButton(-1, 'New layer');
+      await a.ctrl('KeyA');
+      await a.layerButton(1, 'Move the selection to this layer');
+      await a.layerButton(1, 'Lock layer');
+      await a.ctrl('KeyA');
+      t.expect(a.has(/pick: select all - 0 objects/), 'a locked layer is left out');
+      await a.layerButton(1, 'Unlock layer');
+
+      // 전체 지우기 - 한 번의 편집이라 Ctrl+Z 로 전부 돌아온다
+      await a.command('eraseall');
+      t.expect(a.has(/delete: erase all - 4 objects removed/), 'erase all empties the drawing');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo erase all/), 'erase all undoes in one step');
+    },
+  },
+  {
     name: 'view-cube',
     async run(t) {
       const a = t.api;

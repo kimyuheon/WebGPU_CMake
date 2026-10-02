@@ -446,6 +446,34 @@ void EditController::deleteSelection(LotGameObject::Map& objects) {
     selection_.clear();
 }
 
+void EditController::selectAll(const LotGameObject::Map& objects) {
+    selection_.clear();
+    for (const auto& entry : objects) {
+        if (lot_pick::isSelectable(entry.second)) selection_.insert(entry.first);
+    }
+    LOT_LOG("pick: select all - " << selection_.size() << " objects");
+}
+
+void EditController::deleteAll(LotGameObject::Map& objects) {
+    if (objects.empty()) return;
+    drag_.active = false;
+    marquee_.active = false;
+
+    // 잠긴 층까지 포함해 전부다 - '전체 지우기' 는 도면을 비우는 명령이다.
+    std::set<id_t> all;
+    for (const auto& entry : objects) all.insert(entry.first);
+
+    EditHistory::Edit edit;
+    edit.label = "erase all";
+    edit.before = EditHistory::snapshot(objects, all);
+
+    const size_t removed = objects.size();
+    objects.clear();
+    selection_.clear();
+    LOT_LOG("delete: erase all - " << removed << " objects removed");
+    history_.record(std::move(edit));
+}
+
 void EditController::undo(LotGameObject::Map& objects) {
     drag_.active = false;
     marquee_.active = false;

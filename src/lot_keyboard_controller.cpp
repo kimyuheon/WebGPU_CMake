@@ -84,6 +84,7 @@ bool KeyboardMovementController::handleBrowserKey(const char* code, bool down, b
         if (std::strcmp(code, "KeyZ") == 0) id = shift ? Redo : Undo;
         else if (std::strcmp(code, "KeyY") == 0) id = Redo;
         else if (std::strcmp(code, "KeyD") == 0) id = Duplicate;  // C 는 원(circle)에 내줬다
+        else if (std::strcmp(code, "KeyA") == 0) id = SelectAll;
         else return false;
     } else {
         if (numberCapture_ && down) {
@@ -146,6 +147,12 @@ bool KeyboardMovementController::consumeOutlineToggle() {
 bool KeyboardMovementController::consumeDuplicate() {
     const bool was = justPressed_[Duplicate];
     justPressed_[Duplicate] = false;
+    return was;
+}
+
+bool KeyboardMovementController::consumeSelectAll() {
+    const bool was = justPressed_[SelectAll];
+    justPressed_[SelectAll] = false;
     return was;
 }
 

@@ -34,8 +34,9 @@ public:
     // 외곽선 토글 (O). 누른 순간만.
     bool consumeOutlineToggle();
 
-    // 선택 복제 (Ctrl+D) / 삭제 (Delete, Backspace). 누른 순간만.
+    // 선택 복제 (Ctrl+D) / 전체 선택 (Ctrl+A) / 삭제 (Delete, Backspace). 누른 순간만.
     bool consumeDuplicate();
+    bool consumeSelectAll();
     bool consumeDelete();
 
     // 기즈모 모드 (1 이동, 2 회전, 3 축척). 눌린 순간의 모드,
@@ -117,6 +118,7 @@ private:
         ZoomOut,
         ToggleOutline,
         Duplicate,
+        SelectAll,
         DeleteSelection,
         GizmoTranslate,
         GizmoRotate,

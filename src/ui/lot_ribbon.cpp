@@ -33,6 +33,7 @@ LotRibbon::LotRibbon() {
                 icon("edit.undo",   "취소", "\xE2\x86\xB6", "KeyZ",   true,  "Ctrl+Z", "실행 취소", "undo"),
                 icon("edit.redo",   "복구", "\xE2\x86\xB7", "KeyY",   true,  "Ctrl+Y", "다시 실행", "redo"),
                 icon("edit.dup",    "복제", "\xE2\x9A\x8A", "KeyD",   true,  "Ctrl+D", "선택을 제자리에 복제"),
+                icon("edit.selectAll", "전체", "\xE2\x96\xA6", "KeyA", true, "Ctrl+A", "전체 선택"),
                 icon("edit.delete", "삭제", "\xE2\x9C\x95", "Delete", false, "Del",    "선택 삭제"),
             }},
             {"뷰", {

@@ -363,6 +363,7 @@ static bool runAction(const char* code) {
     if (code == nullptr || code[0] != '#') return false;
     const std::string name(code + 1);
     if (name == "cube") { addCube(); return true; }
+    if (name == "eraseAll") { g_edit.deleteAll(g_gameObjects); return true; }
     LOT_ERR("command: no action named \"" << name << "\"");
     return true;   // '#' 로 왔으면 키로 넘기지 않는다
 }
@@ -846,6 +847,9 @@ void renderLoop() {
         const bool editKeysEnabled = !g_sketch.anyActive() && !g_transform.isActive();
         if (g_cameraController.consumeDuplicate() && editKeysEnabled) {
             g_edit.duplicateSelection(g_gameObjects);
+        }
+        if (g_cameraController.consumeSelectAll() && editKeysEnabled) {
+            g_edit.selectAll(g_gameObjects);
         }
         if (g_cameraController.consumeDelete() && editKeysEnabled) {
             g_edit.deleteSelection(g_gameObjects);

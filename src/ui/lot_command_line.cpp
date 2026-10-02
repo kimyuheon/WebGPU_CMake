@@ -51,6 +51,8 @@ const Alias kAliases[] = {
     {"edit.redo",     "redo re 복구"},
     {"edit.dup",      "duplicate dup"},
     {"edit.delete",   "delete del erase e 지우기"},
+    {"edit.selectAll","selectall all 모두"},
+    {"edit.eraseAll", "eraseall new 전부지우기"},
     {"edit.cancel",   "cancel esc 취소하기"},
     {"view.front",    "front fr 앞"},
     {"view.top",      "top 위"},

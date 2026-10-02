@@ -75,6 +75,12 @@ public:
     // 선택된 오브젝트들을 지운다. 드래그 중이면 먼저 끝낸다.
     void deleteSelection(LotGameObject::Map& objects);
 
+    // 고를 수 있는 것 전부 (잠기거나 꺼진 층은 빠진다 - 피킹과 같은 규칙).
+    void selectAll(const LotGameObject::Map& objects);
+
+    // 도면을 통째로 비운다. 한 번의 편집이라 Ctrl+Z 로 전부 돌아온다.
+    void deleteAll(LotGameObject::Map& objects);
+
     // 이번 프레임에 더블 클릭으로 집힌 오브젝트 (없으면 kInvalidId). 읽으면 비워진다.
     // 문자 편집처럼 '그 오브젝트를 열기' 에 쓴다.
     id_t consumeDoubleClicked() {
