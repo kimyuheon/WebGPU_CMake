@@ -519,6 +519,33 @@ const scenarios = [
     },
   },
   {
+    // 다른 시나리오는 대화상자를 건너뛰고 sceneLoad 를 부른다. 여기서는 사용자와 같은 길로:
+    // 메뉴를 누르고, 숨은 <input type=file> 에 파일을 꽂아 change 가 나게 한다.
+    name: 'open-through-menu',
+    async run(t) {
+      const a = t.api;
+      const { resolve } = await import('node:path');
+      const pick = async (menuId, accept, file) => {
+        const clicked = await a.evaluate(
+          `(() => { const b = document.querySelector('[data-cmd="${menuId}"]'); if (b) b.click(); return !!b; })()`);
+        const doc = await a.send('DOM.getDocument', {});
+        const q = await a.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: `input[type=file][accept="${accept}"]` });
+        if (!q.nodeId) return false;
+        await a.send('DOM.setFileInputFiles', { nodeId: q.nodeId, files: [resolve(file)] });
+        await sleep(1200);
+        return clicked;
+      };
+      t.expect(await pick('file.openDxf', '.dxf', 'tests/data/sample.dxf'), 'DXF menu item and file input');
+      t.expect(a.has(/dxf: /), 'the DXF was read');
+      t.expect(a.has(/document: "sample" opened/), 'into a tab named after the file');
+      if (existsSync(kNativeScene)) {
+        t.expect(await pick('file.openLot', '.lot,.json', kNativeScene), '.lot menu item and file input');
+        t.expect(a.has(/document: "mmWall" opened/), '.lot opened into a tab named after the file');
+      }
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'command-line',
     async run(t) {
       const a = t.api;
