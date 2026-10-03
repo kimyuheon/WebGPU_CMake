@@ -67,6 +67,8 @@ struct Query {
     const std::set<LotGameObject::id_t>* exclude = nullptr;
     // 수직 스냅의 기준점 (도구의 직전 점: 선의 시작점, 변환의 기준점). nullptr 이면 수직 스냅 없음.
     const vec3* fromPoint = nullptr;
+    // 편집 이력의 revision. 바뀌면 객체 경계상자 캐시를 다시 만든다 (EditHistory::revision).
+    uint64_t revision = 0;
 
     bool isExcluded(LotGameObject::id_t id) const {
         return exclude != nullptr && exclude->count(id) != 0;

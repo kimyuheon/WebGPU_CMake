@@ -67,6 +67,7 @@ void EditController::update(const Context& ctx) {
         query.radiusPx = snapRadiusPx;
         query.exclude = (drag_.active || ctx.excludeSelectionFromSnap) ? &selection_ : nullptr;
         query.fromPoint = ctx.snapFromPoint;
+        query.revision = history_.revision();
         const lot_osnap::Kind before = snap_.kind;
         snap_ = lot_osnap::find(query, mouseRay(), ctx.objects);
         // 종류가 바뀔 때만 한 줄 - 어떤 스냅이 잡혔는지 상태바에서 따라갈 수 있게

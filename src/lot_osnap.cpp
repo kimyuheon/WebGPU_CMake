@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 namespace lot_osnap {
 
@@ -109,20 +110,111 @@ void consider(const Query& q, Kind kind, const vec3& worldPoint, LotGameObject::
     }
 }
 
+// ---- 후보 거르기 ----
+//
+// 큰 도면(객체 수만 개)에서 매 프레임 모든 선의 점을 화면에 투영하면 그것만으로 수십 ms 다.
+// 객체마다 월드 경계상자를 한 번 구해 두고, 커서 광선이 (스냅 반경만큼 부풀린) 상자를
+// 지나는 객체만 자세히 본다. 보통 수만 개 중 몇 개만 남는다.
+struct WorldBox {
+    vec3 lo, hi;
+};
+
+// 도면 객체를 종류별 평평한 배열로 (경계상자 포함). 편집(revision), 탭 전환(맵 주소),
+// 객체 추가/삭제(개수) 가 있을 때만 다시 만든다 - 그 사이 프레임은 배열만 훑는다.
+// 끌고 있는 객체는 아직 revision 이 안 바뀌었을 수 있지만 그것들은 후보에서 빠진다 (exclude).
+struct Item {
+    LotGameObject::id_t id;
+    const LotGameObject* obj;
+    WorldBox box;
+};
+
+struct BoundsCache {
+    const LotGameObject::Map* objects = nullptr;
+    uint64_t revision = ~0ull;
+    size_t count = 0;
+    std::vector<Item> items;     // 스케치 · 치수 · 문자 · 광원
+    std::vector<Item> meshes;    // 메시 (삼각형 피킹은 lot_pick 이 상자로 거른다)
+};
+BoundsCache g_bounds;
+
+WorldBox boxOf(const LotGameObject& obj) {
+    std::vector<vec3> pts;
+    if (obj.isSketch()) pts = obj.worldPoints();
+    else if (obj.isDimension()) pts = lot_dim::outlinePoints(obj);
+    pts.push_back(obj.transform.translation);   // 원 중심 · 문자 기준점도 들어가게
+    if (obj.hasCurve()) pts.push_back(transformPoint(obj.transform.mat4Transform(), obj.curve.center));
+    WorldBox b{pts[0], pts[0]};
+    for (const vec3& p : pts) {
+        b.lo = vec3{std::fmin(b.lo.x, p.x), std::fmin(b.lo.y, p.y), std::fmin(b.lo.z, p.z)};
+        b.hi = vec3{std::fmax(b.hi.x, p.x), std::fmax(b.hi.y, p.y), std::fmax(b.hi.z, p.z)};
+    }
+    return b;
+}
+
+void syncBounds(const Query& q, const LotGameObject::Map& objects) {
+    if (g_bounds.objects == &objects && g_bounds.revision == q.revision && g_bounds.count == objects.size()) return;
+    g_bounds.objects = &objects;
+    g_bounds.revision = q.revision;
+    g_bounds.count = objects.size();
+    g_bounds.items.clear();
+    g_bounds.meshes.clear();
+    for (const auto& entry : objects) {
+        const LotGameObject& obj = entry.second;
+        if (obj.model) g_bounds.meshes.push_back(Item{entry.first, &obj, WorldBox{}});
+        else if (obj.isSketch() || obj.isDimension() || obj.isText() || obj.isLight())
+            g_bounds.items.push_back(Item{entry.first, &obj, boxOf(obj)});
+    }
+}
+
+// 광선이 상자를 (화면에서 reachPx 만큼 부풀려) 지나는가
+bool nearRay(const Query& q, const lot_pick::Ray& ray, const WorldBox& b, float reachPx) {
+    const vec3 c = (b.lo + b.hi) * 0.5f;
+    const float pad = q.camera->worldPerPixel(c, q.height) * reachPx;
+    const float lo[3] = {b.lo.x - pad, b.lo.y - pad, b.lo.z - pad};
+    const float hi[3] = {b.hi.x + pad, b.hi.y + pad, b.hi.z + pad};
+    const float o[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
+    const float d[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+    float tMin = -std::numeric_limits<float>::max();
+    float tMax = std::numeric_limits<float>::max();
+    for (int i = 0; i < 3; ++i) {
+        if (std::fabs(d[i]) < 1e-12f) {
+            if (o[i] < lo[i] || o[i] > hi[i]) return false;
+            continue;
+        }
+        float t1 = (lo[i] - o[i]) / d[i];
+        float t2 = (hi[i] - o[i]) / d[i];
+        if (t1 > t2) std::swap(t1, t2);
+        tMin = std::fmax(tMin, t1);
+        tMax = std::fmin(tMax, t2);
+        if (tMin > tMax) return false;
+    }
+    return tMax >= 0.0f;   // 카메라 뒤만 아니면
+}
+
 }  // namespace
 
 Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& objects) {
     Snap best;
     best.screenDistance = std::numeric_limits<float>::max();
     if (!q.camera) return best;
+    syncBounds(q, objects);
+    // 이번 프레임 후보: 커서 광선 근처를 지나는 것만 (교차/수직은 반경의 2 배까지 본다).
+    // 층 필터(맵 조회)는 상자 검사를 통과한 몇 개에만 - 수만 번 부르면 그것만으로 ms 단위다.
+    const float reachPx = q.radiusPx * 2.0f + 2.0f;
+    std::vector<const Item*> cands;
+    for (const Item& it : g_bounds.items) {
+        if (!nearRay(q, ray, it.box, reachPx)) continue;
+        if (q.isExcluded(it.id) || !lot_pick::isSelectable(*it.obj)) continue;
+        cands.push_back(&it);
+    }
 
     // 1. 커서 아래 삼각형 (끌고 있는 오브젝트는 제외)
     lot_pick::Hit hit;
     float bestT = std::numeric_limits<float>::max();
-    for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
+    for (const Item& m : g_bounds.meshes) {
+        if (q.isExcluded(m.id) || !lot_pick::isSelectable(*m.obj)) continue;
         lot_pick::Hit h;
-        if (lot_pick::intersectObjectPrecise(ray, entry.second, h) && h.t < bestT) {
+        if (lot_pick::intersectObjectPrecise(ray, *m.obj, h) && h.t < bestT) {
             bestT = h.t;
             hit = h;
         }
@@ -171,25 +263,26 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
 
     // 1-2. 스케치 오브젝트의 끝점/중점. 선은 면이 없어 '커서 아래 삼각형'이 없으므로
     //      항상 전부 대본다. 메시 후보와 같은 best 를 두고 겨루므로 더 가까운 쪽이 이긴다.
-    for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
-        const LotGameObject& obj = entry.second;
+    for (const Item* it : cands) {
+        const LotGameObject::id_t id = it->id;
+        const LotGameObject& o = *it->obj;
+        const LotGameObject& obj = o;
         if (!obj.isSketch()) continue;
         const std::vector<vec3> pts = obj.worldPoints();
         const size_t n = pts.size();
         for (size_t i = 0; i < n; ++i) {
-            consider(q, Kind::Endpoint, pts[i], entry.first, best);
+            consider(q, Kind::Endpoint, pts[i], id, best);
         }
         const size_t segments = obj.closed ? n : n - 1;
         for (size_t i = 0; i < segments; ++i) {
-            consider(q, Kind::Midpoint, (pts[i] + pts[(i + 1) % n]) * 0.5f, entry.first, best);
+            consider(q, Kind::Midpoint, (pts[i] + pts[(i + 1) % n]) * 0.5f, id, best);
         }
         if (obj.hasCurve()) {
             // 원/호의 중심. 쪼갠 점들의 중점이 아니라 정의된 중심이다.
             const mat4 m = obj.transform.mat4Transform();
             const LotGameObject::Curve& cv = obj.curve;
             const vec3 center = transformPoint(m, cv.center);
-            consider(q, Kind::Center, center, entry.first, best);
+            consider(q, Kind::Center, center, id, best);
 
             // 곡선 평면의 두 축 (월드). 반지름은 축척을 탄 길이로.
             const vec3 ax = transformPoint(m, cv.center + cv.right) - center;
@@ -208,7 +301,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
             };
             for (int k = 0; k < 4; ++k) {
                 const float t = kTwoPi * 0.25f * static_cast<float>(k);
-                if (onCurve(t)) consider(q, Kind::Quadrant, center + (ux * std::cos(t) + uy * std::sin(t)) * r, entry.first, best);
+                if (onCurve(t)) consider(q, Kind::Quadrant, center + (ux * std::cos(t) + uy * std::sin(t)) * r, id, best);
             }
             // 접선: 기준점에서 원에 그은 두 접선의 접점
             if (q.fromPoint && isEnabled(Kind::Tangent)) {
@@ -219,7 +312,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
                     const float base = std::atan2(dy, dx);
                     const float alpha = std::acos(r / dist);
                     for (float t : {base + alpha, base - alpha}) {
-                        if (onCurve(t)) consider(q, Kind::Tangent, center + (ux * std::cos(t) + uy * std::sin(t)) * r, entry.first, best);
+                        if (onCurve(t)) consider(q, Kind::Tangent, center + (ux * std::cos(t) + uy * std::sin(t)) * r, id, best);
                     }
                 }
             }
@@ -228,19 +321,21 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
 
     // 1-2a. 노드: 점 객체 (문자 기준점, 광원)
     if (isEnabled(Kind::Node)) {
-        for (const auto& entry : objects) {
-            if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
-            const LotGameObject& obj = entry.second;
-            if (obj.isText() || obj.isLight()) consider(q, Kind::Node, obj.transform.translation, entry.first, best);
+        for (const Item* it : cands) {
+            const LotGameObject::id_t id = it->id;
+            const LotGameObject& o = *it->obj;
+            const LotGameObject& obj = o;
+            if (obj.isText() || obj.isLight()) consider(q, Kind::Node, obj.transform.translation, id, best);
         }
     }
 
     // 1-2b. 치수의 측정점 / 치수선 끝 - 치수에 이어 치수를 달 때 필요하다
-    for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
-        if (!entry.second.isDimension()) continue;
-        for (const vec3& p : lot_dim::outlinePoints(entry.second)) {
-            consider(q, Kind::Endpoint, p, entry.first, best);
+    for (const Item* it : cands) {
+        const LotGameObject::id_t id = it->id;
+        const LotGameObject& o = *it->obj;
+        if (!o.isDimension()) continue;
+        for (const vec3& p : lot_dim::outlinePoints(o)) {
+            consider(q, Kind::Endpoint, p, id, best);
         }
     }
 
@@ -249,9 +344,10 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     {
         std::vector<Segment> near;
         const float reach = q.radiusPx * 2.0f;
-        for (const auto& entry : objects) {
-            if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
-            const LotGameObject& obj = entry.second;
+        for (const Item* it : cands) {
+            const LotGameObject::id_t id = it->id;
+            const LotGameObject& o = *it->obj;
+            const LotGameObject& obj = o;
             if (!obj.isSketch()) continue;
             const std::vector<vec3> pts = obj.worldPoints();
             const size_t n = pts.size();
@@ -259,7 +355,7 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
             for (size_t i = 0; i < segments; ++i) {
                 const vec3& a = pts[i];
                 const vec3& b = pts[(i + 1) % n];
-                if (segmentNearCursor(q, a, b, reach)) near.push_back(Segment{a, b, entry.first});
+                if (segmentNearCursor(q, a, b, reach)) near.push_back(Segment{a, b, id});
             }
         }
 
@@ -311,13 +407,12 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
     // 2. 폴백: 커서가 메시 밖. 모든 정점을 화면에 투영해 가장 가까운 끝점.
     //    실루엣 바로 옆에서 꼭짓점을 집을 때 필요하다. 정점 수천 개를 프레임마다
     //    투영해도 마이크로초 단위다.
-    for (const auto& entry : objects) {
-        if (q.isExcluded(entry.first) || !lot_pick::isSelectable(entry.second)) continue;
-        const LotGameObject& obj = entry.second;
-        if (!obj.model) continue;
+    for (const Item& it : g_bounds.meshes) {
+        if (q.isExcluded(it.id) || !lot_pick::isSelectable(*it.obj)) continue;
+        const LotGameObject& obj = *it.obj;
         const mat4 m = obj.transform.mat4Transform();
         for (const vec3& p : obj.model->getPositions()) {
-            consider(q, Kind::Endpoint, transformPoint(m, p), entry.first, best);
+            consider(q, Kind::Endpoint, transformPoint(m, p), it.id, best);
         }
     }
     return best;
