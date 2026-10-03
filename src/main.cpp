@@ -1012,13 +1012,28 @@ void renderLoop() {
                 doc().camera.orbitAroundTarget(yaw * step, pitch * step);
             }
             if (wheel != 0.0f) {
+                // 커서 기준 줌 (AutoCAD 와 같다): 커서 아래 점이 줌 전후로 같은 화면 자리에
+                // 남도록 타깃을 옮긴다. 화면 중심에서 커서까지의 월드 길이는 배율만큼 줄어드니
+                // 그 차이 (1 - 실제 배율) 만큼 커서 쪽으로. 원근은 타깃 깊이의 평면 기준이다.
+                const float vh = static_cast<float>(g_renderer->getSwapchain().getHeight());
+                const float vw = static_cast<float>(g_renderer->getSwapchain().getWidth());
+                const float wppBefore = doc().camera.worldPerPixel(doc().camera.getTarget(), vh);
+                float applied = 1.0f;   // 한계에 걸리면 덜 줌된다 - 그 실제 배율
                 if (doc().orthographic) {
+                    const float before = doc().orthoHalfHeight;
                     doc().orthoHalfHeight *= LotCamera::zoomFactor(wheel);
                     if (doc().orthoHalfHeight < doc().orthoMinHalfHeight) doc().orthoHalfHeight = doc().orthoMinHalfHeight;
                     if (doc().orthoHalfHeight > doc().orthoMaxHalfHeight) doc().orthoHalfHeight = doc().orthoMaxHalfHeight;
+                    applied = doc().orthoHalfHeight / before;
                 } else {
+                    const float before = doc().camera.getOrbitDistance();
                     doc().camera.zoomToTarget(wheel);
+                    applied = doc().camera.getOrbitDistance() / before;
                 }
+                const float dx = g_mouse.x() - vw * 0.5f;
+                const float dy = g_mouse.y() - vh * 0.5f;
+                const vec3 offset = (doc().camera.getRight() * dx + doc().camera.getDown() * dy) * wppBefore;
+                doc().camera.setTarget(doc().camera.getTarget() + offset * (1.0f - applied));
             }
         } else {
             // 1인칭: 키 입력을 뷰어 오브젝트에 반영한 뒤, 그 위치/회전으로 뷰 행렬을 만든다.

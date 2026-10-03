@@ -60,6 +60,27 @@ const scenarios = [
     },
   },
   {
+    // 휠 줌은 커서 기준: 커서 아래 점이 줌 전후로 같은 화면 자리에 남는다 (원근 · 평행 둘 다)
+    name: 'zoom-at-cursor',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      for (const [label, toggle] of [['perspective', null], ['parallel', 'KeyP']]) {
+        // 투영을 바꾸면 배율이 달라지므로 바꾼 뒤에 그린다.
+        // 화면 가운데에서 먼 곳에 짧은 세로선 - 가운데 기준 줌이면 몇 노치 만에 커서에서 멀어진다
+        if (toggle) await a.key(toggle);
+        await a.key('KeyL'); await a.click(950, 700); await a.click(950, 790); await a.key('Enter');
+        await a.key('Escape');
+        for (const notches of [3, 3, 3, -3, -3]) await a.wheel(950, 745, notches);
+        const before = a.count(/pick: sketch/);
+        await a.click(950, 745);
+        t.expect(a.count(/pick: sketch/) > before, `${label}: the line stays under the cursor`);
+        await a.key('Escape');
+      }
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;
