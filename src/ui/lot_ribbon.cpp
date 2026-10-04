@@ -66,6 +66,13 @@ LotRibbon::LotRibbon() {
                 icon("draw.dim",  "치수", "\xE2\x86\x94", "KeyD", false, "D", "정렬 치수", "sketch:6"),
                 icon("draw.text", "문자", "\xEF\xBC\xA1", "KeyW", false, "W", "문자", "sketch:7"),
             }},
+            {"수정", {
+                icon("modify.move",   "이동", "\xE2\x9C\x9B", "KeyM", false, "M", "기준점 이동", "xform:0"),
+                icon("modify.copy",   "복사", "\xE2\x9A\x8A", "KeyU", false, "U", "기준점 복사", "xform:1"),
+                icon("modify.rotate", "회전", "\xE2\x9F\xB3", "KeyK", false, "K", "기준점 회전", "xform:2"),
+                icon("modify.scale",  "축척", "\xE2\xA4\xA1", "KeyX", false, "X", "기준점 축척", "xform:3"),
+                icon("modify.mirror", "대칭", "\xE2\x87\x8B", "#mirror", false, "", "두 점 대칭축 (Shift+클릭: 원본 지우기)", "xform:4"),
+            }},
             {"마무리", {
                 icon("draw.finish", "확정", "\xE2\x9C\x93", "Enter",  false, "Enter", "그리던 것을 확정"),
                 icon("edit.cancel", "취소", "\xE2\x8E\x8B", "Escape", false, "Esc",   "도구 닫기 / 선택 해제"),
@@ -74,12 +81,6 @@ LotRibbon::LotRibbon() {
         {"3D", {
             {"만들기", {
                 icon("draw.cube", "큐브", "\xE2\xAC\xA1", "#cube", false, "", "보고 있는 자리에 큐브 하나"),
-            }},
-            {"수정", {
-                icon("modify.move",   "이동", "\xE2\x9C\x9B", "KeyM", false, "M", "기준점 이동", "xform:0"),
-                icon("modify.copy",   "복사", "\xE2\x9A\x8A", "KeyU", false, "U", "기준점 복사", "xform:1"),
-                icon("modify.rotate", "회전", "\xE2\x9F\xB3", "KeyK", false, "K", "기준점 회전", "xform:2"),
-                icon("modify.scale",  "축척", "\xE2\xA4\xA1", "KeyX", false, "X", "기준점 축척", "xform:3"),
             }},
             {"표시", {
                 icon("view.parallel", "평행",   "\xE2\x96\xB1", "KeyP", false, "P", "원근 / 평행 투영", "ortho"),

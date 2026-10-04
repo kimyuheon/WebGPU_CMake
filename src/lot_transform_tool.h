@@ -15,7 +15,7 @@
 class LineRenderSystem;
 class MouseInput;
 
-// 기준점 방식 변환 (AutoCAD 의 MOVE / COPY / ROTATE / SCALE).
+// 기준점 방식 변환 (AutoCAD 의 MOVE / COPY / ROTATE / SCALE / MIRROR).
 //
 // 기즈모는 '잡고 끌기'라 정밀한 자리를 맞추기 어렵다. CAD 는 기준점을 찍고
 // (스냅으로 정확히), 목적점을 찍거나 (역시 스냅) 숫자를 친다. 흐름:
@@ -23,13 +23,15 @@ class MouseInput;
 // 이동은 기준점->커서 변위, 회전은 기준점 둘레 각(작업평면 법선 축), 축척은 기준점을
 // 앵커로 한 배율. 복사는 이동과 같되 확정 때 원본을 두고 사본을 놓으며 도구가 계속
 // 열려 있어 여러 개를 찍을 수 있다.
+// 대칭은 기준점이 대칭축의 첫 점이고, 둘째 점을 찍으면 대칭 사본을 만든다 (Shift+클릭이면
+// 원본을 지운다 - AutoCAD 의 '원본 지우기? 예'). 미리보기는 객체를 건드리지 않고 선으로 그린다.
 //
 // 작업평면은 시작 순간의 카메라로 정한다 (SketchPlane::fromCamera). 커서 점은
 // 스냅이 있으면 스냅 점, 없으면 평면 교점 - 스케치 도구와 같은 규칙이다.
 // Vulkan 쪽 transform_tool 과 같은 자리다 (ROTATE_AXIS / 직교 트랙킹은 아직 없다).
 class TransformTool {
 public:
-    enum class Mode { None, Move, Copy, Rotate, Scale };
+    enum class Mode { None, Move, Copy, Rotate, Scale, Mirror };
     enum class State { Idle, WaitingBase, Previewing };
 
     struct Context {
@@ -93,6 +95,14 @@ private:
     bool applyNumber(float value, const vec3& cursor, LotGameObject::Map& objects);
 
     void restore(LotGameObject::Map& objects);
+
+    // 대칭: 축(base_ -> p) 이 정하는 평면에 대한 반사. 축이 너무 짧으면 false.
+    bool mirrorAxis(const vec3& p, vec3& normalOut) const;
+    // obj 를 그 평면에 대해 반사한 사본 (원본은 그대로). 문자는 읽히게 둔다 (MIRRTEXT 0).
+    static LotGameObject mirrored(const LotGameObject& obj, const vec3& origin, const vec3& n);
+    void confirmMirror(const Context& ctx, EditHistory& history, bool eraseSource);
+    vec3 mirrorEnd_{};      // 대칭축 둘째 점 (미리보기)
+    bool mirrorValid_ = false;
     void confirm(const Context& ctx, EditHistory& history);
 
     Mode mode_ = Mode::None;

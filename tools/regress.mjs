@@ -171,6 +171,47 @@ const scenarios = [
     },
   },
   {
+    // 대칭: 두 점 대칭축, 기본은 원본을 두고 사본, Shift+클릭은 원본을 지운다. 한 번에 되돌아간다.
+    name: 'mirror-tool',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(600, 720); await a.click(700, 760); await a.key('Enter');
+      await a.key('Escape');
+      // 선 객체들의 월드 중점 x (원본 · 사본 구별용)
+      const lineMids = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`
+        + `.filter(o => o['kind'] === 'line' || (o['kind'] === 'polyline' && o['polyline']['verts'].length === 2))`
+        + `.map(o => o['transform']['t'][0]).sort((p, q) => p - q)`);
+      const before = await lineMids();
+      t.expect(before.length === 1, `one line drawn (${JSON.stringify(before)})`);
+
+      await a.click(650, 740);   // 선 고르기
+      await a.command('mirror');
+      t.expect(a.has(/transform: mirror - click base point/), 'mirror starts with the selection');
+      await a.click(750, 650); await a.click(750, 800);   // 세로 대칭축 (화면 x = 750)
+      t.expect(a.has(/transform: mirror done - 1 objects, source kept/), 'mirror copy placed');
+      const after = await lineMids();
+      // 화면 x 750 = 월드 (750 - 550) / 187. 사본 중점 = 2 * 축 - 원본
+      const axis = (750 - 550) / 187;
+      t.expect(after.length === 2 && Math.abs(after[1] - (2 * axis - before[0])) < 0.02,
+               `copy mirrored across the axis (${JSON.stringify(after)}, axis ${axis.toFixed(3)})`);
+
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo mirror/) && (await lineMids()).length === 1, 'one undo removes the copy');
+
+      await a.click(650, 740);
+      await a.command('mirror');
+      await a.click(750, 650); await a.shiftClick(750, 800);
+      t.expect(a.has(/mirror done - 1 objects, source erased/), 'Shift+click erases the source');
+      const moved = await lineMids();
+      t.expect(moved.length === 1 && Math.abs(moved[0] - (2 * axis - before[0])) < 0.02, `only the mirrored line is left (${JSON.stringify(moved)})`);
+      await a.ctrl('KeyZ');
+      const back = await lineMids();
+      t.expect(back.length === 1 && Math.abs(back[0] - before[0]) < 1e-4, 'undo brings the source back');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;

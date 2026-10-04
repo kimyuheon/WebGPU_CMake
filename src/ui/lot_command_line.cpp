@@ -44,6 +44,7 @@ const Alias kAliases[] = {
     {"modify.copy",   "copy co cp"},
     {"modify.rotate", "rotate ro"},
     {"modify.scale",  "scale sc"},
+    {"modify.mirror", "mirror mi"},
     {"gizmo.move",    "gmove g1"},
     {"gizmo.rotate",  "grotate g2"},
     {"gizmo.scale",   "gscale g3"},

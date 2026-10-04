@@ -80,6 +80,7 @@ LotMainMenu::LotMainMenu() {
             item("modify.copy",   "복사",   "KeyU", false, "U", "기준점을 잡고 여러 번 놓는다", "xform:1"),
             item("modify.rotate", "회전",   "KeyK", false, "K", "기준점 둘레로, 또는 각도 입력", "xform:2"),
             item("modify.scale",  "축척",   "KeyX", false, "X", "기준점 기준 배율, 또는 배율 입력", "xform:3"),
+            item("modify.mirror", "대칭",   "#mirror", false, "", "대칭축 두 점 - 사본을 만든다 (Shift+클릭이면 원본 지우기)", "xform:4"),
             item("gizmo.move",    "기즈모: 이동",  "Digit1", false, "1", "축·평면 화살표로 끌기", "gizmo:0", true),
             item("gizmo.rotate",  "기즈모: 회전",  "Digit2", false, "2", "링으로 돌리기", "gizmo:1"),
             item("gizmo.scale",   "기즈모: 축척",  "Digit3", false, "3", "핸들로 키우기", "gizmo:2"),

@@ -535,6 +535,12 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    if (name == "mirror") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
+        return true;
+    }
     if (name == "dims") {
         g_display.dims = !g_display.dims;
         LOT_LOG("display: dimensions " << (g_display.dims ? "on" : "off"));

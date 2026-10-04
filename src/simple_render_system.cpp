@@ -127,7 +127,11 @@ void SimpleRenderSystem::createPipeline(lot_web_device& device, WGPUTextureForma
         LOT_ERR("SimpleRenderSystem: createUniformBuffer must run first!");
         return;
     }
-    pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_);
+    // 컬링 없음: 대칭(Mirror) 한 메시는 축척 한 축이 음수라 삼각형 감김이 뒤집힌다.
+    // 백페이스 컬링을 두면 그 메시는 바깥 면이 버려지고 안쪽이 보인다.
+    PipelineConfig config;
+    config.cullMode = WGPUCullMode_None;
+    pipeline_->createPipeline(device, colorFormat, depthFormat, pipelineLayout_, config);
     LOT_LOG("SimpleRenderSystem: Pipeline creation started");
 }
 
