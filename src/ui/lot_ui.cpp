@@ -23,7 +23,7 @@ bool State::operator==(const State& o) const {
         && view == o.view && fps == o.fps && ortho == o.ortho
         && orthoTracking == o.orthoTracking && gridSnap == o.gridSnap && outline == o.outline
         && osnap == o.osnap && polar == o.polar && gridShow == o.gridShow && dims == o.dims
-        && visualStyle == o.visualStyle && osnapKinds == o.osnapKinds
+        && visualStyle == o.visualStyle && osnapKinds == o.osnapKinds && offset == o.offset
         && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
 }
 
@@ -89,6 +89,7 @@ void LotUi::update(const State& state, const LotLayers& layers,
             if (state.osnapKinds & (1u << k)) add("osnapKind:" + std::to_string(k));
         }
         if (state.outline) add("outline");
+        if (state.offset) add("offset");
         j += "],\"disabled\":[";
         first = true;
         if (!state.canUndo) add("undo");

@@ -34,6 +34,7 @@ struct State {
     int visualStyle = 0;       // main 의 DisplaySettings::Style
     unsigned osnapKinds = 0;   // lot_osnap::enabledKinds()
     bool outline = false;
+    bool offset = false;       // 간격띄우기 도구가 열려 있다
     bool canUndo = false;
     bool canRedo = false;
     std::string hint;      // 열린 도구의 다음 할 일

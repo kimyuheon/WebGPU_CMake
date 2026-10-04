@@ -71,6 +71,7 @@ LotRibbon::LotRibbon() {
                 icon("modify.copy",   "복사", "\xE2\x9A\x8A", "KeyU", false, "U", "기준점 복사", "xform:1"),
                 icon("modify.rotate", "회전", "\xE2\x9F\xB3", "KeyK", false, "K", "기준점 회전", "xform:2"),
                 icon("modify.scale",  "축척", "\xE2\xA4\xA1", "KeyX", false, "X", "기준점 축척", "xform:3"),
+                icon("modify.offset", "간격", "\xE2\xAB\xBD", "#offset", false, "", "간격띄우기 (거리 -> 객체 -> 방향)", "offset"),
                 icon("modify.mirror", "대칭", "\xE2\x87\x8B", "#mirror", false, "", "두 점 대칭축 (Shift+클릭: 원본 지우기)", "xform:4"),
             }},
             {"마무리", {

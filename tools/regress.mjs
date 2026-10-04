@@ -167,7 +167,8 @@ const scenarios = [
       s = await st();
       t.expect(s.left.groups.length === 1 && s.floats.some(f => f.panel === 'props'), 'layout survives a reload');
       await a.evaluate(`localStorage.removeItem('lot.dock.v1')`);
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      // 전체 실행에서 가끔 ERROR 가 찍힌 적이 있다 (단독으로는 재현 안 됨) - 내용을 남긴다
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -208,6 +209,58 @@ const scenarios = [
       await a.ctrl('KeyZ');
       const back = await lineMids();
       t.expect(back.length === 1 && Math.abs(back[0] - before[0]) < 1e-4, 'undo brings the source back');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
+    // 간격띄우기: 거리 -> 객체 -> 방향 (반복). 선 · 원(안쪽은 거부) · 닫힌 사각형(꼭짓점 맞붙임)
+    name: 'offset-tool',
+    async run(t) {
+      const a = t.api;
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(600, 720); await a.click(800, 720); await a.key('Enter');
+      await a.key('KeyC'); await a.click(300, 720); await a.click(360, 720);
+      await a.key('KeyB'); await a.click(420, 700); await a.click(520, 790);
+      await a.key('Escape');
+      const before = await objs();
+      const line0 = before.find(o => o['kind'] === 'line');
+      const circle0 = before.find(o => o['kind'] === 'circle');
+      const rect0 = before.find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      t.expect(line0 && circle0 && rect0, 'line, circle and rectangle drawn');
+
+      await a.command('offset');
+      t.expect(a.has(/offset: type the distance/), 'offset asks for a distance');
+      await a.command('0.5');
+      t.expect(a.has(/offset: distance 0.5/), 'distance 0.5');
+      // 선: 위쪽으로
+      await a.click(700, 720); await a.click(700, 650);
+      t.expect(a.has(/offset: created object/), 'line offset created');
+      // 원: 안쪽은 반지름 0.32 - 0.5 < 0 이라 거부, 바깥은 r + 0.5
+      await a.click(360, 720); await a.click(310, 720);
+      t.expect(a.has(/offset: the circle would vanish/), 'inside offset larger than the radius is refused');
+      await a.click(360, 720); await a.click(420, 640);
+      // 닫힌 사각형: 바깥으로
+      await a.click(420, 745); await a.click(380, 745);
+      await a.key('Escape');
+      t.expect(a.has(/offset: finished/), 'Esc ends the tool');
+
+      const after = await objs();
+      const ids = new Set(before.map(o => o['id'] ?? JSON.stringify(o)));
+      const fresh = after.filter(o => !before.some(b => JSON.stringify(b) === JSON.stringify(o)));
+      const line1 = fresh.find(o => o['kind'] === 'line');
+      t.expect(line1 && Math.abs(dist(line1['transform']['t'], line0['transform']['t']) - 0.5) < 1e-3,
+               `line moved by exactly 0.5 (${line1 && dist(line1['transform']['t'], line0['transform']['t'])})`);
+      const circle1 = fresh.find(o => o['kind'] === 'circle');
+      t.expect(circle1 && Math.abs(circle1['circle']['radius'] - circle0['circle']['radius'] - 0.5) < 1e-4,
+               `circle radius + 0.5 (${circle1 && circle1['circle']['radius']} vs ${circle0['circle']['radius']})`);
+      const rect1 = fresh.find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      const perim = (o) => { const v = o['polyline']['verts']; let s = 0; for (let i = 0; i < v.length; ++i) s += dist(v[i], v[(i + 1) % v.length]); return s; };
+      t.expect(rect1 && rect1['polyline']['verts'].length === 4 && Math.abs(perim(rect1) - perim(rect0) - 4) < 1e-3,
+               `rectangle offset outward keeps 4 corners, perimeter + 4 (${rect1 && perim(rect1)} vs ${perim(rect0)})`);
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo offset/), 'undo removes an offset copy');
       t.expect(!a.has(/ERROR/), 'no ERROR');
     },
   },

@@ -20,6 +20,7 @@
 #include "lot_cursor_snap.h"
 #include "lot_linetype.h"
 #include "lot_sketch_tool.h"
+#include "lot_offset_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -81,6 +82,7 @@ MouseInput g_mouse;
 SketchController g_sketch;
 lot_ui::LotUi g_ui;
 TransformTool g_transform;
+OffsetTool g_offset;
 
 // 열려 있는 도면들과 지금 보고 있는 것. 탭 하나가 도면 하나다.
 // 도면에만 속하는 것(오브젝트·층·히스토리·시점)은 전부 LotDocument 안에 있어,
@@ -294,7 +296,11 @@ void lot_onCommandLine(const char* typed) {
     // 숫자(또는 부호/소수점)로 시작하면 값이다 - 진행 중인 변환 도구가 받는다.
     const char first = text[0];
     if (first == '-' || first == '.' || (first >= '0' && first <= '9')) {
-        if (g_transform.isPreviewing()) {
+        if (g_offset.wantsNumber()) {
+            g_offset.setNumberBuffer(text);
+            g_offset.finish();
+            LOT_LOG("command: value " << text);
+        } else if (g_transform.isPreviewing()) {
             g_transform.setNumberBuffer(text);
             const auto& sc = g_renderer->getSwapchain();
             TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -469,6 +475,7 @@ static void applyDocumentScale() {
 static void putDownTools() {
     g_sketch.cancel();
     g_transform.cancel(doc().objects);
+    g_offset.cancel();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
 }
@@ -535,9 +542,17 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    if (name == "offset") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
+        g_offset.start(doc().camera, doc().gridSpacing);
+        return true;
+    }
     if (name == "mirror") {
         g_sketch.cancel();
         g_transform.cancel(doc().objects);
+        g_offset.cancel();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
     }
@@ -929,7 +944,7 @@ void renderLoop() {
             EditController::Context ctx{doc().camera, g_mouse, *g_gizmoSystem, doc().objects,
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
-                                        g_sketch.anyActive() || g_transform.isActive(),
+                                        g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
                                                                : g_sketch.referencePoint(),
@@ -937,8 +952,9 @@ void renderLoop() {
             doc().edit.update(ctx);
 
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
-            g_cameraController.setNumberCapture(g_transform.isPreviewing());
+            g_cameraController.setNumberCapture(g_transform.isPreviewing() || g_offset.wantsNumber());
             g_transform.setNumberBuffer(g_cameraController.numberBuffer());
+            g_offset.setNumberBuffer(g_cameraController.numberBuffer());
             TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
@@ -946,6 +962,11 @@ void renderLoop() {
             if (const auto copies = g_transform.consumeCreated(); !copies.empty()) {
                 doc().edit.setSelection(copies);  // 놓은 사본을 선택 - 이어서 기즈모로 다듬을 수 있게
             }
+            // 간격띄우기: 변환 도구와 같은 자리 (클릭을 가져간다)
+            OffsetTool::Context octx{doc().camera, g_mouse, doc().objects,
+                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_offset.update(octx, doc().edit.history());
+            g_offset.consumeCreated();
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1010,17 +1031,20 @@ void renderLoop() {
         if (g_cameraController.consumeUndo()) {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
+            g_offset.cancel();
             doc().edit.undo(doc().objects);
         }
         if (g_cameraController.consumeRedo()) {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
+            g_offset.cancel();
             doc().edit.redo(doc().objects);
         }
 
         // 스케치 도구 시작 / 끝 / 취소. 도구를 열면 선택은 비운다 (Vulkan 쪽과 같다).
         if (const int tool = g_cameraController.consumeSketchTool(); tool >= 0) {
             g_transform.cancel(doc().objects);
+            g_offset.cancel();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
         }
@@ -1028,11 +1052,15 @@ void renderLoop() {
         if (const int mode = g_cameraController.consumeTransformMode(); mode >= 0) {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
+            g_offset.cancel();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (g_transform.isActive()) {
+            if (g_offset.isActive()) {
+                g_offset.finish();
+                g_cameraController.clearNumberBuffer();
+            } else if (g_transform.isActive()) {
                 TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                             static_cast<float>(g_renderer->getSwapchain().getWidth()),
                                             static_cast<float>(g_renderer->getSwapchain().getHeight())};
@@ -1043,7 +1071,8 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_transform.isActive()) g_transform.cancel(doc().objects);
+            if (g_offset.isActive()) { g_offset.cancel(); g_cameraController.clearNumberBuffer(); }
+            else if (g_transform.isActive()) g_transform.cancel(doc().objects);
             else if (g_sketch.anyActive()) { g_sketch.cancel(); js_hideTextInput(); }
             else doc().edit.clearSelection();
         }
@@ -1171,7 +1200,9 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
+            ui.hint = g_offset.isActive() ? g_offset.hint()
+                    : g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
+            ui.offset = g_offset.isActive();
             std::vector<lot_ui::DocTab> tabs;
             tabs.reserve(g_documents.size());
             for (const auto& d : g_documents) tabs.push_back({d->name, d->modified()});
@@ -1322,6 +1353,9 @@ void renderLoop() {
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
             g_transform.drawOverlay(*g_lineSystem, tctx);
+            OffsetTool::Context octx{doc().camera, g_mouse, doc().objects,
+                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_offset.drawOverlay(*g_lineSystem, octx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로
