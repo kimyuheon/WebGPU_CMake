@@ -8,6 +8,9 @@ extern "C" {
     extern int js_uiSetState(const char* stateJson);
     extern int js_uiSetLayers(const char* layersJson);
     extern int js_uiSetTabs(const char* tabsJson);
+    // src/js/lot_dock.js. 노드 트리 요약 / 속성. DOM 이 아직이면 0.
+    extern int js_uiSetTree(const char* treeJson);
+    extern int js_uiSetProperties(const char* propertiesJson);
     // src/js/lot_view_cube.js. 상자는 한 번, 자세는 바뀔 때만.
     extern int js_viewCubeInstall();
     extern int js_viewCubeOrient(const char* matrixCss);
@@ -38,6 +41,8 @@ void LotUi::invalidate() {
     viewCubeInstalled_ = false;
     viewCube_.invalidate();
     layerPanel_.invalidate();
+    nodeTree_.invalidate();
+    propertyPanel_.invalidate();
 }
 
 void LotUi::updateViewCube(const LotCamera& camera) {
@@ -109,9 +114,18 @@ void LotUi::update(const State& state, const LotLayers& layers,
         }
     }
 
-    const std::string layersJson = layerPanel_.diffJson(layers, objects, edit);
+    const std::string layersJson = layerPanel_.diffJson(layers, objects, edit,
+                                                        nodeTree_.layerCounts(objects, edit));
     if (!layersJson.empty() && js_uiSetLayers(layersJson.c_str()) == 0) {
         layerPanel_.invalidate();  // 다음 프레임에 다시
+    }
+    const std::string treeJson = nodeTree_.summaryJson(layers, objects, edit);
+    if (!treeJson.empty() && js_uiSetTree(treeJson.c_str()) == 0) {
+        nodeTree_.invalidate();
+    }
+    const std::string propsJson = propertyPanel_.diffJson(layers, objects, edit);
+    if (!propsJson.empty() && js_uiSetProperties(propsJson.c_str()) == 0) {
+        propertyPanel_.invalidate();
     }
 }
 

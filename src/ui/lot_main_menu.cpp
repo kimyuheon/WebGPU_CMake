@@ -58,6 +58,10 @@ LotMainMenu::LotMainMenu() {
             item("view.style2",   "와이어프레임 (메쉬)", "#style:2", false, "", "삼각형 변을 전부 선으로", "style:2"),
             item("view.style3",   "와이어프레임 (엣지)", "#style:3", false, "", "모서리 선만", "style:3"),
             item("view.style4",   "숨은선 제거",        "#style:4", false, "", "모서리 선, 뒤에 가려진 선은 숨긴다", "style:4"),
+            item("panel.layers",  "레이어 창",          "@panel:layers", false, "", "레이어 패널 열기/닫기", "", true),
+            item("panel.props",   "속성 창",            "@panel:props", false, "", "속성 패널 열기/닫기"),
+            item("panel.tree",    "노드 트리 창",       "@panel:tree", false, "", "노드 트리 패널 열기/닫기"),
+            item("panel.reset",   "패널 배치 초기화",   "@panel:reset", false, "", "패널을 처음 자리로"),
         }},
         {"그리기", {
             item("draw.line",     "선",        "KeyL", false, "L", "두 점씩 이어 그린다", "sketch:0"),

@@ -69,6 +69,9 @@ struct Query {
     const vec3* fromPoint = nullptr;
     // 편집 이력의 revision. 바뀌면 객체 경계상자 캐시를 다시 만든다 (EditHistory::revision).
     uint64_t revision = 0;
+    // 그리는 중인 도형의 점들 (아직 객체가 아니다). 폴리선을 그리다 자기 꼭짓점 · 변에
+    // 붙을 수 있게 끝점 · 중간점 · 교차 · 수직 · 근처점 후보에 넣는다. nullptr 이면 없음.
+    const std::vector<vec3>* draft = nullptr;
 
     bool isExcluded(LotGameObject::id_t id) const {
         return exclude != nullptr && exclude->count(id) != 0;

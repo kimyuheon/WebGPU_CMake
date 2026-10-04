@@ -24,6 +24,11 @@ public:
 
     // 이번 프레임에 그릴 텍스처 뷰를 획득 (실패 시 nullptr)
     WGPUTextureView acquireNextImage();
+    // 이번 프레임에 받은 화면 텍스처의 크기 (없으면 설정된 크기). 프레임 도중에 창/도크
+    // 크기가 바뀌면 getWidth() 는 새 값인데 받은 텍스처는 옛 크기다 - 한 프레임 안의
+    // 첨부물은 이 크기에 맞춘다.
+    uint32_t currentImageWidth() const;
+    uint32_t currentImageHeight() const;
 
     // 획득한 텍스처 뷰 해제
     void releaseCurrentImage();

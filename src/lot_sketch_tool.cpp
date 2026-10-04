@@ -589,6 +589,11 @@ const vec3* SketchController::referencePoint() const {
     return &active_->points().back();
 }
 
+const std::vector<vec3>* SketchController::draftPoints() const {
+    if (!active_ || !active_->hasPoints()) return nullptr;
+    return &active_->points();
+}
+
 bool SketchController::cursorPoint(const Context& ctx, vec3& out) const {
     if (ctx.snap.valid()) {
         out = ctx.snap.point;  // 스냅이 잡혔으면 평면 밖이라도 그 점 (AutoCAD 의 OSNAPZ=0)

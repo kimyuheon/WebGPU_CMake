@@ -289,6 +289,8 @@ public:
 
     // 열린 도구의 직전 점 (수직 스냅 기준, 직교 트랙킹 기준). 없으면 nullptr.
     const vec3* referencePoint() const;
+    // 열린 도구가 지금까지 찍은 점들 (그리는 중인 폴리선 자신에게 스냅). 없으면 nullptr.
+    const std::vector<vec3>* draftPoints() const;
 
 
 private:

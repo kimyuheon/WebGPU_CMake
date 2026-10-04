@@ -329,6 +329,15 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
         }
     }
 
+    // 1-2c. 그리는 중인 도형 자신의 꼭짓점 / 변 중점 (id 는 없다)
+    if (q.draft) {
+        const std::vector<vec3>& d = *q.draft;
+        for (size_t i = 0; i < d.size(); ++i) {
+            consider(q, Kind::Endpoint, d[i], LotGameObject::kInvalidId, best);
+            if (i + 1 < d.size()) consider(q, Kind::Midpoint, (d[i] + d[i + 1]) * 0.5f, LotGameObject::kInvalidId, best);
+        }
+    }
+
     // 1-2b. 치수의 측정점 / 치수선 끝 - 치수에 이어 치수를 달 때 필요하다
     for (const Item* it : cands) {
         const LotGameObject::id_t id = it->id;
@@ -356,6 +365,15 @@ Snap find(const Query& q, const lot_pick::Ray& ray, const LotGameObject::Map& ob
                 const vec3& a = pts[i];
                 const vec3& b = pts[(i + 1) % n];
                 if (segmentNearCursor(q, a, b, reach)) near.push_back(Segment{a, b, id});
+            }
+        }
+        // 그리는 중인 도형의 변도 교차 · 수직 · 근처점 후보로
+        if (q.draft) {
+            const std::vector<vec3>& d = *q.draft;
+            for (size_t i = 0; i + 1 < d.size(); ++i) {
+                if (segmentNearCursor(q, d[i], d[i + 1], reach)) {
+                    near.push_back(Segment{d[i], d[i + 1], LotGameObject::kInvalidId});
+                }
             }
         }
 

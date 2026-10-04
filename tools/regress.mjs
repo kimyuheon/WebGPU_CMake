@@ -81,6 +81,96 @@ const scenarios = [
     },
   },
   {
+    // 폴리선을 그리는 중에 자기 꼭짓점 · 변 중점에도 스냅이 걸린다 (아직 객체가 아니어도)
+    name: 'polyline-self-snap',
+    async run(t) {
+      const a = t.api;
+      await a.key('KeyT');
+      await a.key('KeyN');
+      await a.click(250, 720); await a.click(450, 720); await a.click(450, 800);
+      await a.move(350, 722);
+      t.expect(a.has(/snap: midpoint of the shape being drawn/), 'midpoint of its own segment');
+      await a.move(252, 719);
+      t.expect(a.has(/snap: endpoint of the shape being drawn/), 'its own first vertex');
+      await a.key('Escape');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
+    // 도킹: 기본 배치 (오른쪽 도크에 레이어 / 속성+노드 트리), 옮기기 · 띄우기 · 닫기 · 다시 열기,
+    // 노드 트리로 고르기 · 숨기기 · 줌, 속성으로 위치 고치기
+    name: 'dock-panels',
+    async run(t) {
+      const a = t.api;
+      await a.evaluate(`localStorage.removeItem('lot.dock.v1')`);
+      await a.reload('http://localhost:8123/WebGPUApp.html');
+      const st = async () => JSON.parse(await a.evaluate(`Module.lotDom['dockState']()`));
+      const canvasLeftWidth = () => a.evaluate(`(() => { const r = document.getElementById('webgpu-canvas').getBoundingClientRect(); return [r.left, r.width]; })()`);
+      let s = await st();
+      t.expect(s.right.groups.length === 2 && s.right.groups[1].panels.join() === 'props,tree', `default layout (${JSON.stringify(s.right.groups)})`);
+      let [left, width] = await canvasLeftWidth();
+      t.expect(left === 0 && width === 1100 - s.right.width, `canvas leaves room for the right dock (${left}, ${width})`);
+
+      // 노드 트리: 층 0 펼치기 → 객체 고르기 · 숨기기 · 더블 클릭 줌
+      await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
+      await a.evaluate(`document.querySelector('[data-tree-layer="0"] span').click()`);
+      await sleep(200);
+      const firstId = await a.evaluate(`document.querySelector('[data-tree-object]')?.getAttribute('data-tree-object')`);
+      t.expect(firstId !== undefined && firstId !== null, 'layer 0 expands into objects');
+      await a.evaluate(`document.querySelector('[data-tree-object="${firstId}"]').click()`);
+      await sleep(200);
+      t.expect(a.has(new RegExp(`tree: select object ${firstId}`)), 'click selects');
+      await a.evaluate(`document.querySelector('[data-tree-object="${firstId}"]').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))`);
+      await sleep(200);
+      t.expect(a.has(/view: zoom to 1 objects/), 'double click zooms to it');
+
+      // 속성: 고른 것의 X 를 고친다 (실행 취소로 돌아간다)
+      await a.evaluate(`Module.lotDom['dockOpen']('props')`);
+      await sleep(200);
+      const x = await a.evaluate(`document.querySelector('[data-prop="x"]')?.value`);
+      t.expect(x !== undefined, 'properties show the position');
+      await a.evaluate(`(() => { const i = document.querySelector('[data-prop="x"]'); i.focus(); i.value = '12.5'; i.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); })()`);
+      await sleep(300);
+      t.expect(a.has(/property: x = 12.5/), 'X edited');
+      t.expect(await a.evaluate(`document.querySelector('[data-prop="x"]').value`) === '12.5', 'panel shows the new X');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo property/), 'undo after a property edit');
+
+      // 숨기기 (객체 체크박스)
+      await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
+      await sleep(200);
+      await a.evaluate(`document.querySelector('[data-tree-object="${firstId}"] input').click()`);
+      await sleep(200);
+      t.expect(a.has(/tree: hid 1 objects/), 'checkbox hides the object');
+      await a.evaluate(`document.querySelector('[data-tree-scene] input').click()`);
+      await sleep(200);
+      t.expect(a.has(/tree: showed 1 objects/), 'scene checkbox shows everything again');
+
+      // 옮기기: 노드 트리 → 왼쪽 도크, 속성 → 떠 있게, 레이어 닫고 뷰 메뉴로 다시
+      await a.evaluate(`Module.lotDom['dockMove']('tree', 'dock', 'left')`);
+      await sleep(400);
+      s = await st();
+      [left, width] = await canvasLeftWidth();
+      t.expect(s.left.groups.length === 1 && s.left.groups[0].panels[0] === 'tree', 'tree docked left');
+      t.expect(left === s.left.width && width === 1100 - s.left.width - s.right.width, `canvas between both docks (${left}, ${width})`);
+      await a.evaluate(`Module.lotDom['dockMove']('props', 'float')`);
+      s = await st();
+      t.expect(s.floats.some(f => f.panel === 'props'), 'properties float');
+      await a.evaluate(`Module.lotDom['dockClose']('layers')`);
+      s = await st();
+      t.expect(!JSON.stringify(s).includes('layers'), 'layers closed');
+      await a.evaluate(`document.querySelector('[data-cmd="panel.layers"]').click()`);
+      s = await st();
+      t.expect(JSON.stringify(s).includes('layers'), 'view menu reopens layers');
+      // 저장된 배치는 새로고침 뒤에도 남는다
+      await a.reload('http://localhost:8123/WebGPUApp.html');
+      s = await st();
+      t.expect(s.left.groups.length === 1 && s.floats.some(f => f.panel === 'props'), 'layout survives a reload');
+      await a.evaluate(`localStorage.removeItem('lot.dock.v1')`);
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;
@@ -548,9 +638,10 @@ const scenarios = [
       const { resolve } = await import('node:path');
       // 메뉴가 정말 파일 입력/내려받기 링크를 누르는지 엿본다. 헤드리스는 대화상자를 안 띄우므로
       // 아래 setFileInputFiles 만으로는 '메뉴가 아무것도 안 하는' 회귀를 못 잡는다 (실제로 있었다).
-      await a.evaluate(`window.__lotClicks = [];`
+      // 블록으로 감싼다 - 압축된 엔진 JS 의 전역 이름(i, l ...)과 부딪치지 않게
+      await a.evaluate(`window.__lotClicks = []; {`
         + ` const i = HTMLInputElement.prototype.click; HTMLInputElement.prototype.click = function() { window.__lotClicks.push('input ' + this.accept); };`
-        + ` const l = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function() { window.__lotClicks.push('download ' + this.download); };`);
+        + ` const l = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function() { window.__lotClicks.push('download ' + this.download); }; }`);
       // 열기 대화상자는 하나 - 확장자로 로더가 갈린다
       const kAccept = '.lot,.json,.dxf,.obj';
       const pick = async (file) => {

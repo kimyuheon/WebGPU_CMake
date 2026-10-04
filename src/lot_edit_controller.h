@@ -44,6 +44,8 @@ public:
         bool excludeSelectionFromSnap = false;
         // 수직 스냅의 기준점 (열린 도구의 직전 점). nullptr 이면 없음.
         const vec3* snapFromPoint = nullptr;
+        // 그리는 중인 도형의 점들 (자기 자신에게 스냅). nullptr 이면 없음.
+        const std::vector<vec3>* draftPoints = nullptr;
     };
 
     // 입력 처리. 프레임당 한 번, 카메라가 갱신되기 전에 부른다

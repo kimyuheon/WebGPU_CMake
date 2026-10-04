@@ -39,7 +39,7 @@ PROFILE="${TMPDIR:-/tmp}/lot-regress-chrome"
 (cd "$BUILD" && "$PYTHON" -m http.server "$PORT" >/dev/null 2>&1) &
 SERVER=$!
 "$CHROME" --headless=new --remote-debugging-port="$CDP" --enable-unsafe-swiftshader --enable-unsafe-webgpu \
-    --window-size=1100,850 --user-data-dir="$PROFILE" "http://localhost:$PORT/WebGPUApp.html" >/dev/null 2>&1 &
+    --window-size=1100,850 --user-data-dir="$PROFILE" "http://localhost:$PORT/WebGPUApp.html?layout=classic" >/dev/null 2>&1 &
 BROWSER=$!
 trap 'kill $BROWSER $SERVER 2>/dev/null' EXIT
 

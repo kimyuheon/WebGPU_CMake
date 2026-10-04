@@ -51,7 +51,8 @@ mergeInto(LibraryManager.library, {
         var wrap = document.createElement('div');
         wrap.id = 'lot-viewcube';
         wrap.style.position = 'fixed';
-        wrap.style.right = '12px';
+        var insets = dom.dockInsets || { left: 0, right: 0 };
+        wrap.style.right = (insets.right + 12) + 'px';   // 오른쪽 도크 안쪽 (lot_dock.js 가 옮긴다)
         wrap.style.top = (dom.statusBar.offsetHeight + dom.uiHeight() + 8) + 'px';
         wrap.style.width = BOX + 'px';
         wrap.style.height = BOX + 'px';
@@ -188,7 +189,7 @@ mergeInto(LibraryManager.library, {
         axisSvg.setAttribute('width', String(AX.reach * 2));
         axisSvg.setAttribute('height', String(AX.reach * 2));
         axisSvg.style.position = 'fixed';
-        axisSvg.style.left = '4px';
+        axisSvg.style.left = (insets.left + 4) + 'px';
         // 명령행(맨 아래 띠) 위에 놓는다
         var cmdH = dom.cmdInput ? dom.cmdInput.parentNode.offsetHeight : 28;
         axisSvg.style.bottom = (cmdH + 4) + 'px';
@@ -196,10 +197,7 @@ mergeInto(LibraryManager.library, {
         axisSvg.style.pointerEvents = 'none';   // 장식이다 - 캔버스 클릭을 가로채지 않게
         document.body.appendChild(axisSvg);
 
-        // 레이어 패널은 상자 아래로. 둘 다 오른쪽 위를 노리므로 자리를 나눈다.
-        var panelTop = dom.statusBar.offsetHeight + dom.uiHeight() + 8 + BOX + 8;
-        dom.layerPanel.style.top = panelTop + 'px';
-        dom.layerPanel.style.maxHeight = 'calc(100vh - ' + (panelTop + 60) + 'px)';
+        // 레이어 패널 자리는 도킹(lot_dock.js)이 정한다
         return 1;
     },
 

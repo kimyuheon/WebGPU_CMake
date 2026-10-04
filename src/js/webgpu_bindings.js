@@ -103,8 +103,10 @@ mergeInto(LibraryManager.library, {
         dom.canvas.height = height;
     },
 
+    // 도크(lot_dock.js)가 양옆을 차지하면 캔버스는 그 사이만 쓴다
     js_getWindowWidth: function() {
-        return window.innerWidth;
+        var ins = Module.lotDom && Module.lotDom.dockInsets;
+        return window.innerWidth - (ins ? ins.left + ins.right : 0);
     },
 
     js_getWindowHeight: function(statusBarHeight) {

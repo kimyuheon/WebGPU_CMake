@@ -68,11 +68,16 @@ void EditController::update(const Context& ctx) {
         query.exclude = (drag_.active || ctx.excludeSelectionFromSnap) ? &selection_ : nullptr;
         query.fromPoint = ctx.snapFromPoint;
         query.revision = history_.revision();
+        query.draft = ctx.draftPoints;
         const lot_osnap::Kind before = snap_.kind;
         snap_ = lot_osnap::find(query, mouseRay(), ctx.objects);
         // 종류가 바뀔 때만 한 줄 - 어떤 스냅이 잡혔는지 상태바에서 따라갈 수 있게
         if (snap_.kind != before && snap_.valid()) {
-            LOT_LOG("snap: " << lot_osnap::kindName(snap_.kind) << " of object " << snap_.id);
+            if (snap_.id == LotGameObject::kInvalidId) {
+                LOT_LOG("snap: " << lot_osnap::kindName(snap_.kind) << " of the shape being drawn");
+            } else {
+                LOT_LOG("snap: " << lot_osnap::kindName(snap_.kind) << " of object " << snap_.id);
+            }
         }
     }
 

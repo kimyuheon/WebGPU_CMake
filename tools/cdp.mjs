@@ -11,7 +11,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 상태바에 찍히는 엔진 로그 중 시나리오 판정에 쓰는 것들
 export const kLogFilter =
-  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|document:|cube:|viewcube:|LotModel: loaded|osnap:|polar tracking:|display:|MouseInput|RenderTarget|ERROR|error/;
+  /pick:|drag:|snap:|marquee:|copy:|delete:|gizmo:|projection:|post:|view:|sketch:|history:|scene:|transform:|ortho tracking:|layer:|linetype:|grid snap:|color:|text:|dxf:|command:|document:|cube:|viewcube:|LotModel: loaded|osnap:|polar tracking:|display:|tree:|property:|dock:|MouseInput|RenderTarget|ERROR|error/;
 
 export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
   const targets = await (await fetch(`http://localhost:${port}/json`)).json();
@@ -61,7 +61,7 @@ export async function connect(port = Number(process.env.CDP_PORT ?? 9222)) {
     },
 
     // 페이지를 새로 연다. 엔진이 자리잡을 때까지 기다린다 (셰이더 fetch 등).
-    async reload(url = 'http://localhost:8123/WebGPUApp.html', waitMs = 7000) {
+    async reload(url = 'http://localhost:8123/WebGPUApp.html?layout=classic', waitMs = 7000) {
       logs.length = 0;
       await send('Page.navigate', { url });
       await sleep(waitMs);

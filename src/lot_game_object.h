@@ -58,6 +58,8 @@ public:
 
     // 도면층 (LotLayers). 0 = 기본층. 층을 끄면 안 보이고, 잠그면 골라지지 않는다.
     uint32_t layer = 0;
+    // 노드 트리에서 끈 것 (층과 별개로 이 객체만 숨긴다). 숨기면 그려지지도 잡히지도 않는다.
+    bool hidden = false;
     // 선종류 (lot_linetype). 기본은 '층 따름' - 층의 선종류를 쓴다.
     uint32_t linetype = 0xFFFFFFFFu;  // kByLayer
 

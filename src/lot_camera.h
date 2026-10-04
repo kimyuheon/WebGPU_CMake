@@ -73,6 +73,16 @@ public:
     }
     float getMaxOrbitDistance() const { return maxOrbitDistance_; }
 
+    // 구가 화면에 차게 타깃과 거리만 잡는다 - frame 과 달리 줌 아웃 한계는 그대로 둔다
+    // (작은 객체로 줌한 뒤에도 도면 전체로 다시 물러날 수 있어야 한다).
+    void focus(const vec3& center, float radius, float fovY) {
+        if (radius < 1e-4f) radius = 1e-4f;
+        target_ = center;
+        const float dist = radius / std::sin(fovY * 0.5f) * 1.15f;
+        orbitDistance_ = std::fmin(std::fmax(kMinOrbitDistance, dist), maxOrbitDistance_);
+        updateCadView();
+    }
+
     // 픽셀 단위 팬. 타깃 깊이에서 화면 1 픽셀이 월드 몇 단위인지로 환산하므로
     // 드래그한 만큼 정확히 장면이 따라온다 (원근/직교 모두).
     void panTarget(float dxPx, float dyPx, float viewportHeight) {

@@ -4,6 +4,8 @@
 #include "lot_view_cube.h"
 #include "lot_layer_panel.h"
 #include "lot_main_menu.h"
+#include "lot_node_tree.h"
+#include "lot_property_panel.h"
 #include "lot_ribbon.h"
 
 #include <string>
@@ -60,6 +62,8 @@ public:
     void invalidate();
 
     LotLayerPanel& layerPanel() { return layerPanel_; }
+    LotNodeTree& nodeTree() { return nodeTree_; }
+    LotPropertyPanel& propertyPanel() { return propertyPanel_; }
     LotCommandLine& commandLine() { return commandLine_; }
 
     // 뷰큐브: 자세가 바뀐 프레임에만 DOM 으로 넘어간다. 카메라가 필요해 따로 둔다.
@@ -69,6 +73,8 @@ private:
     LotMainMenu menu_;
     LotRibbon ribbon_;
     LotLayerPanel layerPanel_;
+    LotNodeTree nodeTree_;
+    LotPropertyPanel propertyPanel_;
     LotCommandLine commandLine_;
     LotViewCube viewCube_;
     bool viewCubeInstalled_ = false;

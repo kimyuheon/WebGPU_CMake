@@ -5,6 +5,7 @@
 #include "lot_layers.h"
 
 #include <string>
+#include <unordered_map>
 
 // 레이어 패널 - 층 목록과 선택 속성(색 · 선종류)을 보여주고 고치는 곳.
 // Vulkan 쪽 lot_layer_panel 과 같은 자리다.
@@ -16,8 +17,9 @@ namespace lot_ui {
 class LotLayerPanel {
 public:
     // 지금 상태를 JSON 으로. 이전과 같으면 빈 문자열 (DOM 을 건드릴 필요가 없다).
+    // counts 는 층별 객체 수 (LotNodeTree::layerCounts - 편집이 있을 때만 다시 센다).
     std::string diffJson(const LotLayers& layers, const LotGameObject::Map& objects,
-                         const EditController& edit);
+                         const EditController& edit, const std::unordered_map<uint32_t, int>& counts);
 
     // 다음 diffJson 이 반드시 내보내게 (DOM 이 아직 없어 놓친 경우).
     void invalidate() { last_.clear(); }

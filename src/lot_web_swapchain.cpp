@@ -192,6 +192,14 @@ WGPUTextureView lot_web_swapchain::acquireNextImage() {
     return currentView_;
 }
 
+uint32_t lot_web_swapchain::currentImageWidth() const {
+    return currentTexture_ ? wgpuTextureGetWidth(currentTexture_) : static_cast<uint32_t>(width_);
+}
+
+uint32_t lot_web_swapchain::currentImageHeight() const {
+    return currentTexture_ ? wgpuTextureGetHeight(currentTexture_) : static_cast<uint32_t>(height_);
+}
+
 void lot_web_swapchain::releaseCurrentImage() {
     if (currentView_) {
         wgpuTextureViewRelease(currentView_);

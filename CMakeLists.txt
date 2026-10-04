@@ -50,6 +50,7 @@ add_link_options(
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_view_cube.js"
     "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
+    "SHELL:--js-library ${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_dock.js"
 )
 
 if(LOT_DIST)
@@ -78,7 +79,7 @@ target_include_directories(WebGPUApp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # JS 라이브러리가 바뀌면 다시 링크되도록 의존성을 걸어둔다.
 set_target_properties(WebGPUApp PROPERTIES
-    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_ui.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js"
+    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/js/webgpu_bindings.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_ui.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_panels.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_text.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_view_cube.js;${CMAKE_CURRENT_SOURCE_DIR}/src/js/lot_dock.js"
 )
 
 # 셰이더를 빌드 폴더로 복사

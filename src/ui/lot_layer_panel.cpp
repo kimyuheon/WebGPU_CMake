@@ -31,7 +31,8 @@ vec3 unpackColor(int rgb) {
 }  // namespace
 
 std::string LotLayerPanel::diffJson(const LotLayers& layers, const LotGameObject::Map& objects,
-                                    const EditController& edit) {
+                                    const EditController& edit,
+                                    const std::unordered_map<uint32_t, int>& counts) {
     // 선택 상태: 전부 같으면 그 값, 섞였으면 -2, 선택이 없으면 -3 (패널이 감춘다)
     int selLt = -3, selColor = -3, selByLayer = -3;
     for (LotGameObject::id_t sel : edit.selection()) {
@@ -53,10 +54,9 @@ std::string LotLayerPanel::diffJson(const LotLayers& layers, const LotGameObject
     for (const LotLayers::Layer* l : layers.all()) {
         if (!first) j += ",";
         first = false;
-        int count = 0;
-        for (const auto& entry : objects) {
-            if (entry.second.layer == l->id) ++count;
-        }
+        // 예전에는 층마다 객체를 전부 셌다 (층 수 x 객체 수, 큰 도면에서 프레임당 수백만 번)
+        const auto c = counts.find(l->id);
+        const int count = (c == counts.end()) ? 0 : c->second;
         j += "{\"id\":" + std::to_string(l->id) + ",\"name\":" + quote(l->name)
            + ",\"visible\":" + (l->visible ? "true" : "false")
            + ",\"locked\":" + (l->locked ? "true" : "false")

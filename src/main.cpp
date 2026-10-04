@@ -260,8 +260,9 @@ static bool textWorthDrawing(const LotGameObject& obj, float width, float height
 }
 
 // 층 표를 보는 콜백들. 렌더/피킹 시스템은 층을 모르고 이 함수만 부른다.
-static bool layerVisible(const LotGameObject& obj) { return doc().layers.isVisible(obj.layer); }
+static bool layerVisible(const LotGameObject& obj) { return !obj.hidden && doc().layers.isVisible(obj.layer); }
 static bool layerSelectable(const LotGameObject& obj) {
+    if (obj.hidden) return false;                              // 노드 트리에서 숨긴 것
     if (!g_display.dims && obj.isDimension()) return false;  // 안 보이는 치수는 안 잡힌다
     return doc().layers.isSelectable(obj.layer);
 }
@@ -324,6 +325,50 @@ void lot_onLayerCommand(const char* action, int layerId, int value) {
     if (action == nullptr) return;
     g_ui.layerPanel().command(action, static_cast<uint32_t>(layerId), value,
                               doc().layers, doc().objects, doc().edit);
+}
+
+static void zoomToObjects(const std::set<LotGameObject::id_t>& ids);   // 아래 (전체 보기 옆)
+
+// 노드 트리: 펼친 층의 객체들을 offset 부터 limit 개. JSON 은 malloc - JS 가 free 한다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+char* lot_treeChildren(int layerId, int offset, int limit) {
+    const std::string j = g_ui.nodeTree().childrenJson(static_cast<uint32_t>(layerId), offset, limit,
+                                                       doc().objects, doc().edit);
+    char* out = static_cast<char*>(std::malloc(j.size() + 1));
+    if (out) std::memcpy(out, j.c_str(), j.size() + 1);
+    return out;
+}
+
+// 노드 트리에서 온 명령.
+//   select   id, value 1 = 기존 선택에 더하기/빼기 (Ctrl/Shift)
+//   zoom     id 를 선택하고 그 객체로 줌 (더블 클릭)
+//   hide     id 숨기기(value 1) / 보이기(0). id 가 음수면 전부
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onTreeCommand(const char* action, int id, int value) {
+    if (action == nullptr) return;
+    const std::string a(action);
+    const auto oid = static_cast<LotGameObject::id_t>(id);
+    if (a == "select" || a == "zoom") {
+        const LotGameObject* obj = LotGameObject::find(doc().objects, oid);
+        if (!obj) return;
+        std::set<LotGameObject::id_t> sel;
+        if (a == "select" && value) sel = doc().edit.selection();
+        if (a == "select" && value && sel.count(oid)) sel.erase(oid);
+        else sel.insert(oid);
+        doc().edit.setSelection(std::move(sel));
+        LOT_LOG("tree: " << a << " object " << id);
+        if (a == "zoom") zoomToObjects({oid});
+    } else if (a == "hide") {
+        g_ui.nodeTree().setHidden(id < 0 ? LotGameObject::kInvalidId : oid, value != 0,
+                                  doc().objects, doc().edit);
+    }
+}
+
+// 속성 패널에서 고친 값 (위치, 문자 내용/높이). 층/색/선종류는 레이어 명령으로 온다.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onPropertyEdit(const char* key, const char* value) {
+    if (key == nullptr || value == nullptr) return;
+    g_ui.propertyPanel().edit(key, value, doc().objects, doc().edit);
 }
 
 // 더블 클릭으로 연 문자 오브젝트 (없으면 kInvalidId). 입력창이 이 오브젝트를 고친다.
@@ -561,8 +606,8 @@ void lot_onToolbarKey(const char* code, int ctrl) {
 
 // 전체 보기 (Zoom Extents). 모든 오브젝트의 월드 경계를 구해 카메라를 맞춘다.
 // 클립 평면과 직교 줌 한계도 그 크기에 맞춘다 - 씬 단위가 m 든 mm 든 보이게.
-static void zoomExtents() {
-    vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
+// 객체들의 월드 경계. only 가 있으면 그 객체들만. 하나도 없으면 false.
+static bool objectBounds(const std::set<LotGameObject::id_t>* only, vec3& lo, vec3& hi) {
     bool any = false;
     auto grow = [&](const vec3& p) {
         if (!any) { lo = hi = p; any = true; return; }
@@ -570,6 +615,7 @@ static void zoomExtents() {
         hi = vec3{std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
     };
     for (const auto& entry : doc().objects) {
+        if (only && !only->count(entry.first)) continue;
         const LotGameObject& obj = entry.second;
         if (obj.isSketch()) {
             for (const vec3& p : obj.worldPoints()) grow(p);
@@ -591,7 +637,12 @@ static void zoomExtents() {
             }
         }
     }
-    if (!any) return;
+    return any;
+}
+
+static void zoomExtents() {
+    vec3 lo{0.0f, 0.0f, 0.0f}, hi{0.0f, 0.0f, 0.0f};
+    if (!objectBounds(nullptr, lo, hi)) return;
 
     const vec3 center = (lo + hi) * 0.5f;
     const vec3 half = (hi - lo) * 0.5f;
@@ -621,6 +672,20 @@ static void zoomExtents() {
 
     LOT_LOG("view: zoom extents - center (" << center.x << ", " << center.y << ", " << center.z
             << ") radius " << radius << ", clip " << doc().nearZ << " .. " << doc().farZ);
+}
+
+// 객체들로 줌 (노드 트리 더블 클릭). 카메라만 옮긴다 - 클립 평면 · 치수 크기 같은
+// 도면 단위 설정은 전체 보기가 정한 그대로 둔다.
+static void zoomToObjects(const std::set<LotGameObject::id_t>& ids) {
+    vec3 lo, hi;
+    if (!objectBounds(&ids, lo, hi)) return;
+    const vec3 center = (lo + hi) * 0.5f;
+    const vec3 half = (hi - lo) * 0.5f;
+    const float radius = std::fmax(std::sqrt(dot(half, half)), doc().orthoMinHalfHeight);
+    doc().camera.setViewMode(LotCamera::ViewMode::Cad);
+    doc().camera.focus(center, radius, kFovY);
+    doc().orthoHalfHeight = std::fmin(std::fmax(radius * 1.15f, doc().orthoMinHalfHeight), doc().orthoMaxHalfHeight);
+    LOT_LOG("view: zoom to " << ids.size() << " objects - radius " << radius);
 }
 
 // 읽어 들인 파일을 탭에. 지금 탭이 손대지 않은 새 도면이면 그 자리에, 아니면 새 탭에.
@@ -861,7 +926,8 @@ void renderLoop() {
                                         g_sketch.anyActive() || g_transform.isActive(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
-                                                               : g_sketch.referencePoint()};
+                                                               : g_sketch.referencePoint(),
+                                        g_transform.isActive() ? nullptr : g_sketch.draftPoints()};
             doc().edit.update(ctx);
 
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
@@ -1152,8 +1218,9 @@ void renderLoop() {
 
         // 패스 1: 장면을 오프스크린 타깃에. 스왑체인과 같은 크기/포맷으로 맞춘다.
         const auto& sc = g_renderer->getSwapchain();
-        g_sceneTarget.ensureSize(device, static_cast<uint32_t>(sc.getWidth()),
-                                 static_cast<uint32_t>(sc.getHeight()),
+        // 크기는 이번 프레임에 받은 화면 텍스처 것 - 프레임 도중 크기가 바뀌어도 패스 3 에서
+        // 화면 텍스처와 이 뎁스가 같은 크기여야 한다
+        g_sceneTarget.ensureSize(device, sc.currentImageWidth(), sc.currentImageHeight(),
                                  sc.getFormat(), sc.getDepthFormat());
         WGPURenderPassEncoder scenePass = g_sceneTarget.beginRenderPass(
             g_renderer->getCurrentEncoder(), WGPUColor{0.1, 0.1, 0.1, 1.0});
