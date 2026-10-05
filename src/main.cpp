@@ -21,6 +21,7 @@
 #include "lot_linetype.h"
 #include "lot_sketch_tool.h"
 #include "lot_offset_tool.h"
+#include "lot_trim_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -83,6 +84,7 @@ SketchController g_sketch;
 lot_ui::LotUi g_ui;
 TransformTool g_transform;
 OffsetTool g_offset;
+TrimTool g_trim;
 
 // 열려 있는 도면들과 지금 보고 있는 것. 탭 하나가 도면 하나다.
 // 도면에만 속하는 것(오브젝트·층·히스토리·시점)은 전부 LotDocument 안에 있어,
@@ -476,6 +478,7 @@ static void putDownTools() {
     g_sketch.cancel();
     g_transform.cancel(doc().objects);
     g_offset.cancel();
+    g_trim.cancel();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
 }
@@ -542,9 +545,18 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    if (name == "trim" || name == "extend") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_offset.cancel();
+        doc().edit.clearSelection();
+        g_trim.start(name == "trim" ? TrimTool::Mode::Trim : TrimTool::Mode::Extend, doc().camera);
+        return true;
+    }
     if (name == "offset") {
         g_sketch.cancel();
         g_transform.cancel(doc().objects);
+        g_trim.cancel();
         // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
         g_offset.start(doc().camera, doc().gridSpacing);
         return true;
@@ -553,6 +565,7 @@ static bool runAction(const char* code) {
         g_sketch.cancel();
         g_transform.cancel(doc().objects);
         g_offset.cancel();
+        g_trim.cancel();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
     }
@@ -950,7 +963,8 @@ void renderLoop() {
             EditController::Context ctx{doc().camera, g_mouse, *g_gizmoSystem, doc().objects,
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
-                                        g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive(),
+                                        g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive()
+                                            || g_trim.isActive(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
                                                                : g_sketch.referencePoint(),
@@ -973,6 +987,9 @@ void renderLoop() {
                                      static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_offset.update(octx, doc().edit.history());
             g_offset.consumeCreated();
+            TrimTool::Context trctx{doc().camera, g_mouse, doc().objects,
+                                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_trim.update(trctx, doc().edit.history());
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1038,12 +1055,14 @@ void renderLoop() {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
             g_offset.cancel();
+            g_trim.cancel();
             doc().edit.undo(doc().objects);
         }
         if (g_cameraController.consumeRedo()) {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
             g_offset.cancel();
+            g_trim.cancel();
             doc().edit.redo(doc().objects);
         }
 
@@ -1051,6 +1070,7 @@ void renderLoop() {
         if (const int tool = g_cameraController.consumeSketchTool(); tool >= 0) {
             g_transform.cancel(doc().objects);
             g_offset.cancel();
+            g_trim.cancel();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
         }
@@ -1059,11 +1079,14 @@ void renderLoop() {
             g_sketch.cancel();
             g_transform.cancel(doc().objects);
             g_offset.cancel();
+            g_trim.cancel();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (g_offset.isActive()) {
+            if (g_trim.isActive()) {
+                g_trim.cancel();
+            } else if (g_offset.isActive()) {
                 g_offset.finish();
                 g_cameraController.clearNumberBuffer();
             } else if (g_transform.isActive()) {
@@ -1077,7 +1100,8 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_offset.isActive()) { g_offset.cancel(); g_cameraController.clearNumberBuffer(); }
+            if (g_trim.isActive()) g_trim.cancel();
+            else if (g_offset.isActive()) { g_offset.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (g_transform.isActive()) g_transform.cancel(doc().objects);
             else if (g_sketch.anyActive()) { g_sketch.cancel(); js_hideTextInput(); }
             else doc().edit.clearSelection();
@@ -1206,9 +1230,12 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = g_offset.isActive() ? g_offset.hint()
+            ui.hint = g_trim.isActive() ? g_trim.hint()
+                    : g_offset.isActive() ? g_offset.hint()
                     : g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
             ui.offset = g_offset.isActive();
+            ui.trim = g_trim.mode() == TrimTool::Mode::Trim;
+            ui.extend = g_trim.mode() == TrimTool::Mode::Extend;
             std::vector<lot_ui::DocTab> tabs;
             tabs.reserve(g_documents.size());
             for (const auto& d : g_documents) tabs.push_back({d->name, d->modified()});
@@ -1362,6 +1389,9 @@ void renderLoop() {
             OffsetTool::Context octx{doc().camera, g_mouse, doc().objects,
                                      static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_offset.drawOverlay(*g_lineSystem, octx);
+            TrimTool::Context trctx{doc().camera, g_mouse, doc().objects,
+                                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_trim.drawOverlay(*g_lineSystem, trctx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로

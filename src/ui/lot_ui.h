@@ -35,6 +35,8 @@ struct State {
     unsigned osnapKinds = 0;   // lot_osnap::enabledKinds()
     bool outline = false;
     bool offset = false;       // 간격띄우기 도구가 열려 있다
+    bool trim = false;         // 자르기
+    bool extend = false;       // 연장
     bool canUndo = false;
     bool canRedo = false;
     std::string hint;      // 열린 도구의 다음 할 일

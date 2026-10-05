@@ -46,6 +46,8 @@ const Alias kAliases[] = {
     {"modify.scale",  "scale sc"},
     {"modify.mirror", "mirror mi"},
     {"modify.offset", "offset o 간격"},
+    {"modify.trim",   "trim tr 자르기"},
+    {"modify.extend", "extend ex 연장"},
     {"gizmo.move",    "gmove g1"},
     {"gizmo.rotate",  "grotate g2"},
     {"gizmo.scale",   "gscale g3"},

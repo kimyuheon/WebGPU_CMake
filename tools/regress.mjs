@@ -374,6 +374,58 @@ const scenarios = [
     },
   },
   {
+    // 자르기 / 연장 (빠른 모드: 모든 선이 경계)
+    name: 'trim-extend',
+    async run(t) {
+      const a = t.api;
+      const U = 187;   // 평면도 1 단위 ≈ 187px
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      const lineLens = async () => (await objs()).filter(o => o['kind'] === 'line')
+        .map(o => dist(o['line']['a'], o['line']['b'])).sort((x, y) => x - y);
+      const line = async (x0, y0, x1, y1) => { await a.key('KeyL'); await a.click(x0, y0); await a.click(x1, y1); await a.key('Enter'); await a.key('Escape'); };
+      await a.key('KeyT');
+      await a.key('F3');   // 객체스냅 끔 - 찍은 픽셀 그대로
+      await line(600, 720, 900, 720);   // 가로
+      await line(680, 650, 680, 790);   // 세로 1
+      await line(820, 560, 820, 790);   // 세로 2 (위로 길게 - 연장 경계)
+      await line(700, 600, 740, 600);   // 짧은 선 (연장 대상)
+      await a.key('KeyC'); await a.click(450, 720); await a.click(510, 720); await a.key('Escape');
+      await line(450, 640, 450, 800);   // 원을 지나는 세로선 (하단 바는 y 820 부터)
+
+      await a.command('trim');
+      t.expect(a.has(/trim: click the part to cut away/), 'trim starts');
+      await a.click(750, 720);   // 세로 둘 사이
+      t.expect(a.has(/trim: object \d+ cut into 2 pieces/), 'middle cut out');
+      let lens = await lineLens();
+      const piece = 80 / U;
+      t.expect(lens.filter(l => Math.abs(l - piece) < 0.01).length === 2, `two pieces of ${piece.toFixed(3)} left (${lens.map(l => l.toFixed(3))})`);
+      await a.click(630, 720);   // 왼쪽 조각: 끝이 세로선에 닿을 뿐 - 경계 없음 -> 지움
+      t.expect(a.has(/deleted \(no cutting edge\)/), 'a piece with no cutting edge is deleted');
+      await a.click(510, 720);   // 원 오른쪽 -> 왼쪽 반원(호)만 남는다
+      const arc = (await objs()).find(o => o['kind'] === 'arc');
+      t.expect(arc && Math.abs((arc['arc']['end'] - arc['arc']['start']) - Math.PI) < 0.01,
+               `circle trimmed to a half arc (${arc && (arc['arc']['end'] - arc['arc']['start'])})`);
+      // Shift+클릭 = 연장: 짧은 선의 오른쪽 끝을 세로 2 (x=820) 까지
+      await a.shiftClick(735, 600);
+      t.expect(a.has(/extend: object \d+ extended/), 'Shift+click extends while trimming');
+      lens = await lineLens();
+      t.expect(lens.some(l => Math.abs(l - 120 / U) < 0.01), `short line reaches x=820 (${lens.map(l => l.toFixed(3))})`);
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo extend/), 'undo the extension');
+      await a.key('Escape');
+      t.expect(a.has(/trim: finished/), 'Esc ends');
+
+      // 연장 명령: 같은 짧은 선을 다시 연장
+      await a.command('extend');
+      await a.click(735, 600);
+      lens = await lineLens();
+      t.expect(lens.some(l => Math.abs(l - 120 / U) < 0.01), 'extend command reaches the boundary');
+      await a.key('Escape');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;
