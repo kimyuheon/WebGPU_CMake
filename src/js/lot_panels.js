@@ -27,6 +27,11 @@ mergeInto(LibraryManager.library, {
         var fileInput = document.createElement('input');
         fileInput.type = 'file';
         fileInput.accept = '.lot,.json,.dxf,.obj';
+        // iOS 파일 선택창은 모르는 확장자(.dxf .lot)를 필터에 걸면 그 파일을 회색으로 막는다.
+        // iOS 에서는 필터를 빼고, 고른 뒤 openFile 이 확장자로 가른다 (모르는 것은 거기서 알린다).
+        var ios = /iPad|iPhone|iPod/.test(navigator.userAgent)
+                  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (ios) fileInput.removeAttribute('accept');
         fileInput.style.display = 'none';
         // name 은 탭 이름이 된다 (테스트 도구는 안 넘긴다).
         var withName = function(name, fn) {

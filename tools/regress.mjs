@@ -111,6 +111,14 @@ const scenarios = [
       let [left, width] = await canvasLeftWidth();
       t.expect(left === 0 && width === 1100 - s.right.width, `canvas leaves room for the right dock (${left}, ${width})`);
 
+      // 하단 바 [속성] 단추: 열린 패널은 켜짐, 누르면 닫고 다시 누르면 연다
+      const btn = (id) => `document.querySelector('#lot-status-toggles [data-cmd="panel.${id}"]')`;
+      t.expect(await a.evaluate(`${btn('props')}.getAttribute('data-on')`) === '1', 'status bar shows the open properties panel');
+      await a.evaluate(`${btn('props')}.click()`);
+      t.expect(!JSON.stringify(await st()).includes('props') && await a.evaluate(`${btn('props')}.getAttribute('data-on')`) === '0', 'status bar button closes it');
+      await a.evaluate(`${btn('props')}.click()`);
+      t.expect(JSON.stringify(await st()).includes('props') && await a.evaluate(`${btn('props')}.getAttribute('data-on')`) === '1', 'and opens it again');
+
       // 노드 트리: 층 0 펼치기 → 객체 고르기 · 숨기기 · 더블 클릭 줌
       await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
       await a.evaluate(`document.querySelector('[data-tree-layer="0"] span').click()`);
@@ -262,6 +270,107 @@ const scenarios = [
       await a.ctrl('KeyZ');
       t.expect(a.has(/history: undo offset/), 'undo removes an offset copy');
       t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
+    // 터치: 탭 = 클릭, 한 손가락 끌기 = 팬, 두 손가락 = 궤도 + 핀치 줌 (휴대폰)
+    name: 'touch-gestures',
+    async run(t) {
+      const a = t.api;
+      const touch = (type, pts) => a.send('Input.dispatchTouchEvent', {
+        type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1 })) });
+      const drag = async (from, to, steps = 10) => {   // 손가락 여럿을 같이 옮긴다
+        await touch('touchStart', from);
+        for (let s = 1; s <= steps; ++s) {
+          await touch('touchMove', from.map(([x, y], i) => [x + (to[i][0] - x) * s / steps, y + (to[i][1] - y) * s / steps]));
+          await sleep(40);
+        }
+        await touch('touchEnd', []);
+        await sleep(300);
+      };
+      const tap = async (x, y) => { await touch('touchStart', [[x, y]]); await sleep(60); await touch('touchEnd', []); await sleep(400); };
+
+      await a.key('KeyT');
+      await a.key('KeyL'); await a.click(900, 720); await a.click(900, 790); await a.key('Enter');
+      await a.key('Escape');
+      let picks = a.count(/pick: sketch/);
+      await tap(900, 755);
+      t.expect(a.count(/pick: sketch/) > picks, 'tap picks the line');
+      await a.key('Escape');
+
+      // 한 손가락 끌기 = 팬: 선이 손가락만큼 왼쪽으로 와 있다
+      await drag([[700, 600]], [[580, 600]]);
+      picks = a.count(/pick: sketch/);
+      await tap(780, 755);
+      t.expect(a.count(/pick: sketch/) > picks, 'one-finger drag pans the drawing with the finger');
+      await a.key('Escape');
+
+      // 두 손가락 벌리기 = 줌 인 (회전은 없이)
+      const m0 = await a.viewCubeMatrix();
+      const wpp0 = await a.evaluate(`document.getElementById('webgpu-canvas').width`);
+      await drag([[500, 500], [600, 500]], [[400, 500], [700, 500]]);
+      picks = a.count(/pick: sketch/);
+      // 줌 인 했으면 원래 자리(780)의 선은 화면 밖으로 밀려났다 - 그 자리 탭은 비어야 한다
+      await tap(780, 755);
+      t.expect(a.count(/pick: sketch/) === picks, 'pinch zooms in (the line moved off that spot)');
+      // 두 손가락을 같이 옮기면 궤도 - 뷰큐브 자세가 바뀐다
+      await drag([[500, 500], [600, 500]], [[500, 380], [600, 380]]);
+      t.expect(await a.viewCubeMatrix() !== m0, 'two-finger drag orbits');
+
+      // 뷰큐브: 손가락 탭 = 그 칸 방향, 손가락으로 끌기 = 회전 (칸 누름이 아니다)
+      await a.key('KeyT');
+      const cellAt = (dir) => a.evaluate(`(() => { const r = document.querySelector('[data-dir="${dir}"]').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+      const [cx, cy] = await cellAt('0,0,1');   // 평면도에서 보이는 TOP 가운데 칸
+      let cubeLogs = a.count(/viewcube:/);
+      await tap(cx, cy);
+      t.expect(a.count(/viewcube: face \(0, 0, 1\)/) >= 1, 'tapping the TOP face on the view cube');
+      cubeLogs = a.count(/viewcube:/);
+      const m1 = await a.viewCubeMatrix();
+      await drag([[cx, cy]], [[cx + 60, cy + 30]]);
+      t.expect(await a.viewCubeMatrix() !== m1, 'dragging the view cube orbits');
+      t.expect(a.count(/viewcube:/) === cubeLogs, 'a drag is not taken as a cell press');
+      // 마우스로 칸 누르기도 그대로 (포인터 이벤트로 바꾼 뒤)
+      await a.key('KeyT');
+      const [mx, my] = await cellAt('0,0,1');
+      const faces = a.count(/viewcube: face \(0, 0, 1\)/);
+      await a.click(mx, my);
+      t.expect(a.count(/viewcube: face \(0, 0, 1\)/) > faces, 'mouse click on a view cube cell');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
+    // 휴대폰 흉내: 로그 창 숨김, 세로 -> 가로 -> 세로로 돌려도 캔버스 백버퍼가 화면 크기를 따라간다
+    name: 'phone-rotation',
+    async run(t) {
+      const a = t.api;
+      const metrics = (w, h, landscape) => a.send('Emulation.setDeviceMetricsOverride', {
+        width: w, height: h, deviceScaleFactor: 3, mobile: true, screenWidth: w, screenHeight: h,
+        screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 } });
+      const fit = () => a.evaluate(`(() => { const c = document.getElementById('webgpu-canvas'); const r = c.getBoundingClientRect();`
+        + ` return { back: [c.width, c.height], css: [Math.round(r.width), Math.round(r.height)], bar: document.getElementById('status-bar').offsetHeight }; })()`);
+      try {
+        await a.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        await metrics(400, 860, false);
+        await a.reload();
+        let f = await fit();
+        t.expect(f.bar === 0, `log bar hidden on a phone (${f.bar})`);
+        t.expect(f.back[0] === f.css[0] && f.back[1] === f.css[1], `portrait: backbuffer matches the canvas (${JSON.stringify(f)})`);
+        await metrics(860, 400, true);
+        await a.evaluate(`window.dispatchEvent(new Event('orientationchange'))`);
+        await sleep(1000);
+        f = await fit();
+        t.expect(f.back[0] === f.css[0] && f.back[1] === f.css[1] && f.css[0] > f.css[1], `landscape: backbuffer follows (${JSON.stringify(f)})`);
+        await metrics(400, 860, false);
+        await a.evaluate(`window.dispatchEvent(new Event('orientationchange'))`);
+        await sleep(1000);
+        f = await fit();
+        t.expect(f.back[0] === f.css[0] && f.back[1] === f.css[1] && f.css[1] > f.css[0], `back to portrait (${JSON.stringify(f)})`);
+        t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+      } finally {
+        await a.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+        await a.send('Emulation.clearDeviceMetricsOverride');
+        await a.setViewport(1100, 850);
+      }
     },
   },
   {

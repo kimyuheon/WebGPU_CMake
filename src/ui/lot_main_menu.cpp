@@ -169,6 +169,11 @@ LotMainMenu::LotMainMenu() {
         c.menu.push_back(none);
         statusBar_.push_back(c);
     }
+
+    // 패널 열기/닫기 - 휴대폰은 메뉴가 작아 누르기 힘들다. 켜짐 표시는 도킹(lot_dock.js)이 맞춘다.
+    statusItem("panel.layers", "레이어");
+    statusItem("panel.props", "속성");
+    statusItem("panel.tree", "트리");
 }
 
 std::string LotMainMenu::statusBarJson() const {

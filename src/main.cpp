@@ -615,6 +615,12 @@ void lot_onViewCube(int dx, int dy, int dz) {
             << " (" << dx << ", " << dy << ", " << dz << ")");
 }
 
+// 뷰큐브를 잡고 끌기 (픽셀). 캔버스 우클릭 궤도와 같은 감도 · 방향.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onViewCubeDrag(float dx, float dy) {
+    doc().camera.orbitAroundTarget(-dx * kOrbitRadPerPixel, -dy * kOrbitRadPerPixel);
+}
+
 // 툴바 버튼. 키보드 이벤트와 같은 경로를 타게 눌렀다 뗀 것으로 넣는다 -
 // 버튼과 단축키가 어긋날 수 없다. code 는 JS 가 잡은 버퍼라 JS 가 해제한다.
 extern "C" EMSCRIPTEN_KEEPALIVE

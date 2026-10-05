@@ -47,6 +47,12 @@ public:
     void onButton(int button, bool down, float x, float y, bool shift);
     void onWheel(float notches);
 
+    // 터치 (휴대폰 · 태블릿). 손가락을 마우스 동작으로 바꿔 넣는다:
+    //   탭 = 왼쪽 클릭, 한 손가락 끌기 = 가운데 끌기(팬),
+    //   두 손가락 이동 = 우클릭 끌기(궤도), 벌리기/오므리기 = 휠(두 손가락 가운데 기준 줌).
+    // points 는 지금 화면에 닿아 있는 손가락들 (캔버스 기준 CSS 픽셀), ended 는 모두 뗐는가.
+    void onTouch(const float* xs, const float* ys, int count);
+
     // window 에서 받은 뗌. 좌표가 캔버스 기준이 아니라(페이지 기준) 위치는
     // 건드리지 않고 버튼 상태만 바꾼다. 마지막 mousemove 위치가 그대로 남는다.
     void onButtonReleasedAnywhere(int button);
@@ -70,4 +76,12 @@ private:
     double lastMiddleMs_ = -1000.0;
     bool leftReleased_ = false;  // 프레임 사이에 왼쪽 뗌이 있었나
     bool shiftAtPress_ = false;
+
+    // 터치 제스처 상태
+    int touchCount_ = 0;          // 지난 이벤트의 손가락 수
+    float touchStartX_ = 0.0f, touchStartY_ = 0.0f;
+    float touchLastX_ = 0.0f, touchLastY_ = 0.0f;   // 한 손가락: 위치 / 두 손가락: 가운데
+    float touchLastDist_ = 0.0f;
+    bool touchMoved_ = false;     // 탭이 아니라 끌기가 되었나
+    bool touchMulti_ = false;     // 이번 접촉 중 두 손가락을 썼나 (그 뒤 한 손가락은 무시)
 };

@@ -4,6 +4,8 @@
 #include <emscripten/emscripten.h>  // emscripten_get_now
 #include <emscripten/html5.h>
 
+#include <cmath>
+
 namespace {
 
 // C++ 쪽이 서피스를 만들 때 쓰는 셀렉터와 같아야 한다 (lot_web_swapchain 참고)
@@ -41,7 +43,93 @@ bool onMouseWheel(int, const EmscriptenWheelEvent* e, void* userData) {
     return true;  // 페이지가 같이 스크롤되지 않도록
 }
 
+// 터치: 지금 닿아 있는 손가락만 모아 넘긴다 (뗀 손가락은 touchend 에서 isChanged).
+bool onTouchEvent(int type, const EmscriptenTouchEvent* e, void* userData) {
+    auto* self = static_cast<MouseInput*>(userData);
+    float xs[8], ys[8];
+    int n = 0;
+    const bool ending = (type == EMSCRIPTEN_EVENT_TOUCHEND || type == EMSCRIPTEN_EVENT_TOUCHCANCEL);
+    for (int i = 0; i < e->numTouches && n < 8; ++i) {
+        const EmscriptenTouchPoint& t = e->touches[i];
+        if (ending && t.isChanged) continue;   // 방금 뗀 손가락
+        xs[n] = static_cast<float>(t.targetX);
+        ys[n] = static_cast<float>(t.targetY);
+        ++n;
+    }
+    self->onTouch(xs, ys, n);
+    return true;  // 기본 동작(페이지 확대 · 스크롤 · 흉내 마우스 이벤트)을 막는다
+}
+
 }  // namespace
+
+void MouseInput::onTouch(const float* xs, const float* ys, int count) {
+    constexpr float kTapSlopPx = 8.0f;          // 이보다 덜 움직이면 탭
+    constexpr float kZoomBase = 0.92f;          // LotCamera::zoomFactor 와 같은 노치 크기
+    const int before = touchCount_;
+    touchCount_ = count;
+
+    if (count == 0) {
+        // 다 뗐다. 한 손가락으로 거의 안 움직였으면 탭 = 왼쪽 클릭 (눌렀다 뗀 것으로)
+        if (before == 1 && !touchMoved_ && !touchMulti_) {
+            onButton(0, true, touchLastX_, touchLastY_, false);
+            onButtonReleasedAnywhere(0);
+        }
+        down_[1] = down_[2] = false;
+        touchMoved_ = touchMulti_ = false;
+        return;
+    }
+    if (count == 1) {
+        const float x = xs[0], y = ys[0];
+        if (before == 0) {
+            touchStartX_ = touchLastX_ = x;
+            touchStartY_ = touchLastY_ = y;
+            touchMoved_ = false;
+            x_ = x;
+            y_ = y;
+            return;
+        }
+        if (touchMulti_) {   // 두 손가락 뒤에 남은 한 손가락 - 팬으로 튀지 않게 무시
+            touchLastX_ = x;
+            touchLastY_ = y;
+            return;
+        }
+        if (!touchMoved_) {
+            const float dx = x - touchStartX_, dy = y - touchStartY_;
+            if (dx * dx + dy * dy < kTapSlopPx * kTapSlopPx) return;
+            touchMoved_ = true;
+            down_[1] = true;   // 끌기 시작 = 가운데 끌기(팬) - 도면을 손가락으로 민다
+        }
+        dx_ += x - touchLastX_;
+        dy_ += y - touchLastY_;
+        touchLastX_ = x_ = x;
+        touchLastY_ = y_ = y;
+        return;
+    }
+    // 두 손가락 이상: 앞의 둘로 궤도 + 핀치 줌
+    const float mx = (xs[0] + xs[1]) * 0.5f, my = (ys[0] + ys[1]) * 0.5f;
+    const float ddx = xs[1] - xs[0], ddy = ys[1] - ys[0];
+    const float dist = std::sqrt(ddx * ddx + ddy * ddy);
+    if (before < 2) {
+        touchMulti_ = true;
+        down_[1] = false;
+        down_[2] = true;   // 두 손가락 이동 = 우클릭 끌기(궤도)
+        touchLastX_ = mx;
+        touchLastY_ = my;
+        touchLastDist_ = dist;
+        x_ = mx;
+        y_ = my;
+        return;
+    }
+    dx_ += mx - touchLastX_;
+    dy_ += my - touchLastY_;
+    if (touchLastDist_ > 1.0f && dist > 1.0f) {
+        // 벌리면 줌 인 (+). 배율 dist/last 를 휠 노치로 (노치 하나 = kZoomBase 배)
+        wheel_ += std::log(dist / touchLastDist_) / std::log(1.0f / kZoomBase);
+    }
+    touchLastX_ = x_ = mx;
+    touchLastY_ = y_ = my;
+    touchLastDist_ = dist;
+}
 
 void MouseInput::init() {
     // 주의: 캔버스가 이미 DOM 에 있어야 한다. 셀렉터가 아무것도 못 찾으면
@@ -58,6 +146,12 @@ void MouseInput::init() {
                 << ", " << r4 << ") - is the canvas in the DOM yet?");
         return;
     }
+
+    // 터치 (휴대폰 · 태블릿)
+    emscripten_set_touchstart_callback(kCanvasSelector, this, false, onTouchEvent);
+    emscripten_set_touchmove_callback(kCanvasSelector, this, false, onTouchEvent);
+    emscripten_set_touchend_callback(kCanvasSelector, this, false, onTouchEvent);
+    emscripten_set_touchcancel_callback(kCanvasSelector, this, false, onTouchEvent);
 
     // 우클릭 궤도 중에 브라우저 컨텍스트 메뉴가 뜨면 안 된다. html5.h 에는
     // contextmenu 콜백이 없어서 JS 로 직접 막는다. (가운데 버튼 자동 스크롤은

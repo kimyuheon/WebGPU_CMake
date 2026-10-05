@@ -15,7 +15,7 @@
 
 mergeInto(LibraryManager.library, {
 
-    js_viewCubeInstall__deps: ['lot_onViewCube', '$LotUiTheme',
+    js_viewCubeInstall__deps: ['lot_onViewCube', 'lot_onViewCubeDrag', '$LotUiTheme',
                                '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
     js_viewCubeInstall: function() {
         if (!Module.lotDom) return 0;
@@ -25,8 +25,10 @@ mergeInto(LibraryManager.library, {
         if (dom.viewCube) return 1;       // 이미 만들었다
 
         var T = LotUiTheme;
-        var HALF = 34;                    // 상자 반 변 (px)
-        var RING = 58;                    // 나침반 고리 반지름 (상자 밑면에 눕는다)
+        // 손가락으로 누르는 화면(휴대폰 · 태블릿)은 칸이 손끝보다 커야 한다 - 상자를 키운다
+        var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        var HALF = coarse ? 48 : 34;      // 상자 반 변 (px)
+        var RING = coarse ? 80 : 58;      // 나침반 고리 반지름 (상자 밑면에 눕는다)
         var PAD = 8;                      // 돌 때 고리 끝이 잘리지 않을 여백
         var BOX = (RING + PAD) * 2;
 
@@ -78,6 +80,45 @@ mergeInto(LibraryManager.library, {
             _lot_onViewCube(Number(parts[0]), Number(parts[1]), Number(parts[2]));
         };
 
+        // 칸 하나: 마우스는 올려놓으면 강조, 누르면 그 방향으로. 끌면 (마우스 · 손가락 모두)
+        // 상자를 잡고 돌리는 것 - 캔버스 궤도와 같은 방향. 조금만 움직이고 떼면 누른 것으로 본다.
+        // 캔버스가 아니라 여기서 받는다 - 상자를 누른 것이 오브젝트 선택이 되면 안 된다.
+        var HILITE = 'rgba(66, 150, 250, 0.55)';
+        var bindCell = function(cell) {
+            cell.addEventListener('pointerenter', function(e) {
+                if (e.pointerType === 'mouse') cell.style.background = HILITE;
+            });
+            cell.addEventListener('pointerleave', function(e) {
+                if (e.pointerType === 'mouse') cell.style.background = '';
+            });
+            cell.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+            cell.addEventListener('click', function(e) { e.stopPropagation(); });
+            cell.addEventListener('pointerdown', function(e) {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                var sx = e.clientX, sy = e.clientY, lx = sx, ly = sy, dragging = false;
+                if (e.pointerType !== 'mouse') cell.style.background = HILITE;   // 눌린 칸 표시 (손가락)
+                try { cell.setPointerCapture(e.pointerId); } catch (err) {}
+                var move = function(ev) {
+                    if (!dragging && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 6) return;
+                    if (!dragging) { dragging = true; if (ev.pointerType !== 'mouse') cell.style.background = ''; }
+                    _lot_onViewCubeDrag(ev.clientX - lx, ev.clientY - ly);
+                    lx = ev.clientX; ly = ev.clientY;
+                };
+                var up = function(ev) {
+                    cell.removeEventListener('pointermove', move);
+                    cell.removeEventListener('pointerup', up);
+                    cell.removeEventListener('pointercancel', up);
+                    if (ev.pointerType !== 'mouse') cell.style.background = '';
+                    if (!dragging && ev.type === 'pointerup') send(cell.getAttribute('data-dir'));
+                };
+                cell.addEventListener('pointermove', move);
+                cell.addEventListener('pointerup', up);
+                cell.addEventListener('pointercancel', up);
+            });
+        };
+
         var makeFace = function(face) {
             var el = document.createElement('div');
             el.style.position = 'absolute';
@@ -116,19 +157,8 @@ mergeInto(LibraryManager.library, {
                     cell.style.cursor = 'pointer';
                     cell.style.pointerEvents = 'auto';
                     if (i === 1 && j === 1) cell.textContent = face.label;
-                    cell.addEventListener('mouseenter', function() {
-                        this.style.background = 'rgba(66, 150, 250, 0.55)';
-                    });
-                    cell.addEventListener('mouseleave', function() {
-                        this.style.background = '';
-                    });
-                    // 캔버스가 아니라 여기서 받는다 - 상자를 누른 것이 오브젝트 선택이
-                    // 되면 안 된다. 상자는 캔버스의 형제라 이벤트가 번지지 않는다.
-                    cell.addEventListener('mousedown', function(e) { e.stopPropagation(); });
-                    cell.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        send(this.getAttribute('data-dir'));
-                    });
+                    cell.style.touchAction = 'none';   // 끌기는 우리가 받는다 (페이지 스크롤 X)
+                    bindCell(cell);
                     el.appendChild(cell);
                 }
             }

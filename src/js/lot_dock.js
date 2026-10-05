@@ -55,7 +55,13 @@ mergeInto(LibraryManager.library, {
             D.order = ['layers', 'props', 'tree'];
 
             // ── 배치 ───────────────────────────────────────────────
+            // 손가락으로 쓰는 작은 화면(휴대폰)은 도면이 우선 - 패널은 닫고 시작한다 (뷰 메뉴로 연다)
+            var phone = window.matchMedia && window.matchMedia('(pointer: coarse)').matches
+                        && Math.min(window.screen.width, window.screen.height) < 700;
             var defaults = function() {
+                if (phone) {
+                    return { 'left': { 'width': 260, 'groups': [] }, 'right': { 'width': 260, 'groups': [] }, 'floats': [] };
+                }
                 return {
                     'left': { 'width': 260, 'groups': [] },
                     'right': { 'width': 300, 'groups': [
@@ -297,7 +303,20 @@ mergeInto(LibraryManager.library, {
                     D.floatLayer.appendChild(w);
                 });
                 layout();
+                syncButtons();
                 if (D.onRender) D.onRender();
+            };
+            // 하단 바의 [레이어] [속성] [트리] 단추: 열린 패널은 파랗게 (C++ 상태가 아니라 여기 배치가 정한다)
+            var syncButtons = function() {
+                ['layers', 'props', 'tree'].forEach(function(id) {
+                    var b = document.querySelector('#lot-status-toggles [data-cmd="panel.' + id + '"]');
+                    if (!b) return;
+                    var on = !!locate(id);
+                    b.setAttribute('data-on', on ? '1' : '0');
+                    b.style.background = on ? T.accentDim : '#2a2a2a';
+                    b.style.borderColor = on ? T.accent : T.border;
+                    b.style.color = on ? '#ffffff' : T.textDim;
+                });
             };
 
             // 도크 폭 → 캔버스 · 뷰큐브 · 좌표축 · 안내문 자리
@@ -335,6 +354,8 @@ mergeInto(LibraryManager.library, {
                 var top = dom.statusBar.offsetHeight + dom.uiHeight();
                 D.docks['left'].el.style.top = top + 'px';
                 D.docks['right'].el.style.top = top + 'px';
+                // 화면을 돌리면 떠 있는 창이 밖으로 나갈 수 있다 - 다시 그리며 화면 안으로 (render 가 자른다)
+                if (state['floats'].length) render();
             });
             // 리본을 접고 펴면 높이가 바뀐다
             if (window.ResizeObserver) new ResizeObserver(function() { layout(); }).observe(dom.uiRoot);
