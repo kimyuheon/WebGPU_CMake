@@ -426,6 +426,74 @@ const scenarios = [
     },
   },
   {
+    // 필렛 / 모따기 (네이티브 first_app/modify.cpp 와 같은 흐름: 값은 언제든 숫자 + Enter, 반복, Esc 끝)
+    name: 'fillet-chamfer',
+    async run(t) {
+      const a = t.api;
+      const U = 187;
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      const lineLens = async () => (await objs()).filter(o => o['kind'] === 'line')
+        .map(o => dist(o['line']['a'], o['line']['b'])).sort((x, y) => x - y);
+      const near = (arr, v, e = 0.01) => arr.some(x => Math.abs(x - v) < e);
+      const line = async (x0, y0, x1, y1) => { await a.key('KeyL'); await a.click(x0, y0); await a.click(x1, y1); await a.key('Enter'); await a.key('Escape'); };
+      await a.key('KeyT');
+      await a.key('F3');
+      await line(650, 720, 850, 720);   // 가로 (오른쪽 끝이 모서리에 못 미친다)
+      await line(900, 650, 900, 790);   // 세로 (모서리를 지나친다)
+
+      await a.command('fillet');
+      t.expect(a.has(/fillet R=.*click the first line/), 'fillet starts');
+      await a.command('0.2');
+      t.expect(a.has(/fillet: radius 0.2/), 'radius typed');
+      await a.click(750, 720); await a.click(900, 690);   // 세로는 위쪽(클릭한 쪽)을 남긴다
+      t.expect(a.has(/fillet: done \(R=0.2, new object\)/), 'fillet applied');
+      let lens = await lineLens();
+      t.expect(near(lens, (900 - 650) / U - 0.2) && near(lens, (720 - 650) / U - 0.2), `lines meet the tangent points (${lens.map(l => l.toFixed(3))})`);
+      const arc = (await objs()).find(o => o['kind'] === 'arc');
+      t.expect(arc && Math.abs(arc['arc']['radius'] - 0.2) < 1e-4 && Math.abs(arc['arc']['end'] - arc['arc']['start'] - Math.PI / 2) < 1e-3,
+               `R0.2 quarter arc (${arc && JSON.stringify(arc['arc'])})`);
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo fillet/) && !(await objs()).some(o => o['kind'] === 'arc'), 'one undo restores both lines and removes the arc');
+
+      // 실행 취소는 열린 도구를 닫는다 (다른 도구들과 같은 규칙) - 다시 연다
+      await a.command('fillet');
+      // 반지름이 너무 크면 거부
+      await a.command('2');
+      await a.click(750, 720); await a.click(900, 690);
+      t.expect(a.has(/fillet: the radius is too large/), 'too large radius refused');
+      // R0 = 맞붙인 모서리, 새 객체 없음
+      await a.command('0');
+      await a.click(750, 720); await a.click(900, 690);
+      lens = await lineLens();
+      t.expect(a.has(/fillet: done \(R=0\)/) && near(lens, (900 - 650) / U) && near(lens, (720 - 650) / U), `R0 corner (${lens.map(l => l.toFixed(3))})`);
+      await a.command('fillet');
+      await a.ctrl('KeyZ');   // R0 를 되돌린다 (도구도 닫힌다)
+      t.expect(a.has(/fillet: finished/), 'undo closes the tool');
+
+      // 모따기 D=0.2: 90도라 접점은 필렛과 같고 사이는 길이 0.2√2 의 선
+      await a.command('chamfer');
+      await a.command('0.2');
+      await a.click(750, 720); await a.click(900, 690);
+      lens = await lineLens();
+      t.expect(near(lens, 0.2 * Math.SQRT2, 0.005), `chamfer line 0.2*sqrt2 (${lens.map(l => l.toFixed(3))})`);
+      await a.key('Escape');
+
+      // 사각형 모서리 (같은 폴리선의 이웃한 두 변): 둘레가 r(π/2 - 2) 만큼 준다
+      await a.key('KeyB'); await a.click(120, 660); await a.click(320, 790); await a.key('Escape');
+      const perim = (o) => { const v = o['polyline']['verts']; let s = 0; for (let i = 0; i < v.length; ++i) s += dist(v[i], v[(i + 1) % v.length]); return s; };
+      const rect0 = (await objs()).find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      await a.command('fillet'); await a.command('0.2');
+      await a.click(220, 660); await a.click(320, 725);
+      const rect1 = (await objs()).find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      const expected = perim(rect0) + 0.2 * (Math.PI / 2 - 2);
+      t.expect(rect1 && rect1['polyline']['verts'].length > 4 && Math.abs(perim(rect1) - expected) < 0.003,
+               `rectangle corner rounded (${rect1 && perim(rect1).toFixed(4)} vs ${expected.toFixed(4)})`);
+      await a.key('Escape');
+      t.expect(!a.has(/ERROR/), 'no ERROR');
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;
