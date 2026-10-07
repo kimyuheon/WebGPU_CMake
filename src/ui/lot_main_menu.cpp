@@ -84,6 +84,8 @@ LotMainMenu::LotMainMenu() {
             item("modify.extend", "연장",   "#extend", false, "", "늘릴 끝 근처를 클릭 (Shift+클릭은 자르기)", "extend"),
             item("modify.explode","분해",   "#explode", false, "", "폴리선을 변마다 선으로 (선택 후)", "", true),
             item("modify.join",   "결합",   "#join", false, "", "끝이 맞닿은 선 · 폴리선을 하나의 폴리선으로 (선택 후)"),
+            item("modify.stretch","늘이기", "#stretch", false, "", "걸침 창 안의 꼭짓점만 옮긴다", "stretch"),
+            item("modify.lengthen","길이조정", "#lengthen", false, "", "de / p / t + 값, 끝 근처 클릭", "lengthen"),
             item("modify.break",  "끊기",   "#break", false, "", "두 점 사이를 지운다 ('@' 면 한 점에서 나누기)", "break"),
             item("modify.array",  "배열...", "#array", false, "", "직사각형(행×열) / 원형 배열", "array"),
             item("modify.fillet", "필렛",   "#fillet", false, "", "두 선 모서리 호 처리 (반지름은 숫자 + Enter)", "fillet"),

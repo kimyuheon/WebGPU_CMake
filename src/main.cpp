@@ -25,6 +25,7 @@
 #include "lot_fillet_tool.h"
 #include "lot_array_tool.h"
 #include "lot_edit_ops.h"
+#include "lot_stretch_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -93,6 +94,8 @@ TrimTool g_trim;
 FilletTool g_fillet;
 ArrayTool g_array;
 BreakTool g_break;
+StretchTool g_stretch;
+LengthenTool g_lengthen;
 // 선택을 기다리는 즉시 명령 ("explode" / "join"). 선택하고 Enter 면 실행 (네이티브 requireSelectionThen).
 std::string g_pendingOp;
 
@@ -307,6 +310,15 @@ void lot_onCommandLine(const char* typed) {
 
     // 끊기 중의 '@' (첫 점에서 나누기) / 'f' (첫 점 다시)
     if (g_break.typed(text, doc().objects, doc().edit.history())) return;
+    // 길이조정의 'de 0.5' / 'p 150' / 't 10' (값만도)
+    if (g_lengthen.typed(text)) return;
+    // 늘이기 둘째 점의 '@dx,dy' / 거리
+    if (g_stretch.isActive()) {
+        const auto& sc0 = g_renderer->getSwapchain();
+        StretchTool::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                  static_cast<float>(sc0.getWidth()), static_cast<float>(sc0.getHeight())};
+        if (g_stretch.typed(text, sctx, doc().edit.history())) return;
+    }
 
     // 숫자(또는 부호/소수점)로 시작하면 값이다 - 진행 중인 변환 도구가 받는다.
     const char first = text[0];
@@ -417,6 +429,8 @@ void lot_onArrayAction(const char* action) {
     } else if (a == "close") {
         g_array.close();
         g_break.cancel();
+        g_stretch.cancel();
+        g_lengthen.cancel();
         g_pendingOp.clear();
     } else if (a == "pickCenter") {
         g_array.beginPickCenter();
@@ -533,6 +547,8 @@ static void putDownTools() {
     g_fillet.cancel();
     g_array.close();
     g_break.cancel();
+    g_stretch.cancel();
+    g_lengthen.cancel();
     g_pendingOp.clear();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
@@ -622,12 +638,30 @@ static bool runAction(const char* code) {
         g_fillet.cancel();
         g_array.close();
         g_break.cancel();
+        g_stretch.cancel();
+        g_lengthen.cancel();
         if (doc().edit.selection().empty()) {
             g_pendingOp = name;
             LOT_LOG(name << ": select objects, then Enter (Esc cancels)");
         } else {
             runPendingOp(name);
         }
+        return true;
+    }
+    if (name == "stretch" || name == "lengthen") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_offset.cancel();
+        g_trim.cancel();
+        g_fillet.cancel();
+        g_array.close();
+        g_break.cancel();
+        g_pendingOp.clear();
+        g_stretch.cancel();
+        g_lengthen.cancel();
+        doc().edit.clearSelection();
+        if (name == "stretch") g_stretch.start(doc().camera);
+        else g_lengthen.start(doc().camera);
         return true;
     }
     if (name == "break") {
@@ -677,6 +711,8 @@ static bool runAction(const char* code) {
         g_fillet.cancel();
         g_array.close();
         g_break.cancel();
+        g_stretch.cancel();
+        g_lengthen.cancel();
         g_pendingOp.clear();
         // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
         g_offset.start(doc().camera, doc().gridSpacing);
@@ -690,6 +726,8 @@ static bool runAction(const char* code) {
         g_fillet.cancel();
         g_array.close();
         g_break.cancel();
+        g_stretch.cancel();
+        g_lengthen.cancel();
         g_pendingOp.clear();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
@@ -1090,19 +1128,23 @@ void renderLoop() {
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive()
                                             || g_trim.isActive() || g_fillet.isActive() || g_array.takesClicks()
-                                            || g_break.isActive(),
+                                            || g_break.isActive() || g_stretch.takesClicks() || g_lengthen.isActive(),
                                         g_transform.isPreviewing(),
-                                        g_transform.isActive() ? g_transform.referencePoint()
-                                                               : g_sketch.referencePoint(),
+                                        g_stretch.referencePoint() ? g_stretch.referencePoint()
+                                        : g_transform.isActive() ? g_transform.referencePoint()
+                                                                 : g_sketch.referencePoint(),
                                         g_transform.isActive() ? nullptr : g_sketch.draftPoints()};
             doc().edit.update(ctx);
 
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
             g_cameraController.setNumberCapture(g_transform.isPreviewing() || g_offset.wantsNumber()
-                                                || g_fillet.wantsNumber());
+                                                || g_fillet.wantsNumber() || g_stretch.wantsNumber()
+                                                || g_lengthen.wantsNumber());
             g_transform.setNumberBuffer(g_cameraController.numberBuffer());
             g_offset.setNumberBuffer(g_cameraController.numberBuffer());
             g_fillet.setNumberBuffer(g_cameraController.numberBuffer());
+            g_stretch.setNumberBuffer(g_cameraController.numberBuffer());
+            g_lengthen.setNumberBuffer(g_cameraController.numberBuffer());
             TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
@@ -1125,6 +1167,10 @@ void renderLoop() {
                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_array.update(actx);
             g_break.update(trctx, doc().edit.snap(), doc().edit.history());
+            StretchTool::Context stctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                       static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_stretch.update(stctx, doc().edit.history());
+            g_lengthen.update(trctx, doc().edit.history());
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1194,6 +1240,8 @@ void renderLoop() {
             g_fillet.cancel();
             g_array.close();
             g_break.cancel();
+            g_stretch.cancel();
+            g_lengthen.cancel();
             g_pendingOp.clear();
             doc().edit.undo(doc().objects);
         }
@@ -1205,6 +1253,8 @@ void renderLoop() {
             g_fillet.cancel();
             g_array.close();
             g_break.cancel();
+            g_stretch.cancel();
+            g_lengthen.cancel();
             g_pendingOp.clear();
             doc().edit.redo(doc().objects);
         }
@@ -1217,6 +1267,8 @@ void renderLoop() {
             g_fillet.cancel();
             g_array.close();
             g_break.cancel();
+            g_stretch.cancel();
+            g_lengthen.cancel();
             g_pendingOp.clear();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
@@ -1230,12 +1282,23 @@ void renderLoop() {
             g_fillet.cancel();
             g_array.close();
             g_break.cancel();
+            g_stretch.cancel();
+            g_lengthen.cancel();
             g_pendingOp.clear();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (!g_pendingOp.empty()) {
+            if (g_stretch.isActive()) {
+                const auto& sc1 = g_renderer->getSwapchain();
+                StretchTool::Context stctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                           static_cast<float>(sc1.getWidth()), static_cast<float>(sc1.getHeight())};
+                g_stretch.finish(stctx, doc().edit.history());
+                g_cameraController.clearNumberBuffer();
+            } else if (g_lengthen.isActive()) {
+                g_lengthen.finish();
+                g_cameraController.clearNumberBuffer();
+            } else if (!g_pendingOp.empty()) {
                 const std::string op = g_pendingOp;
                 if (doc().edit.selection().empty()) {
                     LOT_LOG(op << ": nothing selected");
@@ -1245,6 +1308,8 @@ void renderLoop() {
                 }
             } else if (g_break.isActive()) {
                 g_break.cancel();
+                g_stretch.cancel();
+                g_lengthen.cancel();
             } else if (g_array.isActive()) {
                 g_array.enter(doc().edit.selection(), doc().objects, doc().edit.history());
             } else if (g_fillet.isActive()) {
@@ -1266,7 +1331,9 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (!g_pendingOp.empty()) { LOT_LOG(g_pendingOp << ": cancelled"); g_pendingOp.clear(); }
+            if (g_stretch.isActive()) { g_stretch.cancel(); g_cameraController.clearNumberBuffer(); }
+            else if (g_lengthen.isActive()) { g_lengthen.cancel(); g_cameraController.clearNumberBuffer(); }
+            else if (!g_pendingOp.empty()) { LOT_LOG(g_pendingOp << ": cancelled"); g_pendingOp.clear(); }
             else if (g_break.isActive()) g_break.cancel();
             else if (g_array.isActive()) g_array.cancel();
             else if (g_fillet.isActive()) { g_fillet.cancel(); g_cameraController.clearNumberBuffer(); }
@@ -1400,7 +1467,9 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = !g_pendingOp.empty() ? g_pendingOp + ": select objects, then Enter  [Esc cancels]"
+            ui.hint = g_stretch.isActive() ? g_stretch.hint()
+                    : g_lengthen.isActive() ? g_lengthen.hint()
+                    : !g_pendingOp.empty() ? g_pendingOp + ": select objects, then Enter  [Esc cancels]"
                     : g_break.isActive() ? g_break.hint()
                     : g_array.isActive() ? g_array.hint()
                     : g_fillet.isActive() ? g_fillet.hint()
@@ -1414,6 +1483,8 @@ void renderLoop() {
             ui.chamfer = g_fillet.mode() == FilletTool::Mode::Chamfer;
             ui.array = g_array.isActive();
             ui.breakTool = g_break.isActive();
+            ui.stretch = g_stretch.isActive();
+            ui.lengthen = g_lengthen.isActive();
             if (const std::string aj = g_array.dialogJson(); !aj.empty() && js_uiArrayDialog(aj.c_str()) == 0) {
                 g_array.invalidateDialog();   // DOM 이 아직 - 다음 프레임에 다시
             }
@@ -1580,6 +1651,9 @@ void renderLoop() {
                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_array.drawOverlay(*g_lineSystem, actx);
             g_break.drawOverlay(*g_lineSystem, trctx);
+            StretchTool::Context stctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                       static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_stretch.drawOverlay(*g_lineSystem, stctx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로

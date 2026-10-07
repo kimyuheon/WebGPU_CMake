@@ -617,6 +617,63 @@ const scenarios = [
     },
   },
   {
+    // 늘이기 (걸침 창 안 꼭짓점만) / 길이조정 (de / t / p)
+    name: 'stretch-lengthen',
+    async run(t) {
+      const a = t.api;
+      const U = 187;
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      await a.key('KeyT');
+      await a.key('F3');
+      await a.key('KeyB'); await a.click(300, 650); await a.click(500, 780); await a.key('Escape');
+      await a.key('KeyL'); await a.click(520, 660); await a.click(540, 760); await a.key('Enter'); await a.key('Escape');
+      const lineX0 = (await objs()).find(o => o['kind'] === 'line')['transform']['t'][0];
+
+      await a.command('stretch');
+      t.expect(a.has(/stretch: click the first corner/), 'stretch starts');
+      await a.click(480, 630); await a.click(560, 800);   // 사각형 오른쪽 변 + 선 전체
+      t.expect(a.has(/stretch: \d+ grips - click the base point/), 'window collected grips');
+      await a.click(500, 700); await a.click(560, 700);
+      t.expect(a.has(/stretch: \d+ grips moved/), 'stretched');
+      const rect = (await objs()).find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      const xs = rect['polyline']['verts'].map(v => v[0]);
+      const w = Math.max(...xs) - Math.min(...xs);
+      t.expect(Math.abs(w - 260 / U) < 0.01, `only the right edge moved: width ${w.toFixed(3)} (expected ${(260 / U).toFixed(3)})`);
+      const lineX1 = (await objs()).find(o => o['kind'] === 'line')['transform']['t'][0];
+      t.expect(Math.abs(lineX1 - lineX0 - 60 / U) < 0.01, `a line fully inside moved whole (${(lineX1 - lineX0).toFixed(3)})`);
+      // '@dx,dy' 로 둘째 점
+      await a.command('stretch');
+      await a.click(480, 630); await a.click(600, 800);
+      await a.click(560, 700);
+      await a.command('@-0.2,0');
+      const rect2 = (await objs()).find(o => o['kind'] === 'polyline' && o['polyline']['closed']);
+      const xs2 = rect2['polyline']['verts'].map(v => v[0]);
+      t.expect(Math.abs((Math.max(...xs2) - Math.min(...xs2)) - (260 / U - 0.2)) < 0.01, "'@dx,dy' stretches by the typed offset");
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo stretch/), 'undo stretch');
+
+      // 길이조정
+      await a.key('KeyL'); await a.click(600, 720); await a.click(700, 720); await a.key('Enter'); await a.key('Escape');
+      const lenOf = async () => { const l = (await objs()).filter(o => o['kind'] === 'line').map(o => dist(o['line']['a'], o['line']['b'])); return l; };
+      await a.command('lengthen');
+      await a.click(690, 720);
+      t.expect(a.has(/lengthen: object \d+ length 0.53/), 'click with no mode reports the length');
+      await a.command('de 0.5'); await a.click(690, 720);
+      t.expect((await lenOf()).some(l => Math.abs(l - (100 / U + 0.5)) < 0.01), 'delta +0.5');
+      await a.command('t 1'); await a.click(690, 720);
+      t.expect((await lenOf()).some(l => Math.abs(l - 1) < 1e-3), 'total 1');
+      await a.command('p 50'); await a.click(610, 720);
+      t.expect((await lenOf()).some(l => Math.abs(l - 0.5) < 1e-3), 'percent 50 (from the start end)');
+      // p 50 을 시작 쪽에서 했으니 선은 이제 x ≈ 694 ~ 787 - 시작 쪽 근처를 누른다
+      await a.command('de -0.2'); await a.click(705, 720);
+      t.expect((await lenOf()).some(l => Math.abs(l - 0.3) < 1e-3), 'negative delta shortens');
+      await a.key('Escape');
+      t.expect(a.has(/lengthen: finished/), 'Esc ends');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;

@@ -52,6 +52,8 @@ const Alias kAliases[] = {
     {"modify.explode","explode x분해"},
     {"modify.join",   "join jo"},
     {"modify.break",  "break br"},
+    {"modify.stretch","stretch s 신축"},
+    {"modify.lengthen","lengthen len"},
     {"modify.chamfer","chamfer cha 모따기"},
     {"modify.extend", "extend ex 연장"},
     {"gizmo.move",    "gmove g1"},

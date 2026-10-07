@@ -103,3 +103,33 @@ private:
     mutable float lastX_ = -1e9f, lastY_ = -1e9f;
 };
 
+
+// 길이조정 (AutoCAD LENGTHEN, 네이티브 first_app/lengthen.cpp 와 같은 흐름).
+//   명령행 'de 0.5' (증감) / 'p 150' (퍼센트) / 't 10' (전체 길이) 로 방식을 정하고, 객체의 끝 근처를
+//   클릭하면 그쪽 끝을 바꾼다 (반복, Esc / Enter 로 끝). 방식 없이 클릭하면 길이만 알려 준다.
+//   선 · 열린 폴리선 · 호. 폴리선을 줄이면 끝에서부터 잘라 내고, 늘이면 끝 변을 그 방향으로 민다.
+class LengthenTool {
+public:
+    enum class Mode { None, Delta, Percent, Total };
+    using Context = TrimTool::Context;
+
+    void start(const LotCamera& camera);
+    void cancel();
+    void update(const Context& ctx, EditHistory& history);
+    // 'de' / 'p' / 't' (+ 값) 또는 값만 (방식이 정해졌으면). 받았으면 true.
+    bool typed(const std::string& text);
+    void setNumberBuffer(const std::string& s) { number_ = s; }
+    bool finish();   // Enter: 숫자가 있으면 값으로, 없으면 끝
+
+    bool isActive() const { return active_; }
+    bool wantsNumber() const { return active_ && mode_ != Mode::None; }
+    std::string hint() const;
+
+private:
+    bool active_ = false;
+    Mode mode_ = Mode::None;
+    float value_ = 0.0f;
+    bool valueSet_ = false;
+    std::string number_;
+    vec3 right_{1.0f, 0.0f, 0.0f}, up_{0.0f, 1.0f, 0.0f}, normal_{0.0f, 0.0f, 1.0f};
+};

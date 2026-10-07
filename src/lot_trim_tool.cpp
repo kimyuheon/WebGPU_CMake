@@ -6,6 +6,9 @@
 #include "lot_sketch_tool.h"   // SketchPlane, tessellateArc
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <limits>
 #include <unordered_map>
@@ -803,4 +806,124 @@ void BreakTool::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {
     for (const auto& seg : hover_) lines.addLine(lift(seg.first), lift(seg.second), kRemoveColor);
     const float s = ctx.camera.worldPerPixel(p1World_, ctx.height) * 6.0f;
     lines.addCross(lift(p1World_), s, kRemoveColor);
+}
+
+// ============================================================== 길이조정
+
+void LengthenTool::start(const LotCamera& camera) {
+    const SketchPlane plane = SketchPlane::fromCamera(camera);
+    right_ = plane.right;
+    up_ = plane.up;
+    normal_ = plane.normal;
+    active_ = true;
+    number_.clear();
+    LOT_LOG("lengthen: type de <delta> / p <percent> / t <total>, then click near an end (click alone measures)");
+}
+
+void LengthenTool::cancel() {
+    if (!active_) return;
+    LOT_LOG("lengthen: finished");
+    active_ = false;
+    number_.clear();
+}
+
+bool LengthenTool::typed(const std::string& raw) {
+    if (!active_) return false;
+    std::string text = raw;
+    for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    char word[16] = {0};
+    float v = 0.0f;
+    const int n = std::sscanf(text.c_str(), "%15[a-z] %f", word, &v);
+    Mode m = mode_;
+    if (n >= 1) {
+        const std::string w = word;
+        if (w == "de" || w == "delta") m = Mode::Delta;
+        else if (w == "p" || w == "percent") m = Mode::Percent;
+        else if (w == "t" || w == "total") m = Mode::Total;
+        else return false;
+        mode_ = m;
+        valueSet_ = false;
+        if (n == 2) { value_ = v; valueSet_ = true; }
+    } else {
+        char* end = nullptr;
+        v = std::strtof(text.c_str(), &end);
+        if (end == text.c_str() || mode_ == Mode::None) return false;
+        value_ = v;
+        valueSet_ = true;
+    }
+    const char* names[] = {"", "delta", "percent", "total"};
+    if (valueSet_) LOT_LOG("lengthen: " << names[static_cast<int>(mode_)] << " " << value_ << " - click near an end");
+    else LOT_LOG("lengthen: " << names[static_cast<int>(mode_)] << " - type the value");
+    return true;
+}
+
+bool LengthenTool::finish() {
+    if (!active_) return false;
+    if (!number_.empty()) {
+        const std::string n = number_;
+        number_.clear();
+        typed(n);
+        return true;
+    }
+    cancel();
+    return true;
+}
+
+void LengthenTool::update(const Context& ctx, EditHistory& history) {
+    if (!active_) return;
+    if (!ctx.mouse.consumeLeftPress()) { ctx.mouse.consumeLeftRelease(); return; }
+    ctx.mouse.consumeLeftRelease();
+    const Plane pl{right_, up_, normal_};
+    float dist = 0.0f;
+    const auto id = lot_pick::pickSketch(ctx.camera, ctx.mouse.x(), ctx.mouse.y(), ctx.width, ctx.height,
+                                         8.0f, ctx.objects, dist);
+    LotGameObject* o = LotGameObject::find(ctx.objects, id);
+    Shape T;
+    if (!o || !makeShape(*o, id, pl, T)) { LOT_LOG("lengthen: click a line, polyline or arc"); return; }
+    const float L = T.curve ? T.r * (T.isArc ? T.a1 - T.a0 : kTwoPi) : T.total();
+    if (mode_ == Mode::None || !valueSet_) {
+        LOT_LOG("lengthen: object " << id << " length " << L);
+        return;
+    }
+    if (T.curve ? !T.isArc : T.closed) { LOT_LOG("lengthen: closed shapes have no end"); return; }
+    const float newL = mode_ == Mode::Delta ? L + value_ : mode_ == Mode::Percent ? L * value_ / 100.0f : value_;
+    if (!(newL > 1e-6f)) { LOT_LOG("lengthen: the new length would be zero or negative"); return; }
+    const float p = paramOf(T, screenNearest(ctx, T), pl);
+    const bool atStart = T.curve ? (p - T.a0) < (T.a1 - p) : p < L * 0.5f;
+
+    EditHistory::Edit edit;
+    edit.label = "lengthen";
+    edit.before.push_back(EditHistory::snapshot(ctx.objects, id));
+    if (T.curve) {
+        const float dTheta = (newL - L) / T.r;
+        if (T.a1 - T.a0 + dTheta >= kTwoPi) { LOT_LOG("lengthen: the arc would close into a circle"); return; }
+        if (atStart) o->curve.start -= dTheta; else o->curve.end += dTheta;
+        o->points = tessellateArc(o->curve.center, o->curve.radius, o->curve.right, o->curve.up,
+                                  o->curve.start, o->curve.end, true);
+    } else {
+        std::vector<vec3> pts;
+        if (newL >= L) {
+            pts = T.p3;
+            const size_t n = pts.size();
+            if (atStart) pts[0] = pts[0] - normalize(pts[1] - pts[0]) * (newL - L);
+            else pts[n - 1] = pts[n - 1] + normalize(pts[n - 1] - pts[n - 2]) * (newL - L);
+        } else {
+            pts = atStart ? polySub(T, L - newL, L) : polySub(T, 0.0f, newL);   // 그쪽 끝에서 잘라 낸다
+        }
+        o->points.clear();
+        for (const vec3& w : pts) o->points.push_back(o->transform.worldToLocalPoint(w));
+    }
+    edit.after.push_back(EditHistory::snapshot(ctx.objects, id));
+    history.record(std::move(edit));
+    g_revision = history.revision();
+    LOT_LOG("lengthen: object " << id << " length " << L << " -> " << newL);
+}
+
+std::string LengthenTool::hint() const {
+    if (!active_) return "";
+    const char* names[] = {"(no mode)", "delta", "percent", "total"};
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "lengthen %s%s: de/p/t + value, then click near an end  [Esc/Enter ends]",
+                  names[static_cast<int>(mode_)], valueSet_ ? (" " + std::to_string(value_)).c_str() : "");
+    return std::string(buf) + (number_.empty() ? "" : "   [" + number_ + "]");
 }
