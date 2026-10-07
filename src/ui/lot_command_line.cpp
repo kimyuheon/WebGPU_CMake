@@ -48,6 +48,7 @@ const Alias kAliases[] = {
     {"modify.offset", "offset o 간격"},
     {"modify.trim",   "trim tr 자르기"},
     {"modify.fillet", "fillet fil 필렛"},
+    {"modify.array",  "array ar 배열"},
     {"modify.chamfer","chamfer cha 모따기"},
     {"modify.extend", "extend ex 연장"},
     {"gizmo.move",    "gmove g1"},

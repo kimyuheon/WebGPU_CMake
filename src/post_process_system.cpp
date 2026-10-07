@@ -122,14 +122,15 @@ void PostProcessSystem::rebuildBindGroup(const LotRenderTarget& target) {
 
     boundColor_ = target.getColorView();
     boundDepth_ = target.getDepthView();
+    boundGeneration_ = target.generation();
 }
 
 void PostProcessSystem::render(WGPURenderPassEncoder pass, const LotRenderTarget& target) {
     if (!isReady() || pass == nullptr || !target.isReady()) return;
 
-    // 타깃이 다시 만들어졌으면(리사이즈) 뷰가 바뀌어 바인드 그룹도 새로 만든다
-    if (!bindGroup_ || boundColor_ != target.getColorView()
-        || boundDepth_ != target.getDepthView()) {
+    // 타깃이 다시 만들어졌으면(리사이즈) 바인드 그룹도 새로 만든다. 세대로 본다 - 새 뷰가 예전과
+    // 같은 핸들을 받으면 포인터 비교로는 못 알아채고 지운 텍스처를 쓴다.
+    if (!bindGroup_ || boundGeneration_ != target.generation()) {
         rebuildBindGroup(target);
         if (!bindGroup_) return;
     }

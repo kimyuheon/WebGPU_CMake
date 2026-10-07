@@ -63,6 +63,7 @@ void LotRenderTarget::ensureSize(lot_web_device& device, uint32_t width, uint32_
     }
 
     release();
+    ++generation_;
     width_ = width;
     height_ = height;
     colorFormat_ = colorFormat;

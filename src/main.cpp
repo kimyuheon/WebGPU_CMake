@@ -23,6 +23,7 @@
 #include "lot_offset_tool.h"
 #include "lot_trim_tool.h"
 #include "lot_fillet_tool.h"
+#include "lot_array_tool.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -55,6 +56,8 @@ extern "C" {
     extern void js_hideTextInput();
     // 선종류 목록 (한 번). 레이어 패널의 드롭다운을 채운다.
     extern void js_uiSetLinetypes(const char* json);
+    // 배열 대화상자 (src/js/lot_array_dialog.js). DOM 이 아직이면 0.
+    extern int js_uiArrayDialog(const char* json);
     // 툴바가 아직 없으면 0 을 돌려준다 - 그러면 다음 프레임에 다시 보낸다.
 }
 
@@ -87,6 +90,7 @@ TransformTool g_transform;
 OffsetTool g_offset;
 TrimTool g_trim;
 FilletTool g_fillet;
+ArrayTool g_array;
 
 // 열려 있는 도면들과 지금 보고 있는 것. 탭 하나가 도면 하나다.
 // 도면에만 속하는 것(오브젝트·층·히스토리·시점)은 전부 LotDocument 안에 있어,
@@ -378,6 +382,38 @@ void lot_onTreeCommand(const char* action, int id, int value) {
     }
 }
 
+// 배열 대화상자의 값 (바뀔 때마다). 각은 도.
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onArrayParams(int polar, int cols, int rows, float dx, float dy, int count, float angle,
+                       int rotateItems, int centerAuto, float cx, float cy, float cz) {
+    ArrayTool::Params p = g_array.params();
+    p.polar = polar != 0;
+    p.cols = cols;
+    p.rows = rows;
+    p.dx = dx;
+    p.dy = dy;
+    p.count = count;
+    p.angle = angle;
+    p.rotateItems = rotateItems != 0;
+    p.centerAuto = centerAuto != 0;
+    p.center = vec3{cx, cy, cz};
+    g_array.setParams(p);
+}
+
+// 배열 대화상자 단추: create / close / pickCenter
+extern "C" EMSCRIPTEN_KEEPALIVE
+void lot_onArrayAction(const char* action) {
+    if (action == nullptr) return;
+    const std::string a(action);
+    if (a == "create") {
+        g_array.create(doc().objects, doc().edit.history());
+    } else if (a == "close") {
+        g_array.close();
+    } else if (a == "pickCenter") {
+        g_array.beginPickCenter();
+    }
+}
+
 // 속성 패널에서 고친 값 (위치, 문자 내용/높이). 층/색/선종류는 레이어 명령으로 온다.
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onPropertyEdit(const char* key, const char* value) {
@@ -486,6 +522,7 @@ static void putDownTools() {
     g_offset.cancel();
     g_trim.cancel();
     g_fillet.cancel();
+    g_array.close();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
 }
@@ -552,6 +589,15 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    if (name == "array") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_offset.cancel();
+        g_trim.cancel();
+        g_fillet.cancel();
+        g_array.start(doc().edit.selection(), doc().camera, doc().objects);
+        return true;
+    }
     if (name == "fillet" || name == "chamfer") {
         g_sketch.cancel();
         g_transform.cancel(doc().objects);
@@ -576,6 +622,7 @@ static bool runAction(const char* code) {
         g_transform.cancel(doc().objects);
         g_trim.cancel();
         g_fillet.cancel();
+        g_array.close();
         // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
         g_offset.start(doc().camera, doc().gridSpacing);
         return true;
@@ -586,6 +633,7 @@ static bool runAction(const char* code) {
         g_offset.cancel();
         g_trim.cancel();
         g_fillet.cancel();
+        g_array.close();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
     }
@@ -984,7 +1032,7 @@ void renderLoop() {
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive()
-                                            || g_trim.isActive() || g_fillet.isActive(),
+                                            || g_trim.isActive() || g_fillet.isActive() || g_array.takesClicks(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
                                                                : g_sketch.referencePoint(),
@@ -1015,6 +1063,9 @@ void renderLoop() {
             FilletTool::Context fctx{doc().camera, g_mouse, doc().objects,
                                      static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_fillet.update(fctx, doc().edit.history());
+            ArrayTool::Context actx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_array.update(actx);
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1082,6 +1133,7 @@ void renderLoop() {
             g_offset.cancel();
             g_trim.cancel();
             g_fillet.cancel();
+            g_array.close();
             doc().edit.undo(doc().objects);
         }
         if (g_cameraController.consumeRedo()) {
@@ -1090,6 +1142,7 @@ void renderLoop() {
             g_offset.cancel();
             g_trim.cancel();
             g_fillet.cancel();
+            g_array.close();
             doc().edit.redo(doc().objects);
         }
 
@@ -1099,6 +1152,7 @@ void renderLoop() {
             g_offset.cancel();
             g_trim.cancel();
             g_fillet.cancel();
+            g_array.close();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
         }
@@ -1109,11 +1163,14 @@ void renderLoop() {
             g_offset.cancel();
             g_trim.cancel();
             g_fillet.cancel();
+            g_array.close();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (g_fillet.isActive()) {
+            if (g_array.isActive()) {
+                g_array.enter(doc().edit.selection(), doc().objects, doc().edit.history());
+            } else if (g_fillet.isActive()) {
                 g_fillet.finish();   // 숫자를 쳤으면 반지름/거리, 아니면 끝
                 g_cameraController.clearNumberBuffer();
             } else if (g_trim.isActive()) {
@@ -1132,7 +1189,8 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_fillet.isActive()) { g_fillet.cancel(); g_cameraController.clearNumberBuffer(); }
+            if (g_array.isActive()) g_array.cancel();
+            else if (g_fillet.isActive()) { g_fillet.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (g_trim.isActive()) g_trim.cancel();
             else if (g_offset.isActive()) { g_offset.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (g_transform.isActive()) g_transform.cancel(doc().objects);
@@ -1263,7 +1321,8 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = g_fillet.isActive() ? g_fillet.hint()
+            ui.hint = g_array.isActive() ? g_array.hint()
+                    : g_fillet.isActive() ? g_fillet.hint()
                     : g_trim.isActive() ? g_trim.hint()
                     : g_offset.isActive() ? g_offset.hint()
                     : g_transform.isActive() ? g_transform.hint() : g_sketch.hint();
@@ -1272,6 +1331,10 @@ void renderLoop() {
             ui.extend = g_trim.mode() == TrimTool::Mode::Extend;
             ui.fillet = g_fillet.mode() == FilletTool::Mode::Fillet;
             ui.chamfer = g_fillet.mode() == FilletTool::Mode::Chamfer;
+            ui.array = g_array.isActive();
+            if (const std::string aj = g_array.dialogJson(); !aj.empty() && js_uiArrayDialog(aj.c_str()) == 0) {
+                g_array.invalidateDialog();   // DOM 이 아직 - 다음 프레임에 다시
+            }
             std::vector<lot_ui::DocTab> tabs;
             tabs.reserve(g_documents.size());
             for (const auto& d : g_documents) tabs.push_back({d->name, d->modified()});
@@ -1431,6 +1494,9 @@ void renderLoop() {
             FilletTool::Context fctx{doc().camera, g_mouse, doc().objects,
                                      static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_fillet.drawOverlay(*g_lineSystem, fctx);
+            ArrayTool::Context actx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                    static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_array.drawOverlay(*g_lineSystem, actx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로

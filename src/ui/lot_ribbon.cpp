@@ -73,6 +73,7 @@ LotRibbon::LotRibbon() {
                 icon("modify.scale",  "축척", "\xE2\xA4\xA1", "KeyX", false, "X", "기준점 축척", "xform:3"),
                 icon("modify.trim",   "자르기", "\xE2\x9C\x82", "#trim", false, "", "자르기 (Shift+클릭: 연장)", "trim"),
                 icon("modify.extend", "연장", "\xE2\x87\xA5", "#extend", false, "", "연장 (Shift+클릭: 자르기)", "extend"),
+                icon("modify.array",  "배열", "\xE2\x96\xA6", "#array", false, "", "배열 (ar) - 직사각형(행×열) / 원형 배열", "array"),
                 icon("modify.fillet", "필렛", "\xE2\x95\xAD", "#fillet", false, "", "필렛 (fil) - 두 선 모서리 호 처리", "fillet"),
                 icon("modify.chamfer","모따기", "\xE2\x97\xBF", "#chamfer", false, "", "모따기 (cha) - 두 선 모서리 직선 처리", "chamfer"),
                 icon("modify.offset", "간격", "\xE2\xAB\xBD", "#offset", false, "", "간격띄우기 (거리 -> 객체 -> 방향)", "offset"),

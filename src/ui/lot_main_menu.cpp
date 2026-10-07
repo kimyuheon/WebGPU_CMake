@@ -82,6 +82,7 @@ LotMainMenu::LotMainMenu() {
             item("modify.scale",  "축척",   "KeyX", false, "X", "기준점 기준 배율, 또는 배율 입력", "xform:3"),
             item("modify.trim",   "자르기", "#trim", false, "", "잘라낼 부분을 클릭 (모든 선이 경계, Shift+클릭은 연장)", "trim"),
             item("modify.extend", "연장",   "#extend", false, "", "늘릴 끝 근처를 클릭 (Shift+클릭은 자르기)", "extend"),
+            item("modify.array",  "배열...", "#array", false, "", "직사각형(행×열) / 원형 배열", "array"),
             item("modify.fillet", "필렛",   "#fillet", false, "", "두 선 모서리 호 처리 (반지름은 숫자 + Enter)", "fillet"),
             item("modify.chamfer","모따기", "#chamfer", false, "", "두 선 모서리 직선 처리 (거리는 숫자 + Enter)", "chamfer"),
             item("modify.offset", "간격띄우기", "#offset", false, "", "거리 입력 -> 객체 -> 방향 클릭 (반복)", "offset"),

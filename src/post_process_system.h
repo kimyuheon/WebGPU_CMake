@@ -60,4 +60,5 @@ private:
     // 바인드 그룹이 가리키는 뷰. 바뀌면 다시 만든다.
     WGPUTextureView boundColor_ = nullptr;
     WGPUTextureView boundDepth_ = nullptr;
+    uint64_t boundGeneration_ = ~0ull;   // 바인드 그룹을 만든 렌더 타깃 세대
 };

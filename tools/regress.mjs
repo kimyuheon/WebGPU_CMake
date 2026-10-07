@@ -56,7 +56,7 @@ const scenarios = [
       await a.key('KeyV');
       t.expect(a.has(/view: fps/), 'fps toggle (V)');
       await a.hold('KeyW', 200);
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -77,7 +77,7 @@ const scenarios = [
         t.expect(a.count(/pick: sketch/) > before, `${label}: the line stays under the cursor`);
         await a.key('Escape');
       }
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -93,7 +93,7 @@ const scenarios = [
       await a.move(252, 719);
       t.expect(a.has(/snap: endpoint of the shape being drawn/), 'its own first vertex');
       await a.key('Escape');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -217,7 +217,7 @@ const scenarios = [
       await a.ctrl('KeyZ');
       const back = await lineMids();
       t.expect(back.length === 1 && Math.abs(back[0] - before[0]) < 1e-4, 'undo brings the source back');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -269,7 +269,7 @@ const scenarios = [
                `rectangle offset outward keeps 4 corners, perimeter + 4 (${rect1 && perim(rect1)} vs ${perim(rect0)})`);
       await a.ctrl('KeyZ');
       t.expect(a.has(/history: undo offset/), 'undo removes an offset copy');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -335,7 +335,7 @@ const scenarios = [
       const faces = a.count(/viewcube: face \(0, 0, 1\)/);
       await a.click(mx, my);
       t.expect(a.count(/viewcube: face \(0, 0, 1\)/) > faces, 'mouse click on a view cube cell');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -422,7 +422,7 @@ const scenarios = [
       lens = await lineLens();
       t.expect(lens.some(l => Math.abs(l - 120 / U) < 0.01), 'extend command reaches the boundary');
       await a.key('Escape');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -490,7 +490,70 @@ const scenarios = [
       t.expect(rect1 && rect1['polyline']['verts'].length > 4 && Math.abs(perim(rect1) - expected) < 0.003,
                `rectangle corner rounded (${rect1 && perim(rect1).toFixed(4)} vs ${expected.toFixed(4)})`);
       await a.key('Escape');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
+    // 배열 (네이티브 lot_array_dialog 와 같은 항목): 직사각형 / 원형, 한 번에 실행 취소, 360 도 겹침 없음
+    name: 'array-tool',
+    async run(t) {
+      const a = t.api;
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const lineTs = async () => (await objs()).filter(o => o['kind'] === 'line').map(o => o['transform']['t']);
+      const setField = (key, v) => a.evaluate(`(() => { const i = document.querySelector('[data-array="${key}"]');`
+        + ` if (i.type === 'checkbox' || i.type === 'radio') { i.checked = ${JSON.stringify(v)}; i.dispatchEvent(new Event('change')); }`
+        + ` else { i.value = ${JSON.stringify(String(v))}; i.dispatchEvent(new Event('input')); } })()`);
+      const press = (name) => a.evaluate(`document.querySelector('[data-array="${name}"]').click()`);
+      const dialogOpen = () => a.evaluate(`getComputedStyle(document.getElementById('lot-array-dialog') || document.body).display !== 'none' && !!document.getElementById('lot-array-dialog')`);
+      await a.key('KeyT');
+      await a.key('F3');
+      await a.key('KeyL'); await a.click(650, 720); await a.click(700, 720); await a.key('Enter'); await a.key('Escape');
+
+      // 선택 없이: 고르고 Enter 를 기다린다
+      await a.command('array');
+      t.expect(a.has(/array: select objects, then Enter/), 'asks for a selection first');
+      await a.click(675, 720);
+      await a.key('Enter');
+      await sleep(200);
+      t.expect(await dialogOpen(), 'Enter with a selection opens the dialog');
+
+      // 직사각형 4 x 1, 간격 0.5
+      await setField('rect', true);
+      await setField('cols', 4); await setField('rows', 1); await setField('dx', 0.5);
+      await sleep(150);
+      t.expect(/복사본 3/.test(await a.evaluate(`document.getElementById('lot-array-dialog').textContent`)), 'dialog shows 3 copies');
+      await press('create');
+      await sleep(200);
+      t.expect(a.has(/array: created 3 copies \(rectangular\)/), 'rectangular array created');
+      t.expect(!(await dialogOpen()), 'dialog closes after create');
+      const xs = (await lineTs()).map(p => p[0]).sort((p, q) => p - q);
+      const steps = xs.slice(1).map((x, i) => x - xs[i]);
+      t.expect(xs.length === 4 && steps.every(d => Math.abs(d - 0.5) < 1e-3), `spacing 0.5 (${xs.map(x => x.toFixed(3))})`);
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo array/) && (await lineTs()).length === 1, 'one undo removes all copies');
+
+      // 원형 4 개, 360 도, 중심 = 선 가운데에서 0.5 떨어진 곳 (직접 입력)
+      await a.click(675, 720);
+      await a.command('array');
+      await setField('polar', true);
+      await setField('count', 4); await setField('angle', 360); await setField('rotate', true);
+      await setField('centerAuto', false);
+      const U = 187, cx = (675 - 550) / U, cy = (500 - 720) / U + 0.5;
+      await setField('cx', cx); await setField('cy', cy); await setField('cz', 0);
+      await sleep(150);
+      await press('create');
+      await sleep(200);
+      t.expect(a.has(/array: created 3 copies \(polar\)/), 'polar array created');
+      const ts = await lineTs();
+      const cen = [0, 1, 2].map(k => ts.reduce((s, p) => s + p[k], 0) / ts.length);
+      const r = ts.map(p => Math.hypot(p[0] - cen[0], p[1] - cen[1], p[2] - cen[2]));
+      let minGap = 1e9;
+      for (let i = 0; i < ts.length; ++i) for (let j = i + 1; j < ts.length; ++j) minGap = Math.min(minGap, Math.hypot(ts[i][0] - ts[j][0], ts[i][1] - ts[j][1], ts[i][2] - ts[j][2]));
+      // 픽셀 -> 월드 환산(187)이 근사라 반지름은 0.5 언저리 - 넷이 같고 이웃 간격이 r√2 (= 90 도) 인지 본다
+      t.expect(ts.length === 4 && r.every(v => Math.abs(v - r[0]) < 1e-3) && Math.abs(r[0] - 0.5) < 0.02
+               && Math.abs(minGap - r[0] * Math.SQRT2) < 2e-3,
+               `4 items 90 degrees apart around the centre, none on top of another (r ${r.map(v => v.toFixed(3))}, gap ${minGap.toFixed(3)})`);
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -949,7 +1012,7 @@ const scenarios = [
       // 손대지 않은 탭에 열면 새 탭을 만들지 않는다
       await a.sceneLoad(text, 'part.lot');
       t.expect(await names() === '*part', 'a pristine tab is reused');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -992,7 +1055,7 @@ const scenarios = [
       t.expect(clicks.includes('input ' + kAccept), '열기 opens the one file dialog');
       t.expect(clicks.some(c => /^download .+\.lot$/.test(c)), '저장 downloads a .lot named after the tab');
       t.expect(clicks.some(c => /^download .+\.dxf$/.test(c)), 'DXF 내보내기 downloads a .dxf');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -1058,7 +1121,7 @@ const scenarios = [
       const texts = s.filter(o => o['kind'] === 'text').map(o => o['text']['content']);
       t.expect(texts.includes('구조평면도') && texts.includes('축척 1/100'), `MTEXT split, formatting stripped (${texts.join(' | ')})`);
       t.expect(texts.includes('문⌀12'), '%%c became the diameter sign');
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {
@@ -1121,7 +1184,7 @@ const scenarios = [
       await a.evaluate(`document.getElementById('lot-cmdline-history').click()`);
       const list = await a.evaluate(`document.getElementById('lot-cmdline-popup').textContent`);
       t.expect(/zoom/.test(list), `^ shows recent commands (${list})`);
-      t.expect(!a.has(/ERROR/), 'no ERROR');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },
   {

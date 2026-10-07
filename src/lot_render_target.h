@@ -35,6 +35,9 @@ public:
     WGPUTextureFormat getDepthFormat() const { return depthFormat_; }
     uint32_t getWidth() const { return width_; }
     uint32_t getHeight() const { return height_; }
+    // 텍스처를 다시 만든 횟수. 바인드 그룹을 다시 만들지는 이것으로 판단한다 - 뷰 포인터로 비교하면
+    // 지운 뒤 새로 만든 뷰가 같은 주소(핸들)를 받았을 때 낡은 바인드 그룹을 그대로 쓴다 (ABA).
+    uint64_t generation() const { return generation_; }
     bool isReady() const { return colorView_ != nullptr && depthView_ != nullptr; }
 
 private:
@@ -48,4 +51,5 @@ private:
     WGPUTextureFormat depthFormat_ = WGPUTextureFormat_Undefined;
     uint32_t width_ = 0;
     uint32_t height_ = 0;
+    uint64_t generation_ = 0;   // 다시 만들 때마다 +1
 };
