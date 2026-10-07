@@ -11,7 +11,8 @@
 //
 // 판정은 눈이 아니라 로그다 - "sketch: circle committed" 같은 줄이 있는지. 화면이 이상해
 // 보이면 스크린샷을 열어 본다 (렌더가 깨지는 회귀는 로그로 못 잡는다).
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { connect, sleep } from './cdp.mjs';
 
 const filter = process.argv[2] ?? '';
@@ -1238,6 +1239,50 @@ const scenarios = [
       const texts = s.filter(o => o['kind'] === 'text').map(o => o['text']['content']);
       t.expect(texts.includes('구조평면도') && texts.includes('축척 1/100'), `MTEXT split, formatting stripped (${texts.join(' | ')})`);
       t.expect(texts.includes('문⌀12'), '%%c became the diameter sign');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
+    // 해치(단색 · 무늬+섬) · 타원 · 지시선 · 3DFACE/폴리페이스 메시 (네이티브 lot_dxf_flatten 규칙),
+    // .lot 왕복, 같은 내용의 바이너리 DXF
+    name: 'dxf-hatch-mesh-binary',
+    async run(t) {
+      const a = t.api;
+      const counts = /dxf: .* 2 hatches, 1 ellipses, 1 leaders, 0 tables, 2 meshes \(5 triangles\)/;
+      t.expect(await a.loadDxfFile('tests/data/hatch_mesh.dxf'), 'hatch_mesh.dxf loads');
+      t.expect(a.has(counts), `hatches, ellipse, leader, merged 3DFACEs + polyface (${a.last(/dxf: \d/) ?? ''})`);
+      const objs = await a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const hatches = objs.filter(o => o['kind'] === 'hatch');
+      t.expect(hatches.length === 2 && hatches.filter(h => h['hatch']['solid']).length === 1,
+               `one solid + one pattern hatch saved (${hatches.length})`);
+      const pat = hatches.find(h => !h['hatch']['solid']);
+      t.expect(pat && pat['hatch']['loops'].length === 2 && pat['hatch']['pattern'] === 'ANSI31',
+               'pattern hatch keeps its island and ANSI31');
+      t.expect(objs.filter(o => o['kind'] === 'mesh').length === 2, 'two mesh objects (3DFACEs merged, polyface on its own layer)');
+      await a.sceneLoad(await a.sceneSave(), 'hatch_mesh.lot');
+      t.expect(a.has(/scene: loaded 2 meshes, .* 2 hatches/), `.lot round trip keeps hatches and meshes (${a.last(/scene: loaded/) ?? ''})`);
+
+      // 바이너리 DXF: 센티널 + (int16 코드, 타입별 값). 타입 표는 DXF 레퍼런스 (네이티브 BinaryScanner 와 같다).
+      const lines = readFileSync('tests/data/hatch_mesh.dxf', 'utf8').split(/\r?\n/);
+      const kind = c => ((c >= 10 && c <= 59) || (c >= 110 && c <= 149) || (c >= 210 && c <= 239)) ? 'd'
+        : ((c >= 60 && c <= 79) || (c >= 170 && c <= 179) || (c >= 270 && c <= 289)) ? 'h'
+        : (c >= 90 && c <= 99) ? 'i' : 's';
+      const parts = [Buffer.from('AutoCAD Binary DXF\r\n\x1a\0', 'latin1')];
+      for (let i = 0; i + 1 < lines.length; i += 2) {
+        const code = parseInt(lines[i], 10), v = lines[i + 1];
+        if (Number.isNaN(code)) break;
+        const c = Buffer.alloc(2); c.writeInt16LE(code); parts.push(c);
+        const k = kind(code);
+        if (k === 'd') { const b = Buffer.alloc(8); b.writeDoubleLE(parseFloat(v)); parts.push(b); }
+        else if (k === 'h') { const b = Buffer.alloc(2); b.writeInt16LE(parseInt(v, 10)); parts.push(b); }
+        else if (k === 'i') { const b = Buffer.alloc(4); b.writeInt32LE(parseInt(v, 10)); parts.push(b); }
+        else parts.push(Buffer.from(v + '\0', 'utf8'));
+      }
+      const bin = `${tmpdir()}/lot_regress_hatch_mesh_bin.dxf`;
+      writeFileSync(bin, Buffer.concat(parts));
+      t.expect(await a.loadDxfFile(bin), 'binary DXF loads');
+      t.expect(a.has(/dxf: binary DXF converted to text/), 'binary sentinel detected');
+      t.expect(a.count(counts) === 2, 'binary gives the same entity counts as ASCII');
       t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
   },

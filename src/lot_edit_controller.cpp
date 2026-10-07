@@ -427,6 +427,8 @@ void EditController::duplicateSelection(LotGameObject::Map& objects) {
         copy.colorByLayer = src->colorByLayer;
         copy.model = src->model;        // 공유 - GPU 버퍼 복사 없음
         copy.material = src->material;  // 공유
+        copy.hatch = src->hatch;        // 공유 (로컬 정의)
+        copy.hatchSegments = src->hatchSegments;
         copy.points = src->points;      // 스케치는 점을 복사 (GPU 자원이 아니다)
         copy.closed = src->closed;
         copy.curve = src->curve;

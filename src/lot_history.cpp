@@ -62,6 +62,8 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.dim = obj.dim;
     r.text = obj.text;
     r.light = obj.light;
+    r.hatch = obj.hatch;
+    r.hatchSegments = obj.hatchSegments;
     return r;
 }
 
@@ -79,6 +81,8 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.dim = dim;
     obj.text = text;
     obj.light = light;
+    obj.hatch = hatch;
+    obj.hatchSegments = hatchSegments;
 }
 
 EditHistory::Record EditHistory::snapshot(const LotGameObject::Map& objects, id_t id) {

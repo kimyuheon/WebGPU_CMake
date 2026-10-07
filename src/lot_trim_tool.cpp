@@ -75,7 +75,7 @@ vec3 worldDir(const LotGameObject& o, const vec3& local) {
 }
 
 bool makeShape(const LotGameObject& o, LotGameObject::id_t id, const Plane& pl, Shape& s) {
-    if (!o.isSketch()) return false;
+    if (!o.isSketch() || o.isHatch()) return false;   // 해치 경계는 자르지 않는다 (무늬가 따라오지 않는다)
     s = Shape{};
     s.id = id;
     if (o.hasCurve()) {

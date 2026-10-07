@@ -259,6 +259,37 @@ static void pushLinetypes() {
     js_uiSetLinetypes(j.c_str());
 }
 
+// 단색 해치 채움 메시 (네이티브 buildHatchModel 의 solid 쪽). 평면 좌표를 로컬 3D 로.
+static std::shared_ptr<LotModel> buildHatchFill(const lot_hatch::HatchData& h) {
+    const lot_hatch::Fill fill = lot_hatch::triangulate(h);
+    if (fill.indices.size() < 3 || !g_renderer) return nullptr;
+    const vec3 n = normalize(cross(h.right, h.up));
+    LotModel::Builder b;
+    b.vertices.reserve(fill.points.size());
+    for (const auto& p : fill.points) {
+        const vec3 q = h.origin + h.right * p.x + h.up * p.y;
+        b.vertices.push_back(Vertex::make(q.x, q.y, q.z, 1.0f, 1.0f, 1.0f, n.x, n.y, n.z, 0.0f, 0.0f));
+    }
+    b.indices = fill.indices;
+    return std::make_shared<LotModel>(g_renderer->getDevice(), b);
+}
+
+// DXF 메시 (3DFACE · MESH · 폴리페이스) 의 삼각형 -> 모델. 면마다 평평한 노멀 (네이티브 import 의 Mesh 쪽).
+static std::shared_ptr<LotModel> buildFaceMesh(const std::vector<vec3>& tris) {
+    if (tris.size() < 3 || !g_renderer) return nullptr;
+    LotModel::Builder b;
+    b.vertices.reserve(tris.size());
+    for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+        const vec3 n0 = cross(tris[i + 1] - tris[i], tris[i + 2] - tris[i]);
+        const vec3 n = dot(n0, n0) > 1e-24f ? normalize(n0) : vec3{0.0f, 0.0f, 1.0f};
+        for (size_t k = 0; k < 3; ++k) {
+            const vec3& q = tris[i + k];
+            b.vertices.push_back(Vertex::make(q.x, q.y, q.z, 1.0f, 1.0f, 1.0f, n.x, n.y, n.z, 0.0f, 0.0f));
+        }
+    }
+    return std::make_shared<LotModel>(g_renderer->getDevice(), b);
+}
+
 // 문자는 문자열마다 비트맵을 구워 텍스처로 올린다. 큰 도면은 글자가 수천~수만 개라
 // 다 구우면 멈추고 GPU 메모리도 모자란다. 화면 밖이거나 너무 작아 읽을 수 없는 것은
 // 건너뛴다 - 줌인해서 보일 때 그때 굽는다 (한 번 구운 것은 캐시에 남는다).
@@ -927,6 +958,9 @@ void lot_onDxfFileLoaded(const char* data, int length, const char* fileName) {
         LOT_ERR(stats.error);
         return;
     }
+    for (const auto& [id, tris] : stats.meshTriangles) {
+        if (LotGameObject* o = LotGameObject::find(loaded, id)) o->model = buildFaceMesh(tris);
+    }
 
     openIntoDocument(std::move(loaded), std::move(loadedLayers), fileName);
     doc().dxfOriginX = stats.originX;
@@ -1576,11 +1610,23 @@ void renderLoop() {
         // 스케치 오브젝트 + 치수 + 그리는 중인 프리뷰
         g_polylineSystem->clear();
         g_textSystem->clear();
-        for (const auto& entry : doc().objects) {
-            const LotGameObject& obj = entry.second;
+        for (auto& entry : doc().objects) {
+            LotGameObject& obj = entry.second;
             if (!layerVisible(obj)) continue;  // 꺼진 층
             const vec3 color = displayColor(obj);
-            if (obj.isSketch()) {
+            if (obj.isHatch()) {
+                // 해치 (네이티브 hatch_model): 무늬는 선분, 단색은 채움 메시 (처음 그릴 때 만든다).
+                // 바깥 경계 점(points)은 피킹 · 범위용이라 따로 그리지 않는다.
+                if (obj.hatch->solid) {
+                    if (!obj.model) obj.model = buildHatchFill(*obj.hatch);
+                } else if (obj.hatchSegments) {
+                    const mat4 m = obj.transform.mat4Transform();
+                    const std::vector<vec3>& sg = *obj.hatchSegments;
+                    for (size_t i = 0; i + 1 < sg.size(); i += 2) {
+                        g_lineSystem->addLine(transformPoint(m, sg[i]), transformPoint(m, sg[i + 1]), color);
+                    }
+                }
+            } else if (obj.isSketch()) {
                 const uint32_t lt = displayLinetype(obj);
                 if (lt == lot_linetype::kContinuous) {
                     g_polylineSystem->addPolyline(obj.worldPoints(), color, obj.closed);

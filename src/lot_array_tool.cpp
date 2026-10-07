@@ -186,6 +186,8 @@ std::set<LotGameObject::id_t> ArrayTool::create(LotGameObject::Map& objects, Edi
             copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;
+            copy.hatch = src->hatch;
+            copy.hatchSegments = src->hatchSegments;
             copy.points = src->points;
             copy.closed = src->closed;
             copy.curve = src->curve;

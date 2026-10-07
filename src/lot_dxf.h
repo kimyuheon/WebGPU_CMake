@@ -4,6 +4,8 @@
 #include "lot_layers.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
 // DXF 읽기 (AutoCAD Drawing Exchange Format, ASCII).
 //
@@ -11,11 +13,13 @@
 // 거의 1:1 이라 그대로 옮길 수 있다. 층은 TABLES 의 LAYER 항목에서 만들고
 // (이름/색/선종류/꺼짐/잠김), 엔티티의 layer 이름으로 이어 붙인다.
 //
-// 다루는 엔티티: LINE, CIRCLE, ARC, LWPOLYLINE, POLYLINE+VERTEX, TEXT, SPLINE(근사),
-// SOLID(테두리). 나머지(INSERT/블록, HATCH, DIMENSION, MTEXT …)는 세고 건너뛴다.
+// 다루는 엔티티: LINE, CIRCLE, ARC, LWPOLYLINE, POLYLINE+VERTEX, TEXT/ATTRIB, MTEXT,
+// SPLINE(NURBS), ELLIPSE, HATCH(단색 · 무늬 · 섬), LEADER, SOLID(테두리), INSERT/블록,
+// DIMENSION/ACAD_TABLE(그 블록 전개), 3DFACE · MESH · 폴리페이스/폴리곤 메시(메시 객체).
+// 규칙은 네이티브 dxf/lot_dxf_flatten · lot_dxf_import 를 따른다. 나머지는 세고 건너뛴다.
 //
-// 글자 인코딩은 여기서 다루지 않는다 - 옛 DXF 는 CP949 같은 코드페이지를 쓰므로
-// JS 쪽에서 TextDecoder 로 UTF-8 로 바꿔 넘긴다 (src/js/lot_toolbar.js).
+// 글자 인코딩과 바이너리 DXF 는 여기서 다루지 않는다 - JS 쪽(src/js/lot_panels.js)이 바이너리를
+// 텍스트로 풀고, 옛 코드페이지(CP949 등)를 TextDecoder 로 UTF-8 로 바꿔 넘긴다.
 namespace lot_dxf {
 
 struct LoadStats {
@@ -24,7 +28,13 @@ struct LoadStats {
     int arcs = 0;
     int polylines = 0;
     int texts = 0;
-    int splines = 0;      // 제어점을 이어 근사한 것
+    int splines = 0;      // NURBS 를 점으로
+    int hatches = 0;
+    int ellipses = 0;
+    int leaders = 0;
+    int tables = 0;
+    int meshes = 0;       // 3DFACE · MESH · 폴리페이스 (같은 층 · 색끼리 이어진 것은 한 객체)
+    int faces = 0;        // 그 삼각형 수
     int skipped = 0;      // 지원하지 않는 엔티티
     std::string skippedKinds;
     int layers = 0;
@@ -32,6 +42,8 @@ struct LoadStats {
     double originX = 0.0;
     double originY = 0.0;
     std::string error;    // 비어 있지 않으면 실패
+    // 메시 객체의 삼각형 (로컬, 세 점씩). 읽기는 GPU 를 모르니 모델은 부르는 쪽이 만든다.
+    std::vector<std::pair<LotGameObject::id_t, std::vector<vec3>>> meshTriangles;
 };
 
 // 텍스트를 읽어 objects / layers 에 채운다 (둘 다 비우고 시작한다).

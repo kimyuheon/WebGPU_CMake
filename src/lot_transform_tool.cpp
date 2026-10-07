@@ -242,6 +242,8 @@ LotGameObject TransformTool::mirrored(const LotGameObject& src, const vec3& orig
     out.colorByLayer = src.colorByLayer;
     out.model = src.model;
     out.material = src.material;
+    out.hatch = src.hatch;
+    out.hatchSegments = src.hatchSegments;
     out.points = src.points;
     out.closed = src.closed;
     out.curve = src.curve;
@@ -253,8 +255,8 @@ LotGameObject TransformTool::mirrored(const LotGameObject& src, const vec3& orig
     const TransformComponent& T = src.transform;
     out.transform.translation = refl(T.translation);
 
-    if (src.model) {
-        // 메시: 반사 M 은 회전으로만 못 쓴다. M R = (M R D) D 로 나눠 회전 M R D 와 로컬 x 축
+    if (src.model || src.isHatch()) {
+        // 메시 · 해치 (경계 · 무늬 · 채움이 모두 로컬이라 변환으로 한꺼번에): 반사 M 은 회전으로만 못 쓴다. M R = (M R D) D 로 나눠 회전 M R D 와 로컬 x 축
         // 뒤집기 D 를 쓴다. M R D = R (Rᵀ M R) D 이고, 두 반사(D 다음 로컬 반사)의 곱은
         // 쿼터니언 nl * ex 회전이다 (nl = 로컬로 옮긴 반사 법선).
         const vec3 nl = rotate(T.rotation.conjugate(), n);
@@ -346,6 +348,8 @@ void TransformTool::confirm(const Context& ctx, EditHistory& history) {
             copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;
+            copy.hatch = src->hatch;
+            copy.hatchSegments = src->hatchSegments;
             copy.points = src->points;
             copy.closed = src->closed;
             copy.curve = src->curve;

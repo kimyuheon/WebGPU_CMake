@@ -111,6 +111,8 @@ int toInt(const std::string& s) { return std::atoi(s.c_str()); }
 struct Entity {
     std::string type;
     std::multimap<int, std::string> values;
+    // 읽은 순서 그대로 (해치 경계처럼 코드 순서가 뜻을 갖는 엔티티만 채운다)
+    std::vector<std::pair<int, std::string>> seq;
 
     std::string str(int code, const std::string& fallback = "") const {
         auto it = values.find(code);
@@ -173,6 +175,68 @@ void appendBulgeArc(std::vector<vec3>& out, const vec3& a, const vec3& b, float 
         out.push_back(vec3{cx + radius * std::cos(t), cy + radius * std::sin(t), a.z});
     }
 }
+
+// NURBS 한 점 (de Boor) - 네이티브 lot_dxf_flatten evalNurbs 와 같다. U.size() == P.size()+p+1.
+vec3 evalNurbs(const std::vector<vec3>& P, const std::vector<float>& W, const std::vector<float>& U, int p, float u) {
+    const int n = static_cast<int>(P.size()) - 1;
+    int k = p;
+    if (u >= U[static_cast<size_t>(n + 1)]) k = n;
+    else { while (k < n && !(u < U[static_cast<size_t>(k + 1)])) ++k; }
+    std::vector<vec3> d(static_cast<size_t>(p + 1));
+    std::vector<float> dw(static_cast<size_t>(p + 1));
+    for (int j = 0; j <= p; ++j) {
+        const int i = k - p + j;
+        const float w = (i < static_cast<int>(W.size())) ? W[static_cast<size_t>(i)] : 1.0f;
+        d[static_cast<size_t>(j)] = P[static_cast<size_t>(i)] * w;
+        dw[static_cast<size_t>(j)] = w;
+    }
+    for (int r = 1; r <= p; ++r) {
+        for (int j = p; j >= r; --j) {
+            const int i = k - p + j;
+            const float den = U[static_cast<size_t>(i + p - r + 1)] - U[static_cast<size_t>(i)];
+            const float alpha = den > 0.0f ? (u - U[static_cast<size_t>(i)]) / den : 0.0f;
+            d[static_cast<size_t>(j)] = d[static_cast<size_t>(j - 1)] * (1.0f - alpha) + d[static_cast<size_t>(j)] * alpha;
+            dw[static_cast<size_t>(j)] = dw[static_cast<size_t>(j - 1)] * (1.0f - alpha) + dw[static_cast<size_t>(j)] * alpha;
+        }
+    }
+    const float w = dw[static_cast<size_t>(p)];
+    return w != 0.0f ? d[static_cast<size_t>(p)] * (1.0f / w) : d[static_cast<size_t>(p)];
+}
+
+// 스플라인 -> 점열. 매듭이 맞으면 NURBS 를 구간마다 12 점, 아니면 맞춤점, 그도 없으면 제어 다각형.
+std::vector<vec3> tessellateSpline(const std::vector<vec3>& P, const std::vector<float>& W,
+                                   const std::vector<float>& U, int degree, const std::vector<vec3>& fit) {
+    const int p = std::max(1, degree);
+    if (P.size() >= static_cast<size_t>(p + 1) && U.size() == P.size() + static_cast<size_t>(p) + 1) {
+        const int n = static_cast<int>(P.size()) - 1;
+        std::vector<vec3> out;
+        for (int i = p; i <= n; ++i) {
+            const float u0 = U[static_cast<size_t>(i)], u1 = U[static_cast<size_t>(i + 1)];
+            if (u1 <= u0) continue;
+            for (int s = 0; s < 12; ++s) out.push_back(evalNurbs(P, W, U, p, u0 + (u1 - u0) * static_cast<float>(s) / 12.0f));
+        }
+        out.push_back(evalNurbs(P, W, U, p, U[static_cast<size_t>(n + 1)]));
+        return out;
+    }
+    if (fit.size() >= 2) return fit;
+    return P;
+}
+
+// HATCH 원문 쌍을 순서대로 읽는다 (네이티브 RawCursor). 앞으로 limit 개 안에서 code 를 찾는다.
+struct RawCursor {
+    const std::vector<std::pair<int, std::string>>& p;
+    size_t i = 0;
+    explicit RawCursor(const std::vector<std::pair<int, std::string>>& v) : p(v) {}
+    bool find(int code, std::string& v, size_t limit = 400) {
+        for (size_t k = i, n = 0; k < p.size() && n < limit; ++k, ++n) {
+            if (p[k].first == code) { v = p[k].second; i = k + 1; return true; }
+        }
+        return false;
+    }
+    float num(int code, float def = 0.0f) { std::string v; return find(code, v) ? toFloat(v) : def; }
+    int integer(int code, int def = 0) { std::string v; return find(code, v) ? toInt(v) : def; }
+    bool peek(int code) const { return i < p.size() && p[i].first == code; }
+};
 
 // 2D 아핀 변환 (블록 삽입). p' = (a px + b py + tx, c px + d py + ty, pz + tz).
 struct Xform {
@@ -315,9 +379,12 @@ void shiftEntity(Entity& e, double ox, double oy) {
     std::vector<int> codes;
     if (t == "MTEXT") codes = {10};                 // 11 은 방향 벡터
     else if (t == "INSERT") codes = {10};
-    else if (t == "DIMENSION") return;              // 블록 쪽에서 옮긴다
+    else if (t == "ELLIPSE" || t == "ACAD_TABLE") codes = {10};   // 11 은 장축 / 가로 방향 벡터
+    else if (t == "LEADER") codes = {10};
+    else if (t == "DIMENSION" || t == "HATCH") return;   // 블록 / 경계 쪽에서 통째로 옮긴다
     else codes = {10, 11, 12, 13};
-    const bool flipped = e.num(230, 1.0f) < 0.0f && t != "LINE" && t != "MTEXT" && t != "SPLINE";
+    const bool flipped = e.num(230, 1.0f) < 0.0f && t != "LINE" && t != "MTEXT" && t != "SPLINE"
+                         && t != "ELLIPSE" && t != "LEADER" && t != "3DFACE" && t != "MESH" && t != "PMESH";
     const double sx = flipped ? -ox : ox;
     auto fmt = [](double v) {
         char buf[64];
@@ -446,6 +513,82 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
         ++stats.texts;
     };
 
+    // 해치 객체: 바깥 경계(넓이가 가장 큰 루프)를 점으로 (피킹 · 범위), 무늬 선분은 지금 만들어 둔다.
+    // o / right / up 은 해치 평면 (월드). 평면 좌표는 객체 원점 기준 로컬로 옮긴다.
+    auto addHatch = [&](std::shared_ptr<lot_hatch::HatchData> h, const vec3& o, const vec3& right, const vec3& up,
+                        const Entity& e) {
+        const uint32_t layerId = layerOf(e);
+        bool byLayer = false;
+        const vec3 color = colorOf(e, layerId, byLayer);
+        h->origin = vec3{0.0f, 0.0f, 0.0f};
+        h->right = right;
+        h->up = up;
+        auto obj = LotGameObject::createGameObject();
+        obj.transform.translation = o;
+        obj.color = color;
+        obj.colorByLayer = byLayer;
+        obj.layer = layerId;
+        obj.linetype = lot_linetype::kByLayer;
+        lot_hatch::attach(obj, std::move(h));
+        objects.emplace(obj.getId(), std::move(obj));
+        ++stats.hatches;
+    };
+
+    // 메시 조각 (월드 삼각형, 세 점씩). 바로 앞 객체가 같은 층 · 색의 메시면 거기에 붙인다 -
+    // 3ds Max 같은 것은 면마다 3DFACE 를 써서 수만 객체가 되기 때문 (네이티브 import 와 같다).
+    // 모델은 부르는 쪽이 stats.meshTriangles 로 만든다.
+    struct MeshKey {
+        uint32_t layer;
+        bool byLayer;
+        vec3 color;
+    };
+    MeshKey lastMeshKey{};
+    size_t lastMeshObjects = static_cast<size_t>(-1);   // 그때의 objects.size() - 그새 다른 것이 생겼으면 다르다
+    auto addMesh = [&](const std::vector<vec3>& tris, const Entity& e) {
+        if (tris.size() < 3) return;
+        const uint32_t layerId = layerOf(e);
+        bool byLayer = false;
+        const vec3 color = colorOf(e, layerId, byLayer);
+        stats.faces += static_cast<int>(tris.size() / 3);
+        if (!stats.meshTriangles.empty() && lastMeshObjects == objects.size() && lastMeshKey.layer == layerId
+            && lastMeshKey.byLayer == byLayer && lastMeshKey.color.x == color.x && lastMeshKey.color.y == color.y
+            && lastMeshKey.color.z == color.z) {
+            auto& last = stats.meshTriangles.back();
+            const vec3 o = objects.at(last.first).transform.translation;
+            for (const vec3& p : tris) last.second.push_back(p - o);
+            return;
+        }
+        vec3 mn = tris[0], mx = tris[0];
+        for (const vec3& p : tris) {
+            mn = vec3{std::fmin(mn.x, p.x), std::fmin(mn.y, p.y), std::fmin(mn.z, p.z)};
+            mx = vec3{std::fmax(mx.x, p.x), std::fmax(mx.y, p.y), std::fmax(mx.z, p.z)};
+        }
+        auto obj = LotGameObject::createGameObject();
+        obj.transform.translation = (mn + mx) * 0.5f;
+        obj.color = color;
+        obj.colorByLayer = byLayer;
+        obj.layer = layerId;
+        std::vector<vec3> local;
+        local.reserve(tris.size());
+        for (const vec3& p : tris) local.push_back(p - obj.transform.translation);
+        stats.meshTriangles.emplace_back(obj.getId(), std::move(local));
+        objects.emplace(obj.getId(), std::move(obj));
+        ++stats.meshes;
+        lastMeshObjects = objects.size();
+        lastMeshKey = MeshKey{layerId, byLayer, color};
+    };
+    // 다각형 면 (정점 번호 목록) -> 삼각형 팬. 번호가 범위 밖이면 그 면은 버린다 (네이티브 appendFace).
+    auto appendFace = [](std::vector<vec3>& tris, const std::vector<vec3>& v, const std::vector<int>& idx,
+                         const Xform& x) {
+        if (idx.size() < 3) return;
+        for (int i : idx) if (i < 0 || i >= static_cast<int>(v.size())) return;
+        for (size_t k = 1; k + 1 < idx.size(); ++k) {
+            tris.push_back(x.point(v[idx[0]]));
+            tris.push_back(x.point(v[idx[k]]));
+            tris.push_back(x.point(v[idx[k + 1]]));
+        }
+    };
+
     // ---- 1. 훑기: 엔티티와 블록 정의를 모은다 ----
     //
     // 블록 안의 것은 블록 좌표라 바로 그리면 안 된다 - INSERT 가 놓는 자리로 옮겨야 한다.
@@ -517,7 +660,19 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
     while (reader.next(code, value)) {
         if (code == 0) {
             if (inPolyline) {
-                if (current.type == "VERTEX") {
+                if (current.type == "VERTEX" && polyline.type == "PMESH") {
+                    // 메시 POLYLINE: 정점은 10/20/30 그대로, 폴리페이스 면 기록(128 만, 64 없음)은
+                    // 71..74 (1 기준, 음수 = 숨은 모서리) 넷씩 seq 에 (없는 자리는 0)
+                    const int vf = current.integer(70);
+                    if ((vf & 128) && !(vf & 64)) {
+                        for (int k = 71; k <= 74; ++k) polyline.seq.emplace_back(k, current.str(k, "0"));
+                    } else {
+                        polyline.values.emplace(10, current.str(10, "0"));
+                        polyline.values.emplace(20, current.str(20, "0"));
+                        polyline.values.emplace(30, current.str(30, "0"));
+                    }
+                    inEntity = false;
+                } else if (current.type == "VERTEX") {
                     // 폴리페이스 메시의 면 기록(128 만, 64 없음)은 좌표가 아니다
                     const int vf = current.integer(70);
                     if (!((vf & 128) && !(vf & 64))) {
@@ -529,6 +684,8 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
                     }
                     inEntity = false;
                 } else if (current.type == "POLYLINE") {
+                    // 폴리페이스(64) · 폴리곤 메시(16) 는 선이 아니라 면이다 (네이티브 isMesh)
+                    if (current.integer(70) & (16 | 64)) polyline.type = "PMESH";
                     for (const auto& kv : current.values) {
                         if (kv.first != 10 && kv.first != 20 && kv.first != 30) polyline.values.emplace(kv);
                     }
@@ -561,6 +718,7 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
             current.values.emplace(code, value);
         } else {
             current.values.emplace(code, value);
+            if (current.type == "HATCH") current.seq.emplace_back(code, value);
         }
     }
 
@@ -600,6 +758,8 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
         // 실제 도면에서 만나는 것은 거의 (0,0,-1) - 거울 복사한 것 - 이고, 그때 월드는
         // (-x, y, -z) 다 (임의 축 알고리즘). LINE/MTEXT/SPLINE 은 월드 좌표라 해당 없다.
         if (e.num(230, 1.0f) < 0.0f && t != "LINE" && t != "MTEXT" && t != "SPLINE" && t != "DIMENSION"
+            && t != "ELLIPSE" && t != "LEADER" && t != "ACAD_TABLE"
+            && t != "3DFACE" && t != "MESH" && t != "PMESH"   // 월드 좌표 (OCS 아님)
             && std::fabs(e.num(210)) < 1.0f / 64.0f && std::fabs(e.num(220)) < 1.0f / 64.0f) {
             Entity flat = e;
             flat.values.erase(230);
@@ -708,21 +868,246 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
                         (row == 0) ? 2 : (row == 1) ? 1 : 0);
             }
         } else if (t == "SPLINE") {
-            // 제어점을 이어 근사한다 (진짜 NURBS 평가는 아직). 맞춤점이 있으면 그걸 쓴다.
-            const std::vector<float> fx = e.all(11), fy = e.all(21);
-            const std::vector<float> cx = e.all(10), cy = e.all(20);
-            const bool useFit = fx.size() >= 2 && fx.size() == fy.size();
-            const std::vector<float>& xs = useFit ? fx : cx;
-            const std::vector<float>& ys = useFit ? fy : cy;
-            std::vector<vec3> pts;
-            const size_t n = std::min(xs.size(), ys.size());
-            for (size_t i = 0; i < n; ++i) pts.push_back(x.point(vec3{xs[i], ys[i], 0.0f}));
+            // NURBS (차수 71, 매듭 40, 제어점 10/20/30, 가중치 41, 맞춤점 11/21/31) - 네이티브와 같다
+            std::vector<vec3> P, fit;
+            {
+                const std::vector<float> cx = e.all(10), cy = e.all(20), cz = e.all(30);
+                for (size_t i = 0; i < std::min(cx.size(), cy.size()); ++i) P.push_back(vec3{cx[i], cy[i], i < cz.size() ? cz[i] : 0.0f});
+                const std::vector<float> fx = e.all(11), fy = e.all(21), fz = e.all(31);
+                for (size_t i = 0; i < std::min(fx.size(), fy.size()); ++i) fit.push_back(vec3{fx[i], fy[i], i < fz.size() ? fz[i] : 0.0f});
+            }
+            std::vector<vec3> pts = tessellateSpline(P, e.all(41), e.all(40), e.integer(71, 3), fit);
+            for (vec3& q : pts) q = x.point(q);
             if (pts.size() >= 2) {
                 addSketch(std::move(pts), (e.integer(70) & 1) != 0, e, nullptr);
                 ++stats.splines;
             } else {
                 noteSkipped("SPLINE");
             }
+        } else if (t == "HATCH") {
+            // 네이티브 pushHatch 와 같다: 경계 경로 -> 무늬 정의. 실패해도 있는 데까지.
+            // 맨 바깥 해치는 원점 이동(shiftEntity)에서 빠졌다 - 여기서 해치 통째로 옮긴다.
+            Xform hx = x;
+            if (!parent && (stats.originX != 0.0 || stats.originY != 0.0)) {
+                Xform tr;
+                tr.t = vec3{static_cast<float>(-stats.originX), static_cast<float>(-stats.originY), 0.0f};
+                hx = tr.then(x);
+            }
+            RawCursor cur(e.seq);
+            std::string v;
+            float elev = 0.0f;
+            if (cur.find(30, v, 60)) elev = toFloat(v);
+            std::string pattern = "ANSI31";
+            { RawCursor c2(e.seq); if (c2.find(2, v, 60)) pattern = v; }
+            const bool solid = [&] { RawCursor c2(e.seq); return (c2.integer(70, 0) & 1) != 0; }();
+            const int nLoops = cur.integer(91, 0);
+            auto h = std::make_shared<lot_hatch::HatchData>();
+            h->solid = solid;
+            h->patternName = pattern;
+            for (int li = 0; li < nLoops; ++li) {
+                if (!cur.find(92, v)) break;
+                const int flags = toInt(v);
+                std::vector<vec3> pts;
+                if (flags & 2) {   // 폴리선 경로: 72 bulge 유무, 73 닫힘(무시 - 늘 닫는다), 93 정점 수, 10/20[/42]
+                    const int hasBulge = cur.integer(72, 0);
+                    cur.integer(73, 1);
+                    const int nv = cur.integer(93, 0);
+                    std::vector<vec3> vtx;
+                    std::vector<float> bul;
+                    for (int k = 0; k < nv; ++k) {
+                        const float px = cur.num(10), py = cur.num(20);
+                        vtx.push_back(vec3{px, py, elev});
+                        bul.push_back(hasBulge && cur.peek(42) ? cur.num(42) : 0.0f);
+                    }
+                    for (size_t k = 0; k < vtx.size(); ++k) {
+                        pts.push_back(vtx[k]);
+                        if (std::fabs(bul[k]) > 1e-9f) appendBulgeArc(pts, vtx[k], vtx[(k + 1) % vtx.size()], bul[k]);
+                    }
+                } else {           // 모서리 경로: 93 개수, 모서리마다 72 종류
+                    const int ne = cur.integer(93, 0);
+                    for (int k = 0; k < ne; ++k) {
+                        const int type = cur.integer(72, 1);
+                        if (type == 1) {
+                            const float x0 = cur.num(10), y0 = cur.num(20), x1 = cur.num(11), y1 = cur.num(21);
+                            pts.push_back(vec3{x0, y0, elev});
+                            pts.push_back(vec3{x1, y1, elev});
+                        } else if (type == 2 || type == 3) {
+                            const float cx = cur.num(10), cy = cur.num(20);
+                            float mx = 1.0f, my = 0.0f, ratio = 1.0f;
+                            if (type == 3) { mx = cur.num(11); my = cur.num(21); ratio = cur.num(40, 1.0f); }
+                            const float r = (type == 2) ? cur.num(40, 1.0f) : 1.0f;
+                            float a0 = cur.num(50) * kDegToRad, a1 = cur.num(51) * kDegToRad;
+                            const bool ccw = cur.integer(73, 1) != 0;
+                            if (ccw) { if (a1 <= a0) a1 += 2.0f * kPi; } else { if (a1 >= a0) a1 -= 2.0f * kPi; }
+                            const int seg = std::max(4, static_cast<int>(std::ceil(std::fabs(a1 - a0) / (2.0f * kPi) * 48.0f)));
+                            for (int s = 0; s <= seg; ++s) {
+                                const float a = a0 + (a1 - a0) * static_cast<float>(s) / static_cast<float>(seg);
+                                if (type == 2) pts.push_back(vec3{cx + r * std::cos(a), cy + r * std::sin(a), elev});
+                                else pts.push_back(vec3{cx + mx * std::cos(a) - my * ratio * std::sin(a),
+                                                        cy + my * std::cos(a) + mx * ratio * std::sin(a), elev});
+                            }
+                        } else if (type == 4) {
+                            const int degree = cur.integer(94, 3);
+                            cur.integer(73, 0);
+                            cur.integer(74, 0);
+                            const int nk = cur.integer(95, 0), nc = cur.integer(96, 0);
+                            std::vector<float> knots, weights;
+                            std::vector<vec3> P, fit;
+                            for (int s = 0; s < nk; ++s) knots.push_back(cur.num(40));
+                            for (int s = 0; s < nc; ++s) {
+                                const float px = cur.num(10), py = cur.num(20);
+                                P.push_back(vec3{px, py, elev});
+                                if (cur.peek(42)) weights.push_back(cur.num(42));
+                            }
+                            const int nf = cur.integer(97, 0);
+                            for (int s = 0; s < nf; ++s) {
+                                const float px = cur.num(11), py = cur.num(21);
+                                fit.push_back(vec3{px, py, elev});
+                            }
+                            const std::vector<vec3> sp = tessellateSpline(P, weights, knots, degree, fit);
+                            pts.insert(pts.end(), sp.begin(), sp.end());
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                // 경계 객체 참조 (97 + 330 x n) 는 건너뛴다
+                { const int ns = cur.integer(97, 0); for (int s = 0; s < ns; ++s) cur.find(330, v, 4); }
+                std::vector<lot_hatch::P2> loop;
+                for (const vec3& q : pts) {
+                    const lot_hatch::P2 p2{q.x, q.y};
+                    if (loop.empty() || std::hypot(loop.back().x - p2.x, loop.back().y - p2.y) > 1e-6f) loop.push_back(p2);
+                }
+                if (loop.size() > 2 && std::hypot(loop.front().x - loop.back().x, loop.front().y - loop.back().y) < 1e-6f) loop.pop_back();
+                if (loop.size() >= 3) h->loops.push_back(std::move(loop));
+            }
+            if (h->loops.empty()) { noteSkipped("HATCH(no boundary)"); return; }
+            if (!solid) {
+                // 무늬 정의 (파일 값: 축척 · 회전 적용됨). 없으면 이름으로 내장, 그도 없으면 ANSI31.
+                h->angleDeg = cur.num(52, 0.0f);
+                h->scale = cur.num(41, 1.0f);
+                const int nLines = cur.integer(78, 0);
+                for (int k = 0; k < nLines; ++k) {
+                    lot_hatch::PatternLine L;
+                    L.angleDeg = cur.num(53);
+                    L.base = {cur.num(43), cur.num(44)};
+                    L.offset = {cur.num(45), cur.num(46)};
+                    const int nd = cur.integer(79, 0);
+                    for (int s = 0; s < nd; ++s) L.dashes.push_back(cur.num(49));
+                    h->lines.push_back(std::move(L));
+                }
+                if (h->lines.empty()) {
+                    std::vector<lot_hatch::PatternLine> def;
+                    if (!lot_hatch::builtinPattern(pattern, def)) lot_hatch::builtinPattern("ANSI31", def);
+                    h->lines = lot_hatch::transformPattern(def, h->scale, h->angleDeg);
+                }
+            }
+            // 평면 -> 월드 (블록 변환 포함). 평면 안 좌표는 |오른쪽 축| 로 균등 축척.
+            const vec3 o = hx.point(vec3{0.0f, 0.0f, elev});
+            const vec3 rv = hx.vector(vec3{1.0f, 0.0f, 0.0f}), uv = hx.vector(vec3{0.0f, 1.0f, 0.0f});
+            const float lr = std::sqrt(dot(rv, rv)), lu = std::sqrt(dot(uv, uv));
+            if (lr < 1e-12f || lu < 1e-12f) return;
+            if (std::fabs(lr - 1.0f) > 1e-6f) {
+                for (auto& lp : h->loops) for (auto& q : lp) q = q * lr;
+                for (auto& L : h->lines) { L.base = L.base * lr; L.offset = L.offset * lr; for (auto& dd : L.dashes) dd *= lr; }
+                h->scale *= lr;
+            }
+            addHatch(h, o, rv * (1.0f / lr), uv * (1.0f / lu), e);
+        } else if (t == "ELLIPSE") {
+            // 네이티브와 같다: 짧은 축 = (돌출 방향 x 장축) * 비율, 매개변수 41/42 (라디안), 64 분할/바퀴
+            const vec3 c{e.num(10), e.num(20), e.num(30)};
+            const vec3 m{e.num(11), e.num(21), e.num(31)};
+            vec3 nrm{e.num(210), e.num(220), e.num(230, 1.0f)};
+            const float nl = std::sqrt(dot(nrm, nrm));
+            nrm = nl > 1e-9f ? nrm * (1.0f / nl) : vec3{0.0f, 0.0f, 1.0f};
+            const vec3 minor = cross(nrm, m) * e.num(40, 1.0f);
+            float t0 = e.num(41, 0.0f), t1 = e.num(42, 2.0f * kPi);
+            if (t1 <= t0) t1 += 2.0f * kPi;
+            const float span = t1 - t0;
+            const bool full = span >= 2.0f * kPi - 1e-4f;
+            const int seg = std::max(8, static_cast<int>(std::ceil(span / (2.0f * kPi) * 64.0f)));
+            std::vector<vec3> pts;
+            for (int i = 0; i <= seg; ++i) {
+                if (full && i == seg) break;   // 닫힌 타원은 겹친 끝점을 버린다
+                const float a = t0 + span * static_cast<float>(i) / static_cast<float>(seg);
+                pts.push_back(x.point(c + m * std::cos(a) + minor * std::sin(a)));
+            }
+            addSketch(std::move(pts), full, e, nullptr);
+            ++stats.ellipses;
+        } else if (t == "LEADER") {
+            // 꼭짓점들을 잇는 열린 폴리선 (화살촉 없음 - 네이티브와 같다)
+            const std::vector<float> lx = e.all(10), ly = e.all(20), lz = e.all(30);
+            std::vector<vec3> pts;
+            for (size_t i = 0; i < std::min(lx.size(), ly.size()); ++i) pts.push_back(x.point(vec3{lx[i], ly[i], i < lz.size() ? lz[i] : 0.0f}));
+            if (pts.size() >= 2) { addSketch(std::move(pts), false, e, nullptr); ++stats.leaders; }
+            else noteSkipped("LEADER");
+        } else if (t == "ACAD_TABLE") {
+            // 표: 딸린 익명 블록(코드 2)을 삽입점만큼 옮겨 펼친다 (회전 · 축척은 없다 - 네이티브와 같다)
+            Xform local;
+            local.t = vec3{e.num(10), e.num(20), e.num(30)};
+            if (blocks.count(e.str(2))) { expandBlock(e.str(2), x.then(local), e, depth); ++stats.tables; }
+            else noteSkipped("ACAD_TABLE");
+        } else if (t == "3DFACE") {
+            // 면 - 3D 로 내보낸 DXF(3ds Max · Rhino 등)는 3DFACE 가 곧 메시다. 넷째 점이 셋째와 같으면 삼각형.
+            std::vector<vec3> v;
+            for (int k = 0; k < 4; ++k) {
+                if (e.has(10 + k)) v.push_back(vec3{e.num(10 + k), e.num(20 + k), e.num(30 + k)});
+            }
+            if (v.size() == 4 && dot(v[3] - v[2], v[3] - v[2]) < 1e-24f) v.pop_back();
+            std::vector<int> idx;
+            for (int k = 0; k < static_cast<int>(v.size()); ++k) idx.push_back(k);
+            std::vector<vec3> tris;
+            appendFace(tris, v, idx, x);
+            if (tris.empty()) noteSkipped("3DFACE"); else addMesh(tris, e);
+        } else if (t == "MESH") {
+            // AcDbSubDMesh: 정점 10/20/30, 면 목록 93 개의 90 값 [n, i…] (0 기준). 세분(91)은 무시하고
+            // 제어 메시를 그대로 그린다 (네이티브와 같다).
+            const std::vector<float> vx = e.all(10), vy = e.all(20), vz = e.all(30);
+            std::vector<vec3> v;
+            for (size_t i = 0; i < std::min(vx.size(), vy.size()); ++i) v.push_back(vec3{vx[i], vy[i], i < vz.size() ? vz[i] : 0.0f});
+            std::vector<int> fl;
+            for (float f : e.all(90)) fl.push_back(static_cast<int>(f));
+            const int m = e.integer(93, 0);
+            const size_t len = std::min(fl.size(), m > 0 ? static_cast<size_t>(m) : fl.size());
+            std::vector<vec3> tris;
+            for (size_t i = 0; i < len;) {
+                const int n = fl[i];
+                if (n <= 0 || i + 1 + n > len) break;
+                appendFace(tris, v, std::vector<int>(fl.begin() + i + 1, fl.begin() + i + 1 + n), x);
+                i += 1 + n;
+            }
+            if (tris.empty()) noteSkipped("MESH(no faces)"); else addMesh(tris, e);
+        } else if (t == "PMESH") {
+            // 메시 POLYLINE - 폴리페이스(64): 면 기록 71..74 (1 기준, 음수 = 숨은 모서리, 0 = 없음).
+            // 폴리곤 메시(16): M(71) x N(72) 격자, 70 & 1 / & 32 = M / N 방향 닫힘.
+            const std::vector<float> vx = e.all(10), vy = e.all(20), vz = e.all(30);
+            std::vector<vec3> v;
+            for (size_t i = 0; i < std::min(vx.size(), vy.size()); ++i) v.push_back(vec3{vx[i], vy[i], i < vz.size() ? vz[i] : 0.0f});
+            const int flags = e.integer(70);
+            std::vector<vec3> tris;
+            if (flags & 64) {
+                for (size_t i = 0; i + 3 < e.seq.size(); i += 4) {
+                    std::vector<int> idx;
+                    for (size_t k = 0; k < 4; ++k) {
+                        const int f = toInt(e.seq[i + k].second);
+                        if (f != 0) idx.push_back(std::abs(f) - 1);
+                    }
+                    appendFace(tris, v, idx, x);
+                }
+            } else {
+                const int mM = e.integer(71), mN = e.integer(72);
+                if (mM > 0 && mN > 0 && static_cast<int>(v.size()) >= mM * mN) {
+                    const bool closeM = (flags & 1) != 0, closeN = (flags & 32) != 0;
+                    const int mEnd = closeM ? mM : mM - 1, nEnd = closeN ? mN : mN - 1;
+                    for (int i = 0; i < mEnd; ++i) {
+                        for (int j = 0; j < nEnd; ++j) {
+                            const int i1 = (i + 1) % mM, j1 = (j + 1) % mN;
+                            appendFace(tris, v, {i * mN + j, i1 * mN + j, i1 * mN + j1, i * mN + j1}, x);
+                        }
+                    }
+                }
+            }
+            if (tris.empty()) noteSkipped("POLYLINE(mesh)"); else addMesh(tris, e);
         } else if (t == "SOLID" || t == "TRACE") {
             // 채운 사각형 - 테두리만 그린다
             std::vector<vec3> pts{x.point(vec3{e.num(10), e.num(20), e.num(30)}),
@@ -771,7 +1156,8 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
     for (const Entity& e : modelEntities) emit(e, Xform{}, nullptr, 0);
 
     const int total = stats.lines + stats.circles + stats.arcs + stats.polylines
-                    + stats.texts + stats.splines;
+                    + stats.texts + stats.splines + stats.hatches + stats.ellipses + stats.leaders
+                    + stats.meshes;
     if (total == 0) {
         stats.error = "dxf: no drawable entities found (is this an ASCII DXF?)";
         return stats;
@@ -779,7 +1165,9 @@ LoadStats load(const std::string& text, LotGameObject::Map& objects, LotLayers& 
     LOT_LOG("dxf: " << stats.lines << " lines, " << stats.circles << " circles, "
             << stats.arcs << " arcs, " << stats.polylines << " polylines, "
             << stats.texts << " texts, " << stats.splines << " splines (approx), "
-            << stats.layers << " layers, " << inserts << " inserts, " << blocks.size() << " blocks"
+            << stats.layers << " layers, " << inserts << " inserts, " << blocks.size() << " blocks, "
+            << stats.hatches << " hatches, " << stats.ellipses << " ellipses, " << stats.leaders << " leaders, "
+            << stats.tables << " tables, " << stats.meshes << " meshes (" << stats.faces << " triangles)"
             << (stats.skipped ? ", skipped " + std::to_string(stats.skipped) + " ("
                                 + stats.skippedKinds + ")" : ""));
     if (stats.originX != 0.0 || stats.originY != 0.0) {

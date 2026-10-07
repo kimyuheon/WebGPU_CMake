@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lot_hatch.h"
 #include "lot_math.h"
 #include <cstdint>
 #include <memory>
@@ -147,6 +148,12 @@ public:
         bool orbit = false;
     };
     Light light;
+
+    // 해치 (네이티브 PrimitiveKind::Hatch). 있으면 points 는 바깥 경계(피킹 · 범위용)이고 화면에는
+    // 무늬 선분(hatchSegments, 로컬 쌍) 또는 단색 채움(model, 처음 그릴 때 만든다)으로 나간다.
+    std::shared_ptr<const lot_hatch::HatchData> hatch;
+    std::shared_ptr<const std::vector<vec3>> hatchSegments;
+    bool isHatch() const { return hatch != nullptr; }
 
     bool isSketch() const { return !points.empty(); }
     bool isLight() const { return light.valid; }

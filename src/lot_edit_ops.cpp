@@ -27,7 +27,9 @@ LotGameObject makeSketch(const LotGameObject& src, const std::vector<vec3>& worl
 }
 
 // 선 · 폴리선만 (곡선 정의가 있는 원/호는 아니다)
-bool isPath(const LotGameObject& o) { return o.isSketch() && !o.hasCurve() && o.points.size() >= 2; }
+bool isPath(const LotGameObject& o) {
+    return o.isSketch() && !o.hasCurve() && !o.isHatch() && o.points.size() >= 2;   // 해치 경계는 아니다
+}
 
 }  // namespace
 

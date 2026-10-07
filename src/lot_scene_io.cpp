@@ -135,6 +135,46 @@ JsonValue objectJson(const LotGameObject& obj) {
         return jo;
     }
 
+    if (obj.isHatch()) {
+        // 네이티브 scene_lot_io 와 같은 키. 평면은 객체 로컬 (위치 · 회전은 transform).
+        const lot_hatch::HatchData& h = *obj.hatch;
+        auto j2 = [](const lot_hatch::P2& p) {
+            JsonValue a = JsonValue::makeArray();
+            a.push(p.x); a.push(p.y);
+            return a;
+        };
+        JsonValue loops = JsonValue::makeArray();
+        for (const auto& lp : h.loops) {
+            JsonValue l = JsonValue::makeArray();
+            for (const auto& p : lp) l.push(j2(p));
+            loops.push(l);
+        }
+        JsonValue lines = JsonValue::makeArray();
+        for (const auto& L : h.lines) {
+            JsonValue jl = JsonValue::makeObject();
+            jl.set("angle", L.angleDeg);
+            jl.set("base", j2(L.base));
+            jl.set("offset", j2(L.offset));
+            JsonValue d = JsonValue::makeArray();
+            for (float e : L.dashes) d.push(e);
+            jl.set("dashes", d);
+            lines.push(jl);
+        }
+        JsonValue jh = JsonValue::makeObject();
+        jh.set("origin", j3(toNative(h.origin)));
+        jh.set("right", j3(toNative(h.right)));
+        jh.set("up", j3(toNative(h.up)));
+        jh.set("loops", loops);
+        jh.set("solid", h.solid);
+        jh.set("pattern", h.patternName);
+        jh.set("angle", h.angleDeg);
+        jh.set("scale", h.scale);
+        jh.set("lines", lines);
+        jo.set("kind", "hatch");
+        jo.set("hatch", jh);
+        return jo;
+    }
+
     if (obj.isSketch()) {
         // 원/호는 정의로 저장한다 (점 목록은 파생물). 네이티브 CircleData/ArcData 와 같은 키.
         if (obj.hasCurve()) {
@@ -483,6 +523,51 @@ LoadStats load(const std::string& text, lot_web_device& device,
             if (pts.size() < 2) { ++stats.skipped; continue; }
             addSketch(objects, std::move(pts), !arc, t, color, layerId, linetypeId, colorByLayer, &c);
             arc ? ++stats.arcs : ++stats.circles;
+        } else if (kind == "hatch" && jo.find("hatch")) {
+            const JsonValue* jh = jo.find("hatch");
+            auto h = std::make_shared<lot_hatch::HatchData>();
+            h->origin = fromNative(getv3(jh->find("origin"), vec3{0.0f, 0.0f, 0.0f}));
+            h->right = normalize(fromNative(getv3(jh->find("right"), vec3{1.0f, 0.0f, 0.0f})));
+            h->up = normalize(fromNative(getv3(jh->find("up"), vec3{0.0f, 1.0f, 0.0f})));
+            auto p2 = [](const JsonValue* v) {
+                lot_hatch::P2 p;
+                if (v && v->isArray() && v->array.size() >= 2) {
+                    p.x = static_cast<float>(v->array[0].numberOr(0.0));
+                    p.y = static_cast<float>(v->array[1].numberOr(0.0));
+                }
+                return p;
+            };
+            if (const JsonValue* jl = jh->find("loops"); jl && jl->isArray()) {
+                for (const JsonValue& l : jl->array) {
+                    std::vector<lot_hatch::P2> lp;
+                    for (const JsonValue& q : l.array) if (q.isArray() && q.array.size() >= 2) lp.push_back(p2(&q));
+                    if (lp.size() >= 3) h->loops.push_back(std::move(lp));
+                }
+            }
+            if (h->loops.empty()) { ++stats.skipped; continue; }
+            h->solid = jh->find("solid") ? jh->find("solid")->boolOr(false) : false;
+            h->patternName = jh->find("pattern") ? jh->find("pattern")->stringOr("ANSI31") : "ANSI31";
+            h->angleDeg = static_cast<float>(jh->find("angle") ? jh->find("angle")->numberOr(0.0) : 0.0);
+            h->scale = static_cast<float>(jh->find("scale") ? jh->find("scale")->numberOr(1.0) : 1.0);
+            if (const JsonValue* jl = jh->find("lines"); jl && jl->isArray()) {
+                for (const JsonValue& l : jl->array) {
+                    lot_hatch::PatternLine L;
+                    L.angleDeg = static_cast<float>(l.find("angle") ? l.find("angle")->numberOr(0.0) : 0.0);
+                    L.base = p2(l.find("base"));
+                    if (l.find("offset")) L.offset = p2(l.find("offset"));
+                    if (const JsonValue* d = l.find("dashes"); d && d->isArray()) L.dashes = d->numbers();
+                    h->lines.push_back(std::move(L));
+                }
+            }
+            auto obj = LotGameObject::createGameObject();
+            obj.transform = t;
+            obj.color = color;
+            obj.layer = layerId;
+            obj.linetype = linetypeId;
+            obj.colorByLayer = colorByLayer;
+            lot_hatch::attach(obj, std::move(h));
+            objects.emplace(obj.getId(), std::move(obj));
+            ++stats.hatches;
         } else if (jo.find("mesh")) {
             if (loadMesh(*jo.find("mesh"), device, t, color, layerId, defaultMaterial, objects)) ++stats.meshes;
             else ++stats.skipped;
@@ -498,7 +583,7 @@ LoadStats load(const std::string& text, lot_web_device& device,
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
             << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts
-            << " texts, " << stats.lights << " lights, " << stats.layers << " layers"
+            << " texts, " << stats.lights << " lights, " << stats.layers << " layers, " << stats.hatches << " hatches"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

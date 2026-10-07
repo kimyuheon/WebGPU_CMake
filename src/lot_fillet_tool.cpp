@@ -85,7 +85,7 @@ bool FilletTool::pickAt(const Context& ctx, Pick& out) const {
     const auto id = lot_pick::pickSketch(ctx.camera, ctx.mouse.x(), ctx.mouse.y(), ctx.width, ctx.height,
                                          8.0f, ctx.objects, dist);
     const LotGameObject* o = LotGameObject::find(ctx.objects, id);
-    if (!o || !o->isSketch() || o->hasCurve()) return false;
+    if (!o || !o->isSketch() || o->hasCurve() || o->isHatch()) return false;
     bool closed = false;
     const std::vector<vec3> p = cleanPoints(*o, closed);
     if (p.size() < 2) return false;

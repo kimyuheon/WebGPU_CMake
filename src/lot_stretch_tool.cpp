@@ -109,6 +109,7 @@ void StretchTool::collect(const Context& ctx) {
             for (size_t i = 0; i < pts.size(); ++i) if (inside(pts[i])) in.push_back(i);
             if (in.empty()) continue;
             if (in.size() == pts.size()) { grips_.push_back({id, Grip::Kind::Whole}); continue; }
+            if (o.isHatch()) continue;   // 해치는 통째로만 (경계 점만 옮기면 무늬가 어긋난다)
             for (size_t i : in) grips_.push_back({id, Grip::Kind::Vertex, i});
         } else if (o.isDimension()) {
             const mat4 M = o.transform.mat4Transform();

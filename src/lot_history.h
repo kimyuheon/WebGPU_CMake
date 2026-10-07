@@ -42,6 +42,8 @@ public:
         LotGameObject::Dim dim;
         LotGameObject::Text text;
         LotGameObject::Light light;
+        std::shared_ptr<const lot_hatch::HatchData> hatch;
+        std::shared_ptr<const std::vector<vec3>> hatchSegments;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;

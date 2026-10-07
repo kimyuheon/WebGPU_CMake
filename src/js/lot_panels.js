@@ -41,8 +41,93 @@ mergeInto(LibraryManager.library, {
         };
         // 옛 DXF 도면은 CP949 같은 코드페이지라 브라우저 TextDecoder 로 푼다
         // ($DWGCODEPAGE 를 앞부분에서 찾아 고른다). C++ 은 UTF-8 만 받는다.
+        // 코드페이지 이름 -> TextDecoder 라벨
+        var codepageLabel = function(cp) {
+            cp = (cp || '').toLowerCase();
+            if (cp.indexOf('949') >= 0) return 'euc-kr';
+            if (cp.indexOf('936') >= 0) return 'gbk';
+            if (cp.indexOf('932') >= 0) return 'shift_jis';
+            if (cp.indexOf('950') >= 0) return 'big5';
+            if (cp.indexOf('1252') >= 0) return 'windows-1252';
+            if (cp.indexOf('1251') >= 0) return 'windows-1251';
+            return 'utf-8';
+        };
+        // 바이너리 DXF -> 텍스트 DXF (네이티브 lot_dxf_reader BinaryScanner 와 같은 규칙).
+        // 그룹 코드는 2 바이트, 값의 종류는 코드 범위로. 문자열은 NUL 로 끝난다.
+        // AC1021 미만은 $DWGCODEPAGE (없으면 ANSI_949) 로 풀고, 이미 UTF-8 이면 그대로.
+        var binaryDxfToText = function(bytes) {
+            var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            var kind = function(c) {
+                if ((c >= 10 && c <= 59) || (c >= 110 && c <= 149) || (c >= 210 && c <= 239) || (c >= 460 && c <= 469) || (c >= 1010 && c <= 1059)) return 'd';
+                if ((c >= 60 && c <= 79) || (c >= 170 && c <= 179) || (c >= 270 && c <= 289) || (c >= 370 && c <= 389) || (c >= 400 && c <= 409) || (c >= 1060 && c <= 1070)) return 'h';
+                if ((c >= 90 && c <= 99) || (c >= 420 && c <= 429) || (c >= 440 && c <= 459) || c === 1071) return 'i';
+                if (c >= 160 && c <= 169) return 'l';
+                if (c >= 290 && c <= 299) return 'b';
+                if ((c >= 310 && c <= 319) || c === 1004) return 'c';
+                return 's';
+            };
+            var pos = 22;   // "AutoCAD Binary DXF\r\n\x1a\0"
+            var pairs = [];   // [code, 값(숫자 문자열) 또는 Uint8Array(문자열 원본)]
+            var n = bytes.length;
+            while (pos + 2 <= n) {
+                var code = dv.getInt16(pos, true); pos += 2;
+                var k = kind(code), val;
+                if (k === 'd') { val = String(dv.getFloat64(pos, true)); pos += 8; }
+                else if (k === 'h') { val = String(dv.getInt16(pos, true)); pos += 2; }
+                else if (k === 'i') { val = String(dv.getInt32(pos, true)); pos += 4; }
+                else if (k === 'l') { val = String(Number(dv.getBigInt64(pos, true))); pos += 8; }
+                else if (k === 'b') { val = String(bytes[pos]); pos += 1; }
+                else if (k === 'c') { var len = bytes[pos]; pos += 1 + len; val = ''; }
+                else {
+                    var end = pos;
+                    while (end < n && bytes[end] !== 0) ++end;
+                    val = bytes.subarray(pos, end);
+                    pos = end + 1;
+                }
+                pairs.push([code, val]);
+                if (code === 0 && typeof val !== 'string' && val.length === 3 && val[0] === 69 && val[1] === 79 && val[2] === 70) break;   // EOF
+            }
+            // 버전 / 코드페이지 (헤더 변수 9 다음 값)
+            var ascii = function(u) { var t = ''; for (var i = 0; i < u.length; ++i) t += String.fromCharCode(u[i]); return t; };
+            var ver = 0, cp = '';
+            for (var i = 0; i + 1 < pairs.length && i < 4000; ++i) {
+                if (pairs[i][0] !== 9 || typeof pairs[i][1] === 'string') continue;
+                var nameV = ascii(pairs[i][1]), nv = pairs[i + 1][1];
+                if (nameV === '$ACADVER' && typeof nv !== 'string') { var mm = ascii(nv).match(/AC(\d+)/); if (mm) ver = parseInt(mm[1], 10); }
+                if (nameV === '$DWGCODEPAGE' && typeof nv !== 'string') cp = ascii(nv);
+            }
+            var legacy = !ver || ver < 1021;
+            var utf8 = new TextDecoder('utf-8', { fatal: true });
+            var local;
+            try { local = new TextDecoder(legacy ? codepageLabel(cp || 'ANSI_949') : 'utf-8'); } catch (e) { local = new TextDecoder('utf-8'); }
+            var out = [];
+            for (var j = 0; j < pairs.length; ++j) {
+                var v = pairs[j][1];
+                if (typeof v !== 'string') {
+                    var str;
+                    try { str = utf8.decode(v); } catch (e) { str = local.decode(v); }   // 이미 UTF-8 이면 그대로
+                    v = str;
+                }
+                out.push(String(pairs[j][0]), v);
+            }
+            return out.join('\n') + '\n';
+        };
+
         dom.dxfLoad = function(buffer, name) {
             var bytes = new Uint8Array(buffer);
+            var sentinel = 'AutoCAD Binary DXF';
+            var isBinary = bytes.length > 22;
+            for (var si = 0; isBinary && si < sentinel.length; ++si) if (bytes[si] !== sentinel.charCodeAt(si)) isBinary = false;
+            if (isBinary) {
+                var converted = binaryDxfToText(bytes);
+                console.log('dxf: binary DXF converted to text (' + converted.length + ' chars)');
+                var enc = new TextEncoder().encode(converted);
+                var bptr = _malloc(enc.length);
+                if (!bptr) { console.error('dxf: out of memory (' + enc.length + ' bytes)'); return false; }
+                HEAPU8.set(enc, bptr);
+                withName(name, function(nn) { _lot_onDxfFileLoaded(bptr, enc.length, nn); });
+                return true;
+            }
             // 앞 4KB 만 아스키로 훑어 코드페이지를 찾는다
             var head = '';
             for (var i = 0; i < Math.min(bytes.length, 4096); ++i) head += String.fromCharCode(bytes[i]);
