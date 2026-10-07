@@ -259,6 +259,85 @@ void addLines(std::vector<std::pair<vec3, vec3>>& dst, const std::vector<vec3>& 
     for (size_t i = 0; i + 1 < pts.size(); ++i) dst.emplace_back(pts[i], pts[i + 1]);
 }
 
+// target 을 조각들로 바꾼다 (층 · 색 · 선종류 물려받기). 한 번의 실행 취소. 만든 id 들.
+std::set<LotGameObject::id_t> replaceWithPieces(LotGameObject::Map& objects, EditHistory& history,
+                                                LotGameObject::id_t target,
+                                                const std::vector<TrimTool::Piece>& pieces, const char* label) {
+    std::set<LotGameObject::id_t> made;
+    const LotGameObject* src = LotGameObject::find(objects, target);
+    if (!src) return made;
+    EditHistory::Edit edit;
+    edit.label = label;
+    edit.before.push_back(EditHistory::snapshot(objects, target));
+    for (const TrimTool::Piece& pc : pieces) {
+        if (pc.points.size() < 2) continue;
+        LotGameObject obj = LotGameObject::createGameObject();
+        vec3 origin{0.0f, 0.0f, 0.0f};
+        if (pc.curve.kind != LotGameObject::Curve::Kind::None) {
+            origin = pc.curve.center;
+        } else {
+            for (const vec3& q : pc.points) origin = origin + q;
+            origin = origin * (1.0f / static_cast<float>(pc.points.size()));
+        }
+        obj.transform.translation = origin;
+        obj.color = src->color;
+        obj.colorByLayer = src->colorByLayer;
+        obj.layer = src->layer;
+        obj.linetype = src->linetype;
+        obj.closed = pc.closed;
+        for (const vec3& q : pc.points) obj.points.push_back(q - origin);
+        if (pc.curve.kind != LotGameObject::Curve::Kind::None) {
+            obj.curve = pc.curve;
+            obj.curve.center = vec3{0.0f, 0.0f, 0.0f};
+        }
+        const auto nid = obj.getId();
+        objects.emplace(nid, std::move(obj));
+        made.insert(nid);
+    }
+    objects.erase(target);
+    edit.after = EditHistory::snapshot(objects, made);
+    history.record(std::move(edit));
+    return made;
+}
+
+// 커서(화면)에 가장 가까운 객체 위의 월드 점
+vec3 screenNearest(const TrimTool::Context& ctx, const Shape& T) {
+    float best = std::numeric_limits<float>::max();
+    vec3 hit = T.p3[0];
+    const size_t n = T.p3.size();
+    const size_t segs = T.curve ? n - 1 : T.segCount();
+    for (size_t i = 0; i < segs; ++i) {
+        const vec3& a = T.p3[i];
+        const vec3& b = T.p3[(i + 1) % n];
+        float ax, ay, bx, by;
+        if (!ctx.camera.projectToScreen(a, ctx.width, ctx.height, ax, ay)) continue;
+        if (!ctx.camera.projectToScreen(b, ctx.width, ctx.height, bx, by)) continue;
+        const float ex = bx - ax, ey = by - ay, ee = ex * ex + ey * ey;
+        float t = ee > 0.0f ? ((ctx.mouse.x() - ax) * ex + (ctx.mouse.y() - ay) * ey) / ee : 0.0f;
+        t = std::fmin(std::fmax(t, 0.0f), 1.0f);
+        const float dx = ax + ex * t - ctx.mouse.x(), dy = ay + ey * t - ctx.mouse.y();
+        if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hit = a + (b - a) * t; }
+    }
+    return hit;
+}
+
+// 객체 위(또는 가까이)의 월드 점 -> 매개변수 (폴리선: 누적 길이, 원/호: 각)
+float paramOf(const Shape& T, const vec3& p, const Plane& pl) {
+    if (T.curve) return T.isArc ? T.normArc(T.angleOf(p)) : wrap2pi(T.angleOf(p));
+    const V2 q = pl.proj(p);
+    float best = std::numeric_limits<float>::max(), out = 0.0f;
+    for (size_t i = 0; i < T.segCount(); ++i) {
+        const V2 a = T.p2[i], b = T.p2[(i + 1) % T.p2.size()];
+        const V2 ab = b - a;
+        const float l2 = dot2(ab, ab);
+        float t = l2 > 0.0f ? dot2(q - a, ab) / l2 : 0.0f;
+        t = std::fmin(std::fmax(t, 0.0f), 1.0f);
+        const V2 d = a + ab * t - q;
+        if (dot2(d, d) < best) { best = dot2(d, d); out = T.cum[i] + t * (T.cum[i + 1] - T.cum[i]); }
+    }
+    return out;
+}
+
 // 큰 도면에서 클릭/커서마다 모든 객체를 투영하면 무겁다 - 편집이 있을 때만 다시 만든다
 struct ShapeCache {
     const LotGameObject::Map* objects = nullptr;
@@ -527,11 +606,10 @@ void TrimTool::update(const Context& ctx, EditHistory& history) {
     LotGameObject* src = LotGameObject::find(ctx.objects, pl.target);
     if (!src) return;
 
-    EditHistory::Edit edit;
-    edit.label = name;
-    edit.before.push_back(EditHistory::snapshot(ctx.objects, pl.target));
-
     if (pl.kind == Plan::Kind::Extend) {
+        EditHistory::Edit edit;
+        edit.label = name;
+        edit.before.push_back(EditHistory::snapshot(ctx.objects, pl.target));
         // 제자리 고치기: 변환은 그대로, 점(과 호의 각)만
         if (pl.extended.curve.kind != LotGameObject::Curve::Kind::None) {
             src->curve.start = pl.extended.curve.start;
@@ -547,35 +625,7 @@ void TrimTool::update(const Context& ctx, EditHistory& history) {
         LOT_LOG("extend: object " << pl.target << " extended");
     } else {
         // 남는 조각들을 새 객체로 (원본의 층 · 색 · 선종류), 원본은 지운다
-        std::set<LotGameObject::id_t> made;
-        for (const Piece& pc : pl.pieces) {
-            if (pc.points.size() < 2) continue;
-            LotGameObject obj = LotGameObject::createGameObject();
-            vec3 origin{0.0f, 0.0f, 0.0f};
-            if (pc.curve.kind != LotGameObject::Curve::Kind::None) {
-                origin = pc.curve.center;
-            } else {
-                for (const vec3& q : pc.points) origin = origin + q;
-                origin = origin * (1.0f / static_cast<float>(pc.points.size()));
-            }
-            obj.transform.translation = origin;
-            obj.color = src->color;
-            obj.colorByLayer = src->colorByLayer;
-            obj.layer = src->layer;
-            obj.linetype = src->linetype;
-            obj.closed = pc.closed;
-            for (const vec3& q : pc.points) obj.points.push_back(q - origin);
-            if (pc.curve.kind != LotGameObject::Curve::Kind::None) {
-                obj.curve = pc.curve;
-                obj.curve.center = vec3{0.0f, 0.0f, 0.0f};
-            }
-            const auto nid = obj.getId();
-            ctx.objects.emplace(nid, std::move(obj));
-            made.insert(nid);
-        }
-        ctx.objects.erase(pl.target);
-        edit.after = EditHistory::snapshot(ctx.objects, made);
-        history.record(std::move(edit));
+        const std::set<LotGameObject::id_t> made = replaceWithPieces(ctx.objects, history, pl.target, pl.pieces, "trim");
         LOT_LOG("trim: object " << pl.target << (pl.kind == Plan::Kind::Delete ? " deleted (no cutting edge)"
                                                  : " cut into " + std::to_string(made.size()) + " pieces"));
     }
@@ -597,4 +647,160 @@ void TrimTool::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {
     const vec3 eye = ctx.camera.getPosition();
     auto lift = [&](const vec3& p) { return p + (eye - p) * 0.002f; };
     for (const auto& seg : hover_.preview) lines.addLine(lift(seg.first), lift(seg.second), color);
+}
+
+// ============================================================== 끊기
+
+void BreakTool::start(const LotCamera& camera) {
+    const SketchPlane plane = SketchPlane::fromCamera(camera);
+    right_ = plane.right;
+    up_ = plane.up;
+    normal_ = plane.normal;
+    state_ = State::PickObject;
+    target_ = LotGameObject::kInvalidId;
+    hover_.clear();
+    LOT_LOG("break: click the object at the first break point (Esc cancels)");
+}
+
+void BreakTool::cancel() {
+    if (!isActive()) return;
+    LOT_LOG("break: finished");
+    state_ = State::Idle;
+    hover_.clear();
+}
+
+namespace {
+// 끊을 객체의 모양 (작업평면 기준)
+bool breakShape(const LotGameObject::Map& objects, LotGameObject::id_t id, const Plane& pl, Shape& s) {
+    const LotGameObject* o = LotGameObject::find(objects, id);
+    return o && makeShape(*o, id, pl, s);
+}
+
+// p1 -> p2 사이를 지울 때 남는 조각들 / 지우는 부분. single 이면 p1 에서 둘로만.
+bool breakPlan(const Shape& T, float p1, float p2, bool single, std::vector<TrimTool::Piece>& keep,
+               std::vector<vec3>& removed, std::string& why) {
+    keep.clear();
+    removed.clear();
+    const bool closed = T.curve ? !T.isArc : T.closed;
+    const float eps = T.total() * 1e-5f + 1e-7f;
+    if (closed && (single || std::fabs(p1 - p2) < eps)) {
+        why = T.curve ? "a circle needs two break points" : "a closed polyline needs two break points";
+        return false;
+    }
+    auto piece = [&](float a, float b) -> TrimTool::Piece {
+        if (T.curve) {
+            if (b <= a) b += kTwoPi;
+            return arcPiece(T, a, b);
+        }
+        TrimTool::Piece pc;
+        pc.points = polySub(T, a, b);
+        return pc;
+    };
+    if (closed) {
+        keep.push_back(piece(p2, p1));      // 남는 것: p2 에서 한 바퀴 돌아 p1 까지
+        removed = piece(p1, p2).points;     // p1 -> p2 (원은 반시계) 를 지운다
+        return true;
+    }
+    const float start = T.curve ? T.a0 : 0.0f;
+    const float end = start + T.total();
+    float a = std::fmin(p1, p2), b = std::fmax(p1, p2);
+    if (single) a = b = p1;
+    if (a > start + eps) keep.push_back(piece(start, a));
+    if (b < end - eps) keep.push_back(piece(b, end));
+    if (b - a > eps) removed = piece(a, b).points;
+    if (keep.empty()) { why = "nothing would be left"; return false; }
+    return true;
+}
+}  // namespace
+
+bool BreakTool::apply(float p2, bool single, LotGameObject::Map& objects, EditHistory& history) {
+    const Plane pl{right_, up_, normal_};
+    Shape T;
+    if (!breakShape(objects, target_, pl, T)) { state_ = State::Idle; return false; }
+    std::vector<TrimTool::Piece> keep;
+    std::vector<vec3> removed;
+    std::string why;
+    if (!breakPlan(T, p1_, p2, single, keep, removed, why)) {
+        LOT_LOG("break: " << why);
+        return false;
+    }
+    const auto made = replaceWithPieces(objects, history, target_, keep, "break");
+    LOT_LOG("break: object " << target_ << " -> " << made.size() << " pieces" << (single ? " (at a point)" : ""));
+    state_ = State::Idle;
+    hover_.clear();
+    return true;
+}
+
+void BreakTool::update(const Context& ctx, const lot_osnap::Snap& snap, EditHistory& history) {
+    if (!isActive()) return;
+    const Plane pl{right_, up_, normal_};
+    // 미리보기: 둘째 점을 고르는 중이면 지울 부분 (커서가 움직였을 때만)
+    if (state_ == State::PickSecond && std::fabs(ctx.mouse.x() - lastX_) + std::fabs(ctx.mouse.y() - lastY_) > 1.5f) {
+        lastX_ = ctx.mouse.x();
+        lastY_ = ctx.mouse.y();
+        hover_.clear();
+        Shape T;
+        if (breakShape(ctx.objects, target_, pl, T)) {
+            const float p2 = paramOf(T, snap.valid() ? snap.point : screenNearest(ctx, T), pl);
+            std::vector<TrimTool::Piece> keep;
+            std::vector<vec3> removed;
+            std::string why;
+            if (breakPlan(T, p1_, p2, false, keep, removed, why)) addLines(hover_, removed);
+        }
+    }
+    if (!ctx.mouse.consumeLeftPress()) { ctx.mouse.consumeLeftRelease(); return; }
+    ctx.mouse.consumeLeftRelease();
+
+    if (state_ == State::PickObject) {
+        float dist = 0.0f;
+        const auto id = lot_pick::pickSketch(ctx.camera, ctx.mouse.x(), ctx.mouse.y(), ctx.width, ctx.height,
+                                             8.0f, ctx.objects, dist);
+        Shape T;
+        if (!breakShape(ctx.objects, id, pl, T)) {
+            LOT_LOG("break: click a line, polyline, circle or arc");
+            return;
+        }
+        target_ = id;
+        // 첫 점: 스냅이 있으면 그 점을 객체 위로, 없으면 커서에 가장 가까운 객체 위의 점
+        p1World_ = snap.valid() ? snap.point : screenNearest(ctx, T);
+        p1_ = paramOf(T, p1World_, pl);
+        state_ = State::PickSecond;
+        lastX_ = lastY_ = -1e9f;
+        LOT_LOG("break: object " << id << " - click the second point ('@' in the command line breaks at the first point)");
+        return;
+    }
+    Shape T;
+    if (!breakShape(ctx.objects, target_, pl, T)) { state_ = State::Idle; return; }
+    const float p2 = paramOf(T, snap.valid() ? snap.point : screenNearest(ctx, T), pl);
+    apply(p2, false, ctx.objects, history);
+}
+
+bool BreakTool::typed(const std::string& text, LotGameObject::Map& objects, EditHistory& history) {
+    if (state_ != State::PickSecond) return false;
+    if (text == "@") {
+        apply(p1_, true, objects, history);
+        return true;
+    }
+    if (text == "f" || text == "F") {
+        state_ = State::PickObject;
+        hover_.clear();
+        LOT_LOG("break: click the first point again");
+        return true;
+    }
+    return false;
+}
+
+std::string BreakTool::hint() const {
+    if (state_ == State::PickObject) return "break: click the object at the first break point  [Esc cancels]";
+    if (state_ == State::PickSecond) return "break: click the second point ('@' breaks at the first point, 'f' re-picks)  [Esc cancels]";
+    return "";
+}
+
+void BreakTool::drawOverlay(LineRenderSystem& lines, const Context& ctx) const {
+    if (state_ != State::PickSecond) return;
+    const vec3 eye = ctx.camera.getPosition();
+    auto lift = [&](const vec3& p) { return p + (eye - p) * 0.002f; };
+    for (const auto& seg : hover_) lines.addLine(lift(seg.first), lift(seg.second), kRemoveColor);
+    const float s = ctx.camera.worldPerPixel(p1World_, ctx.height) * 6.0f;
+    lines.addCross(lift(p1World_), s, kRemoveColor);
 }

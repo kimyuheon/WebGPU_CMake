@@ -4,6 +4,7 @@
 #include "lot_game_object.h"
 #include "lot_history.h"
 #include "lot_math.h"
+#include "lot_osnap.h"
 
 #include <string>
 #include <utility>
@@ -70,3 +71,35 @@ private:
     mutable float lastX_ = -1e9f, lastY_ = -1e9f;
     mutable Plan hover_;
 };
+
+// 끊기 (AutoCAD BREAK, 네이티브 first_app/break.cpp 와 같은 흐름).
+//   객체 클릭 = 첫 점 -> 둘째 점 클릭(스냅) 이면 그 사이를 지운다. 명령행 '@' 면 첫 점에서 둘로만 나눈다.
+//   선 · 열린 폴리선 · 호는 두 조각, 닫힌 폴리선은 p1 -> p2 구간을 지운 열린 폴리선, 원은 p1 -> p2 (반시계)
+//   를 지운 호. 원 · 닫힌 폴리선은 두 점이 필요하다. 한 번 하면 끝난다 (반복하지 않는다).
+class BreakTool {
+public:
+    enum class State { Idle, PickObject, PickSecond };
+    using Context = TrimTool::Context;
+
+    void start(const LotCamera& camera);
+    void cancel();
+    void update(const Context& ctx, const lot_osnap::Snap& snap, EditHistory& history);
+    // 명령행에서 '@' (첫 점에서 나누기) / 'f' (첫 점 다시)
+    bool typed(const std::string& text, LotGameObject::Map& objects, EditHistory& history);
+
+    bool isActive() const { return state_ != State::Idle; }
+    std::string hint() const;
+    void drawOverlay(LineRenderSystem& lines, const Context& ctx) const;
+
+private:
+    bool apply(float p2, bool single, LotGameObject::Map& objects, EditHistory& history);
+
+    State state_ = State::Idle;
+    vec3 right_{1.0f, 0.0f, 0.0f}, up_{0.0f, 1.0f, 0.0f}, normal_{0.0f, 0.0f, 1.0f};
+    LotGameObject::id_t target_ = LotGameObject::kInvalidId;
+    float p1_ = 0.0f;           // 첫 점의 매개변수 (폴리선: 누적 길이, 원/호: 각)
+    vec3 p1World_{};
+    mutable std::vector<std::pair<vec3, vec3>> hover_;
+    mutable float lastX_ = -1e9f, lastY_ = -1e9f;
+};
+

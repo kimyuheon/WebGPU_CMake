@@ -24,7 +24,7 @@ bool State::operator==(const State& o) const {
         && orthoTracking == o.orthoTracking && gridSnap == o.gridSnap && outline == o.outline
         && osnap == o.osnap && polar == o.polar && gridShow == o.gridShow && dims == o.dims
         && visualStyle == o.visualStyle && osnapKinds == o.osnapKinds && offset == o.offset && trim == o.trim && extend == o.extend
-        && fillet == o.fillet && chamfer == o.chamfer && array == o.array
+        && fillet == o.fillet && chamfer == o.chamfer && array == o.array && breakTool == o.breakTool
         && canUndo == o.canUndo && canRedo == o.canRedo && hint == o.hint;
 }
 
@@ -96,6 +96,7 @@ void LotUi::update(const State& state, const LotLayers& layers,
         if (state.fillet) add("fillet");
         if (state.chamfer) add("chamfer");
         if (state.array) add("array");
+        if (state.breakTool) add("break");
         j += "],\"disabled\":[";
         first = true;
         if (!state.canUndo) add("undo");

@@ -557,6 +557,66 @@ const scenarios = [
     },
   },
   {
+    // 분해 / 결합 / 끊기 (네이티브 applyExplode / joinChains / break.cpp 와 같은 규칙)
+    name: 'explode-join-break',
+    async run(t) {
+      const a = t.api;
+      const U = 187;
+      const objs = async () => a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      const lineLens = async () => (await objs()).filter(o => o['kind'] === 'line').map(o => dist(o['line']['a'], o['line']['b'])).sort((x, y) => x - y);
+      const near = (arr, v, e = 0.01) => arr.some(x => Math.abs(x - v) < e);
+      await a.key('KeyT');
+      await a.key('F3');
+      // 분해: 사각형 -> 선 4 개
+      await a.key('KeyB'); await a.click(150, 650); await a.click(300, 780); await a.key('Escape');
+      await a.click(150, 700);
+      await a.command('explode');
+      t.expect(a.has(/explode: 1 objects -> 4 lines/), 'rectangle exploded into 4 lines');
+      // 결합: 4 개를 다시 -> 닫힌 폴리선
+      // (Shift+클릭은 첫 선택에 뜬 기즈모 손잡이에 걸릴 수 있다 - 전체 선택. 결합은 선 · 열린 폴리선만 모은다)
+      await a.ctrl('KeyA');
+      await a.command('join');
+      t.expect(a.has(/join: 4 pieces -> polyline \d+ \(4 points, closed\)/), 'four lines joined into a closed polyline');
+      // 떨어진 두 선은 결합하지 않는다
+      await a.key('KeyL'); await a.click(600, 650); await a.click(700, 650); await a.key('Enter'); await a.key('Escape');
+      await a.key('KeyL'); await a.click(720, 650); await a.click(820, 650); await a.key('Enter'); await a.key('Escape');
+      await a.ctrl('KeyA');   // 닫힌 폴리선은 빠지고 떨어진 두 선만 남는다
+      await a.command('join');
+      t.expect(a.has(/join: 1 piece\(s\) do not touch/), 'gapped lines are refused');
+
+      // 끊기: 두 점 사이
+      await a.key('Escape');
+      await a.key('KeyL'); await a.click(600, 720); await a.click(900, 720); await a.key('Enter'); await a.key('Escape');
+      await a.command('break');
+      t.expect(a.has(/break: click the object at the first break point/), 'break starts');
+      await a.click(650, 720); await a.click(750, 720);
+      t.expect(a.has(/break: object \d+ -> 2 pieces/), 'two pieces after a two-point break');
+      let lens = await lineLens();
+      t.expect(near(lens, 50 / U) && near(lens, 150 / U), `pieces of 50px and 150px (${lens.map(l => l.toFixed(3))})`);
+      // '@' = 첫 점에서 둘로만
+      await a.command('break');
+      await a.click(800, 720);
+      await a.command('@');
+      t.expect(a.has(/2 pieces \(at a point\)/), "'@' splits at the first point");
+      lens = await lineLens();
+      t.expect(near(lens, 50 / U) && near(lens, 100 / U), `150px piece split into 50 + 100 (${lens.map(l => l.toFixed(3))})`);
+      // 원: 0 -> 90 도를 지우면 270 도 호
+      await a.key('KeyC'); await a.click(450, 720); await a.click(510, 720); await a.key('Escape');
+      await a.command('break');
+      await a.click(510, 720);
+      await a.command('@');
+      t.expect(a.has(/break: a circle needs two break points/), "'@' on a circle is refused");
+      await a.click(450, 660);
+      const arc = (await objs()).find(o => o['kind'] === 'arc');
+      t.expect(arc && Math.abs(arc['arc']['end'] - arc['arc']['start'] - 1.5 * Math.PI) < 0.02,
+               `circle -> 270 degree arc (${arc && (arc['arc']['end'] - arc['arc']['start']).toFixed(3)})`);
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo break/), 'undo');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
     name: 'sketch-tools',
     async run(t) {
       const a = t.api;

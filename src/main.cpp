@@ -24,6 +24,7 @@
 #include "lot_trim_tool.h"
 #include "lot_fillet_tool.h"
 #include "lot_array_tool.h"
+#include "lot_edit_ops.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -91,6 +92,9 @@ OffsetTool g_offset;
 TrimTool g_trim;
 FilletTool g_fillet;
 ArrayTool g_array;
+BreakTool g_break;
+// 선택을 기다리는 즉시 명령 ("explode" / "join"). 선택하고 Enter 면 실행 (네이티브 requireSelectionThen).
+std::string g_pendingOp;
 
 // 열려 있는 도면들과 지금 보고 있는 것. 탭 하나가 도면 하나다.
 // 도면에만 속하는 것(오브젝트·층·히스토리·시점)은 전부 LotDocument 안에 있어,
@@ -301,6 +305,9 @@ void lot_onCommandLine(const char* typed) {
     const std::string text(typed);
     if (text.empty()) return;
 
+    // 끊기 중의 '@' (첫 점에서 나누기) / 'f' (첫 점 다시)
+    if (g_break.typed(text, doc().objects, doc().edit.history())) return;
+
     // 숫자(또는 부호/소수점)로 시작하면 값이다 - 진행 중인 변환 도구가 받는다.
     const char first = text[0];
     if (first == '-' || first == '.' || (first >= '0' && first <= '9')) {
@@ -409,6 +416,8 @@ void lot_onArrayAction(const char* action) {
         g_array.create(doc().objects, doc().edit.history());
     } else if (a == "close") {
         g_array.close();
+        g_break.cancel();
+        g_pendingOp.clear();
     } else if (a == "pickCenter") {
         g_array.beginPickCenter();
     }
@@ -523,6 +532,8 @@ static void putDownTools() {
     g_trim.cancel();
     g_fillet.cancel();
     g_array.close();
+    g_break.cancel();
+    g_pendingOp.clear();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
 }
@@ -575,6 +586,19 @@ void lot_onDocumentTab(const char* action, int index) {
     else if (a == "close") closeDocument(static_cast<size_t>(index));
 }
 
+// 분해 / 결합을 지금 선택에
+static void runPendingOp(const std::string& op) {
+    if (op == "explode") {
+        const auto made = lot_edit_ops::explode(doc().objects, doc().edit.selection(), doc().edit.history());
+        if (!made.empty()) doc().edit.clearSelection();
+    } else if (op == "join") {
+        std::string why;
+        const auto id = lot_edit_ops::join(doc().objects, doc().edit.selection(), doc().edit.history(), why);
+        if (id == LotGameObject::kInvalidId) LOT_LOG("join: " << why);
+        else doc().edit.setSelection({id});
+    }
+}
+
 // 키가 아닌 명령 ('#이름'). 메뉴/리본/명령행이 같은 코드를 보낸다.
 //
 // 그릴 거리가 늘어날수록 알파벳이 모자란다 - 큐브·구·원기둥에 글쇠를 하나씩
@@ -589,6 +613,35 @@ static bool runAction(const char* code) {
     if (name == "closeDoc") { closeDocument(g_documentIndex); return true; }
     if (name == "nextDoc") { stepDocument(1); return true; }
     if (name == "prevDoc") { stepDocument(-1); return true; }
+    // 분해 / 결합: 선택이 있으면 바로, 없으면 고르고 Enter
+    if (name == "explode" || name == "join") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_offset.cancel();
+        g_trim.cancel();
+        g_fillet.cancel();
+        g_array.close();
+        g_break.cancel();
+        if (doc().edit.selection().empty()) {
+            g_pendingOp = name;
+            LOT_LOG(name << ": select objects, then Enter (Esc cancels)");
+        } else {
+            runPendingOp(name);
+        }
+        return true;
+    }
+    if (name == "break") {
+        g_sketch.cancel();
+        g_transform.cancel(doc().objects);
+        g_offset.cancel();
+        g_trim.cancel();
+        g_fillet.cancel();
+        g_array.close();
+        g_pendingOp.clear();
+        doc().edit.clearSelection();
+        g_break.start(doc().camera);
+        return true;
+    }
     if (name == "array") {
         g_sketch.cancel();
         g_transform.cancel(doc().objects);
@@ -623,6 +676,8 @@ static bool runAction(const char* code) {
         g_trim.cancel();
         g_fillet.cancel();
         g_array.close();
+        g_break.cancel();
+        g_pendingOp.clear();
         // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
         g_offset.start(doc().camera, doc().gridSpacing);
         return true;
@@ -634,6 +689,8 @@ static bool runAction(const char* code) {
         g_trim.cancel();
         g_fillet.cancel();
         g_array.close();
+        g_break.cancel();
+        g_pendingOp.clear();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
     }
@@ -1032,7 +1089,8 @@ void renderLoop() {
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive()
-                                            || g_trim.isActive() || g_fillet.isActive() || g_array.takesClicks(),
+                                            || g_trim.isActive() || g_fillet.isActive() || g_array.takesClicks()
+                                            || g_break.isActive(),
                                         g_transform.isPreviewing(),
                                         g_transform.isActive() ? g_transform.referencePoint()
                                                                : g_sketch.referencePoint(),
@@ -1066,6 +1124,7 @@ void renderLoop() {
             ArrayTool::Context actx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_array.update(actx);
+            g_break.update(trctx, doc().edit.snap(), doc().edit.history());
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1134,6 +1193,8 @@ void renderLoop() {
             g_trim.cancel();
             g_fillet.cancel();
             g_array.close();
+            g_break.cancel();
+            g_pendingOp.clear();
             doc().edit.undo(doc().objects);
         }
         if (g_cameraController.consumeRedo()) {
@@ -1143,6 +1204,8 @@ void renderLoop() {
             g_trim.cancel();
             g_fillet.cancel();
             g_array.close();
+            g_break.cancel();
+            g_pendingOp.clear();
             doc().edit.redo(doc().objects);
         }
 
@@ -1153,6 +1216,8 @@ void renderLoop() {
             g_trim.cancel();
             g_fillet.cancel();
             g_array.close();
+            g_break.cancel();
+            g_pendingOp.clear();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
         }
@@ -1164,11 +1229,23 @@ void renderLoop() {
             g_trim.cancel();
             g_fillet.cancel();
             g_array.close();
+            g_break.cancel();
+            g_pendingOp.clear();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (g_array.isActive()) {
+            if (!g_pendingOp.empty()) {
+                const std::string op = g_pendingOp;
+                if (doc().edit.selection().empty()) {
+                    LOT_LOG(op << ": nothing selected");
+                } else {
+                    g_pendingOp.clear();
+                    runPendingOp(op);
+                }
+            } else if (g_break.isActive()) {
+                g_break.cancel();
+            } else if (g_array.isActive()) {
                 g_array.enter(doc().edit.selection(), doc().objects, doc().edit.history());
             } else if (g_fillet.isActive()) {
                 g_fillet.finish();   // 숫자를 쳤으면 반지름/거리, 아니면 끝
@@ -1189,7 +1266,9 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_array.isActive()) g_array.cancel();
+            if (!g_pendingOp.empty()) { LOT_LOG(g_pendingOp << ": cancelled"); g_pendingOp.clear(); }
+            else if (g_break.isActive()) g_break.cancel();
+            else if (g_array.isActive()) g_array.cancel();
             else if (g_fillet.isActive()) { g_fillet.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (g_trim.isActive()) g_trim.cancel();
             else if (g_offset.isActive()) { g_offset.cancel(); g_cameraController.clearNumberBuffer(); }
@@ -1321,7 +1400,9 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = g_array.isActive() ? g_array.hint()
+            ui.hint = !g_pendingOp.empty() ? g_pendingOp + ": select objects, then Enter  [Esc cancels]"
+                    : g_break.isActive() ? g_break.hint()
+                    : g_array.isActive() ? g_array.hint()
                     : g_fillet.isActive() ? g_fillet.hint()
                     : g_trim.isActive() ? g_trim.hint()
                     : g_offset.isActive() ? g_offset.hint()
@@ -1332,6 +1413,7 @@ void renderLoop() {
             ui.fillet = g_fillet.mode() == FilletTool::Mode::Fillet;
             ui.chamfer = g_fillet.mode() == FilletTool::Mode::Chamfer;
             ui.array = g_array.isActive();
+            ui.breakTool = g_break.isActive();
             if (const std::string aj = g_array.dialogJson(); !aj.empty() && js_uiArrayDialog(aj.c_str()) == 0) {
                 g_array.invalidateDialog();   // DOM 이 아직 - 다음 프레임에 다시
             }
@@ -1497,6 +1579,7 @@ void renderLoop() {
             ArrayTool::Context actx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                     static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_array.drawOverlay(*g_lineSystem, actx);
+            g_break.drawOverlay(*g_lineSystem, trctx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로

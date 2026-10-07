@@ -40,6 +40,7 @@ struct State {
     bool fillet = false;       // 필렛
     bool chamfer = false;      // 모따기
     bool array = false;        // 배열 대화상자
+    bool breakTool = false;    // 끊기
     bool canUndo = false;
     bool canRedo = false;
     std::string hint;      // 열린 도구의 다음 할 일
