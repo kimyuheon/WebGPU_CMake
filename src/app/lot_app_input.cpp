@@ -94,7 +94,9 @@ void handleFrameInput(double deltaSec) {
     }
     if (const int preset = g_cameraController.consumeViewPreset(); preset >= 0) {
         doc().camera.setViewMode(LotCamera::ViewMode::Cad);
-        doc().camera.resetCadView(static_cast<LotCamera::CadViewType>(preset));
+        // 방향만 바꾸고 보던 자리 · 거리는 그대로 (뷰큐브 면과 같다). 예전에는 거리를 장난감 씬의 기본값으로
+        // 되돌려서, mm 도면에서 T / I 를 누르면 부품 안으로 파고들어 화면이 비었다.
+        doc().camera.setCadViewDirection(static_cast<LotCamera::CadViewType>(preset));
         static const char* kViewNames[] = {"front", "back", "top", "bottom",
                                            "right", "left", "isometric"};
         LOT_LOG("view: " << kViewNames[preset]);
