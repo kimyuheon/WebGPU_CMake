@@ -1287,6 +1287,34 @@ const scenarios = [
     },
   },
   {
+    // 명령행 좌표 (네이티브 command.cpp 규칙): 첫 점 절대, 다음 점 상대, '=' 절대, 값 하나 = 반지름 / 거리,
+    // 폴리선 'c' 닫기. 위에서 본 바닥이면 평면 축 = 월드 x, y.
+    name: 'sketch-typed-coordinates',
+    async run(t) {
+      const a = t.api;
+      await a.command('eraseall');
+      await a.key('KeyT');
+      await a.command('rec'); await a.command('-1,-0.5'); await a.command('2,1');
+      t.expect(a.has(/rectangle committed as object/), 'rectangle from typed corner + size');
+      await a.command('c'); await a.command('0.5,0.5,0.25'); await a.command('0.3');
+      t.expect(a.has(/circle committed as object/), 'circle from typed centre + radius');
+      await a.command('pl'); await a.command('0,0'); await a.command('1,0'); await a.command('0,1'); await a.command('=0,1'); await a.command('c');
+      t.expect(a.has(/sketch: polyline closed/), "polyline closed with 'c'");
+      const objs = JSON.parse(await a.sceneSave())['objects'];
+      const world = o => o['polyline']['verts'].map(v => [v[0] + o['transform']['t'][0], v[1] + o['transform']['t'][1], v[2] + o['transform']['t'][2]]);
+      const near = (p, q) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4 && Math.abs(p[2] - q[2]) < 1e-4;
+      const polys = objs.filter(o => o['kind'] === 'polyline');
+      const rect = polys.find(o => o['polyline']['verts'].length === 4 && world(o).some(p => near(p, [-1, -0.5, 0])));
+      t.expect(rect && world(rect).some(p => near(p, [1, 0.5, 0])), 'rectangle spans (-1,-0.5) .. (1,0.5)');
+      const circ = objs.find(o => o['kind'] === 'circle');
+      t.expect(circ && Math.abs(circ['circle']['radius'] - 0.3) < 1e-5
+               && near(circ['transform']['t'], [0.5, 0.5, 0.25]), 'circle centre (0.5,0.5,0.25) radius 0.3');
+      const tri = polys.find(o => o['polyline']['closed'] && o['polyline']['verts'].length === 4 && world(o).some(p => near(p, [1, 1, 0])));
+      t.expect(tri && world(tri).some(p => near(p, [0, 1, 0])), "polyline: relative 1,0 / 0,1 then '=0,1' absolute");
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
     // 3D 피처 (네이티브 ExtrudeManager / scene.cpp 흐름): 돌출 -> 관통 컷 -> 보스 -> 포켓, 실행 취소,
     // .lot 왕복 (brep + featureLinks), 스케치를 옮기면 솔리드가 다시 만들어진다
     name: 'solid-features',

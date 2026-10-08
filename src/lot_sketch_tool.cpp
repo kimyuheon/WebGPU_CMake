@@ -200,6 +200,13 @@ void PolylineTool::onPoint(const vec3& p, const SketchPlane&, LotGameObject::Map
     points_.push_back(p);
 }
 
+bool PolylineTool::closeLoop(LotGameObject::Map& objects) {
+    if (points_.size() < 3) return false;
+    commit(points_, true, kPolylineColor, objects);
+    points_.clear();
+    return true;
+}
+
 bool PolylineTool::onFinish(LotGameObject::Map& objects) {
     if (points_.size() >= 2) commit(points_, false, kPolylineColor, objects);
     points_.clear();
@@ -606,6 +613,15 @@ bool SketchController::cursorPoint(const Context& ctx, vec3& out) const {
     return true;
 }
 
+void SketchController::feedPoint(const vec3& p, LotGameObject::Map& objects) {
+    active_->onPoint(p, plane_, objects);
+    const auto id = active_->consumeCommittedId();
+    if (id != LotGameObject::kInvalidId) {
+        lastCommitted_ = id;
+        if (active_->endsAfterCommit()) active_ = nullptr;
+    }
+}
+
 void SketchController::update(const Context& ctx) {
     if (!active_) return;
 
@@ -618,12 +634,7 @@ void SketchController::update(const Context& ctx) {
 
     if (ctx.mouse.consumeLeftPress()) {
         if (haveCursor) {
-            active_->onPoint(cursor, plane_, ctx.objects);
-            const auto id = active_->consumeCommittedId();
-            if (id != LotGameObject::kInvalidId) {
-                lastCommitted_ = id;
-                if (active_->endsAfterCommit()) active_ = nullptr;
-            }
+            feedPoint(cursor, ctx.objects);
         } else {
             LOT_LOG("sketch: cursor misses the " << plane_.name << " plane - rotate the view");
         }

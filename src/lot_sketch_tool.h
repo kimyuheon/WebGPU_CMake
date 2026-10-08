@@ -138,6 +138,9 @@ public:
 
     // 커서가 첫 점에 이 거리(월드) 안이면 '닫기'로 본다. 컨트롤러가 픽셀에서 환산해 넣는다.
     float closeRadius = 0.0f;
+
+    // 명령행 'c' - 지금까지 찍은 점으로 닫힌 폴리선을 만든다 (점 3개 이상). 만들었으면 true.
+    bool closeLoop(LotGameObject::Map& objects);
 };
 
 // 원 (C). 중심, 반지름 점. 하나로 끝.
@@ -264,6 +267,12 @@ public:
     // Enter / Esc. 키 컨트롤러가 '누른 순간'을 넘겨준다.
     void finish(LotGameObject::Map& objects);
 
+    // 명령행 좌표 (네이티브 command.cpp 와 같은 규칙, lot_sketch_input.cpp). 첫 점은 절대, 다음 점은
+    // 직전 점(사각형은 첫 모서리, 원 · 다각형은 중심) 기준 상대 'dx,dy', '=x,y' / '#x,y' 는 절대,
+    // 값 하나는 거리 (선 · 폴리선: 커서 방향, 원 · 다각형: 반지름). 폴리선 'c' 닫기, 'x' 끝.
+    // 좌표는 스케치 평면의 축 (위에서 본 바닥이면 월드 x, y). 받았으면 true - 아니면 명령 이름일 수 있다.
+    bool typed(const std::string& text, const Context& ctx);
+
     // 프리뷰 + 커서 표시. 활성일 때만 무언가 그린다.
     void drawPreview(PolylineRenderSystem& polylines, LineRenderSystem& lines,
                      TextRenderSystem& text, const Context& ctx) const;
@@ -296,6 +305,8 @@ public:
 private:
     // 커서의 월드 점: 스냅이 있으면 스냅 점, 없으면 평면 교점. 평행이면 false.
     bool cursorPoint(const Context& ctx, vec3& out) const;
+    // 점 하나를 열린 도구에 (클릭과 같은 길 - 확정되면 도구를 닫을지도 여기서)
+    void feedPoint(const vec3& p, LotGameObject::Map& objects);
 
     std::unique_ptr<LineTool> line_;
     std::unique_ptr<RectangleTool> rectangle_;

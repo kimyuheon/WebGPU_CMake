@@ -185,6 +185,11 @@ bool typedToolValue(const std::string& text) {
     // 늘이기 둘째 점의 '@dx,dy' / 거리
     if (g_stretch.isActive() && g_stretch.typed(text, stretchContext(viewWidth(), viewHeight()), history)) return true;
 
+    // 스케치 도구의 좌표 / 거리 / 폴리선 c · x (lot_sketch_input.cpp)
+    if (g_sketch.anyActive()) {
+        SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(), viewWidth(), viewHeight()};
+        if (g_sketch.typed(text, sctx)) return true;
+    }
     // 숫자(또는 부호/소수점)로 시작하면 값이다 - 값을 기다리는 도구가 받는다.
     const char first = text[0];
     if (!(first == '-' || first == '.' || (first >= '0' && first <= '9'))) return false;

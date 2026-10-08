@@ -32,7 +32,7 @@ mergeInto(LibraryManager.library, {
     js_uiInstall__deps: ['lot_onToolbarKey', 'lot_onLayerCommand', 'lot_onTextEntered',
                          'lot_onTextCancelled', 'lot_saveScene', 'lot_onLotFileLoaded',
                          'lot_onDxfFileLoaded', 'lot_onCommandLine', '$LotUiTheme',
-                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free'],
+                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free', '$LotCmdLog'],
     js_uiInstall: function(menuPtr, ribbonPtr, namesPtr, statusPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         var dom = Module.lotDom;
@@ -453,6 +453,7 @@ mergeInto(LibraryManager.library, {
         var runText = function(text) {
             history.push(text);
             histIndex = history.length;
+            LotCmdLog.submitted(text, !!dom.lastHint);   // 기록창 (lot_cmd_log.js) - 도구가 열려 있으면 값으로
             var ptr = stringToNewUTF8(text);
             _lot_onCommandLine(ptr);
             _free(ptr);
@@ -782,7 +783,7 @@ mergeInto(LibraryManager.library, {
     },
 
     // ---------------------------------------------------------------- 상태
-    js_uiSetState__deps: ['$UTF8ToString', '$LotUiTheme'],
+    js_uiSetState__deps: ['$UTF8ToString', '$LotUiTheme', '$LotCmdLog'],
     js_uiSetState: function(jsonPtr) {
         var dom = Module.lotDom;
         if (!dom || !dom.stateItems) return 0;
@@ -806,6 +807,8 @@ mergeInto(LibraryManager.library, {
             });
         });
 
+        dom.lastHint = s['hint'];
+        LotCmdLog.hint(s['hint']);
         if (dom.barHint) dom.barHint.textContent = s['hint'];
         if (dom.hint) {
             dom.hint.textContent = s['hint'];
