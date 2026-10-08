@@ -1287,6 +1287,86 @@ const scenarios = [
     },
   },
   {
+    // 3D 피처 (네이티브 ExtrudeManager / scene.cpp 흐름): 돌출 -> 관통 컷 -> 보스 -> 포켓, 실행 취소,
+    // .lot 왕복 (brep + featureLinks), 스케치를 옮기면 솔리드가 다시 만들어진다
+    name: 'solid-features',
+    async run(t) {
+      const a = t.api;
+      // 면 아래에 가려진 스케치는 클릭하면 면이 잡힌다 (메시 우선) - 노드 트리로 고른다. Ctrl 이면 더하기.
+      const pickInTree = async (labelRe, add) => {
+        await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
+        await a.evaluate(`(() => { const l = document.querySelector('[data-tree-layer="0"]');`
+          + ` if (l && !document.querySelector('[data-tree-object]')) l.querySelector('span').click(); })()`);
+        await sleep(300);
+        const ok = await a.evaluate(`(() => { const re = new RegExp(${JSON.stringify(labelRe)});`
+          + ` const r = [...document.querySelectorAll('[data-tree-object]')].find(x => re.test(x.textContent));`
+          + ` if (!r) return false; r.dispatchEvent(new MouseEvent('click', {bubbles: true, ctrlKey: ${add ? 'true' : 'false'}})); return true; })()`);
+        await sleep(200);
+        return ok;
+      };
+      await a.command('eraseall');
+      await a.key('KeyT');
+      // 판 (-0.8..0.8, -0.96..0.11), 구멍 원 (0,-0.43) r 0.21, 보스 사각형 (0.37..0.70, -0.11..0)
+      await a.key('KeyB'); await a.click(400, 680); await a.click(700, 480); await a.key('Escape');
+      await a.key('KeyC'); await a.click(550, 580); await a.click(590, 580); await a.key('Escape');
+      await a.key('KeyB'); await a.click(620, 520); await a.click(680, 500); await a.key('Escape');
+      await a.click(400, 600);
+      await a.command('extrude');
+      t.expect(a.has(/extrude: 1 sketch\(es\)/), 'extrude starts from the selected rectangle');
+      await a.command('0.5');
+      t.expect(a.has(/extrude: 1 solid\(s\), height 0.5/), 'typed height makes a solid');
+      await a.ctrl('KeyZ');
+      t.expect(a.has(/history: undo extrude/), `extrude is one undo step (${a.last(/history: undo/) ?? ''})`);
+      await a.ctrl('KeyY');
+      // 관통 컷: 솔리드 + 원 (판 사각형 · 보스 사각형도 고르게 되지만 판 사각형은 거부, 보스 사각형은 구멍이 된다)
+      await a.key('Escape');
+      t.expect(await pickInTree('^원 #', false) && await pickInTree('^솔리드 #', true), 'solid + circle picked in the tree');
+      await a.command('ct');
+      t.expect(a.has(/feature: through cut on solid \d+ from sketch \d+/), `through cut (${a.last(/cutthrough:|feature:/) ?? ''})`);
+      // 보스: 솔리드 + 보스 사각형, 높이 0.3
+      await a.key('Escape');
+      t.expect(await pickInTree('^솔리드 #', false), 'solid picked');
+      // 보스 사각형 = 나중에 그린 닫힌 폴리선 (트리는 id 순 - 마지막 것)
+      await a.evaluate(`(() => { const r = [...document.querySelectorAll('[data-tree-object]')].filter(x => /^닫힌 폴리선/.test(x.textContent)).pop();`
+        + ` r.dispatchEvent(new MouseEvent('click', {bubbles: true, ctrlKey: true})); })()`);
+      await sleep(200);
+      await a.command('boss');
+      await a.command('0.3');
+      // 바닥(z=0)에 그린 스케치는 아래 캡에 가깝다 -> 아래로 쌓인다 (네이티브 bossExtrudeBRepFromSketch 규칙)
+      t.expect(a.has(/feature: boss on solid \d+ from sketch \d+ \(bottom\)/), `boss on the nearer (bottom) cap (${a.last(/boss:|feature:/) ?? ''})`);
+      // .lot 왕복: 솔리드와 피처 연결이 살아남는다
+      await a.sceneLoad(await a.sceneSave(), 'solid.lot');
+      t.expect(a.has(/scene: loaded .* 1 solids, 1 feature links/), `brep + featureLinks round trip (${a.last(/scene: loaded/) ?? ''})`);
+      const objs = await a.evaluate(`JSON.parse(Module.lotDom.sceneSave())['objects']`);
+      const solid = objs.find(o => o['brep']);
+      t.expect(solid && solid['brep']['type'] === 'extrude' && solid['brep']['cuts'].length === 1 && solid['brep']['bosses'].length === 1,
+               'saved brep keeps the cut and the boss');
+      // 속성 창에서 돌출 높이: 0.5 -> 0.8 (관통 컷은 새 높이까지 관통, 한 번의 실행 취소)
+      t.expect(await pickInTree('^솔리드 #', false), 'solid picked for the property panel');
+      await a.evaluate(`Module.lotDom['dockOpen']('props')`);
+      await sleep(400);
+      t.expect(await a.evaluate(`document.querySelector('[data-prop="solidHeight"]')?.value`) === '0.5', 'panel shows the extrude height');
+      await a.evaluate(`(() => { const i = document.querySelector('[data-prop="solidHeight"]'); i.focus(); i.value = '0.8';`
+        + ` i.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); })()`);
+      await sleep(400);
+      t.expect(a.has(/feature: solid \d+ height 0.8/), `height edited (${a.last(/feature:|property:/) ?? ''})`);
+      const saved = JSON.parse(await a.sceneSave())['objects'].find(o => o['brep']);
+      t.expect(saved && Math.abs(saved['brep']['height'] - 0.8) < 1e-6 && Math.abs(saved['brep']['cuts'][0]['depth'] - 0.8) < 1e-6,
+               'through cut follows the new height');
+      // 재생성: 원(구멍 스케치)을 옮기면 같은 솔리드가 다시 만들어진다
+      await a.key('Escape');
+      t.expect(await pickInTree('^원 #', false), 'circle picked');
+      await a.key('KeyM'); await a.click(550, 580); await a.click(500, 580);
+      await a.key('Escape');
+      t.expect(a.has(/feature: solid \d+ regenerated from its sketches/), `moving the hole sketch regenerates the solid (${a.last(/feature:|transform:/) ?? ''})`);
+      const regen = JSON.parse(await a.sceneSave())['objects'].find(o => o['brep']);
+      const cx = regen ? regen['brep']['cuts'][0]['profile'].reduce((m, p) => m + p[0], 0) / regen['brep']['cuts'][0]['profile'].length : 0;
+      t.expect(cx < -0.15, `the hole moved with its sketch (cut centre x ${cx.toFixed(3)})`);
+      await a.key('KeyI'); await a.key('KeyZ');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
     name: 'status-bar',
     async run(t) {
       const a = t.api;

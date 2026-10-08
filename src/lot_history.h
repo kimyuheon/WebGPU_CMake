@@ -44,6 +44,8 @@ public:
         LotGameObject::Light light;
         std::shared_ptr<const lot_hatch::HatchData> hatch;
         std::shared_ptr<const std::vector<vec3>> hatchSegments;
+        std::shared_ptr<const lot::LotBRepShape> brep;
+        std::shared_ptr<const FeatureLink> featureLink;
 
         static Record capture(const LotGameObject& obj);
         void apply(LotGameObject& obj) const;

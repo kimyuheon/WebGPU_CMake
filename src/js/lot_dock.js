@@ -849,6 +849,10 @@ mergeInto(LibraryManager.library, {
                     field('내용', 'text', s['text'], false);
                     field('높이', 'textHeight', s['textHeight'], true);
                 }
+                if (s['solidHeight'] !== undefined) {
+                    section('솔리드');
+                    field('돌출 높이', 'solidHeight', s['solidHeight'], true);
+                }
                 if (s['info'] && s['info'].length) {
                     section('형상');
                     s['info'].forEach(function(kv) { readonly(kv[0], kv[1]); });

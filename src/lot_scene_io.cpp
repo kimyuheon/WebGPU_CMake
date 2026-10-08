@@ -5,6 +5,8 @@
 #include "lot_material.h"
 #include "lot_model.h"
 #include "lot_sketch_tool.h"
+#include "lot_brep_shape.h"
+#include "lot_feature.h"
 
 #include <cmath>
 #include <map>
@@ -69,6 +71,117 @@ TransformComponent transformFromJson(const JsonValue* o) {
     t.rotation = fromNative(getq(o->find("r")));
     t.scale = scaleFromNative(getv3(o->find("s"), vec3{1.0f, 1.0f, 1.0f}));
     return t;
+}
+
+// 솔리드 형상 - 네이티브 writeBRep / readBRep 과 같은 키 (box / cylinder / extrude + cuts + bosses)
+JsonValue pointsJson(const std::vector<vec3>& pts) {
+    JsonValue a = JsonValue::makeArray();
+    for (const vec3& p : pts) a.push(j3(p));
+    return a;
+}
+
+std::vector<vec3> pointsFrom(const JsonValue* a) {
+    std::vector<vec3> out;
+    if (a && a->isArray()) for (const JsonValue& p : a->array) out.push_back(getv3(&p, vec3{0.0f, 0.0f, 0.0f}));
+    return out;
+}
+
+double numberAt(const JsonValue& o, const char* key, double fallback) {
+    const JsonValue* v = o.find(key);
+    return v ? v->numberOr(fallback) : fallback;
+}
+
+JsonValue brepJson(const lot::LotBRepShape& shape) {
+    using K = lot::LotBRepShape::FeatureKind;
+    const auto& f = shape.feature();
+    JsonValue r = JsonValue::makeObject();
+    if (f.kind == K::Box) {
+        r.set("type", "box");
+        r.set("dimensions", j3(f.dimensions));
+        r.set("origin", j3(f.origin));
+    } else if (f.kind == K::Cylinder) {
+        r.set("type", "cylinder");
+        r.set("radius", f.radius);
+        r.set("height", f.height);
+        r.set("origin", j3(f.origin));
+    } else {
+        r.set("type", "extrude");
+        r.set("height", f.height);
+        r.set("direction", j3(f.direction));
+        r.set("profile", pointsJson(f.profile));
+        if (!f.cuts.empty()) {
+            JsonValue cuts = JsonValue::makeArray();
+            for (const auto& c : f.cuts) {
+                JsonValue jc = JsonValue::makeObject();
+                jc.set("depth", c.depth);
+                jc.set("profile", pointsJson(c.profile));
+                cuts.push(jc);
+            }
+            r.set("cuts", cuts);
+        }
+        if (!f.bosses.empty()) {
+            JsonValue bosses = JsonValue::makeArray();
+            for (const auto& b : f.bosses) {
+                JsonValue jb = JsonValue::makeObject();
+                jb.set("height", b.height);
+                jb.set("profile", pointsJson(b.profile));
+                bosses.push(jb);
+            }
+            r.set("bosses", bosses);
+        }
+    }
+    return r;
+}
+
+std::shared_ptr<const lot::LotBRepShape> brepFrom(const JsonValue& v) {
+    using lot::LotBRepShape;
+    if (!v.isObject()) return {};
+    const std::string type = v.find("type") ? v.find("type")->stringOr("") : "";
+    if (type == "box") {
+        return LotBRepShape::makeBox(getv3(v.find("dimensions"), vec3{0.0f, 0.0f, 0.0f}),
+                                     getv3(v.find("origin"), vec3{0.0f, 0.0f, 0.0f}));
+    }
+    if (type == "cylinder") {
+        return LotBRepShape::makeCylinder(static_cast<float>(numberAt(v, "radius", 0.0)),
+                                          static_cast<float>(numberAt(v, "height", 0.0)),
+                                          getv3(v.find("origin"), vec3{0.0f, 0.0f, 0.0f}));
+    }
+    if (type != "extrude") return {};
+    std::vector<LotBRepShape::CutData> cuts;
+    if (const JsonValue* jc = v.find("cuts"); jc && jc->isArray()) {
+        for (const JsonValue& c : jc->array) {
+            LotBRepShape::CutData cut;
+            cut.depth = static_cast<float>(numberAt(c, "depth", 0.0));
+            cut.profile = pointsFrom(c.find("profile"));
+            cuts.push_back(std::move(cut));
+        }
+    }
+    std::vector<LotBRepShape::BossData> bosses;
+    if (const JsonValue* jb = v.find("bosses"); jb && jb->isArray()) {
+        for (const JsonValue& b : jb->array) {
+            LotBRepShape::BossData boss;
+            boss.height = static_cast<float>(numberAt(b, "height", 0.0));
+            boss.profile = pointsFrom(b.find("profile"));
+            bosses.push_back(std::move(boss));
+        }
+    }
+    return LotBRepShape::makeCutExtrude(pointsFrom(v.find("profile")), getv3(v.find("direction"), vec3{0.0f, 0.0f, 0.0f}),
+                                        static_cast<float>(numberAt(v, "height", 0.0)), cuts, bosses);
+}
+
+// 열 우선 16 개 (네이티브 featureLinks 의 inv / ci / bi)
+JsonValue matJson(const mat4& m) {
+    JsonValue a = JsonValue::makeArray();
+    for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) a.push(m.m[c][r]);
+    return a;
+}
+
+mat4 matFrom(const JsonValue* a) {
+    mat4 m = mat4::identity();
+    if (a && a->isArray() && a->array.size() == 16) {
+        for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) m.m[c][r] = static_cast<float>(a->array[c * 4 + r].numberOr(0.0));
+    }
+    return m;
 }
 
 JsonValue objectJson(const LotGameObject& obj) {
@@ -239,6 +352,8 @@ JsonValue objectJson(const LotGameObject& obj) {
     // 여기서는 있으면 읽어 큐브/토러스의 색이 왕복 뒤에도 남는다.
     if (anyColor) mesh.set("c", C);
     jo.set("mesh", mesh);
+    // 솔리드는 해석 형상도 - 읽을 때는 이것으로 메시를 다시 만든다 (삼각형은 옛 판독기용 예비)
+    if (obj.brep) jo.set("brep", brepJson(*obj.brep));
     return jo;
 }
 
@@ -327,7 +442,7 @@ bool loadMesh(const JsonValue& jm, lot_web_device& device, const TransformCompon
 std::string save(const LotGameObject::Map& objects, const LotLayers& layers) {
     JsonValue root = JsonValue::makeObject();
     root.set("format", "lot");
-    root.set("version", 3);
+    root.set("version", 4);   // 4 = 솔리드 (brep + featureLinks)
     root.set("generator", "3dengine_web");
 
     // 층. 네이티브와 같은 키 (color 는 [r, g, b], linetype 은 아직 0 고정).
@@ -346,14 +461,54 @@ std::string save(const LotGameObject::Map& objects, const LotLayers& layers) {
     root.set("layers", jlayers);
     JsonValue arr = JsonValue::makeArray();
     int count = 0;
+    std::map<LotGameObject::id_t, int> idToIdx;   // 피처 기록은 id 대신 저장 배열 번호 (네이티브와 같다)
     for (const auto& entry : objects) {
         const LotGameObject& obj = entry.second;
         if (!obj.isSketch() && !obj.model && !obj.isDimension() && !obj.isText()
             && !obj.isLight()) continue;  // 뷰어 같은 빈 오브젝트
+        idToIdx[entry.first] = count;
         arr.push(objectJson(obj));
         ++count;
     }
     root.set("objects", arr);
+    // 피처 기록 - 네이티브 키 그대로 (s 솔리드, k 단면 스케치, inv, c/ci/lc 컷, b/bi/lb 보스, lp 마지막 단면)
+    JsonValue links = JsonValue::makeArray();
+    auto idx = [&](unsigned id) {
+        const auto f = idToIdx.find(id);
+        return f == idToIdx.end() ? -1 : f->second;
+    };
+    for (const auto& entry : objects) {
+        const LotGameObject& obj = entry.second;
+        if (!obj.featureLink || !idToIdx.count(entry.first)) continue;
+        const FeatureLink& L = *obj.featureLink;
+        JsonValue jl = JsonValue::makeObject();
+        jl.set("s", idx(entry.first));
+        jl.set("k", idx(L.sketch));
+        jl.set("inv", matJson(L.linkInv));
+        JsonValue c = JsonValue::makeArray(), ci = JsonValue::makeArray(), lc = JsonValue::makeArray();
+        for (size_t i = 0; i < L.cutSketches.size(); ++i) {
+            c.push(idx(L.cutSketches[i]));
+            ci.push(matJson(i < L.cutLinkInv.size() ? L.cutLinkInv[i] : mat4::identity()));
+        }
+        for (const auto& p : L.lastCutProfiles) lc.push(pointsJson(p));
+        jl.set("c", c);
+        jl.set("ci", ci);
+        jl.set("lp", pointsJson(L.lastProfile));
+        jl.set("lc", lc);
+        if (!L.bossSketches.empty()) {
+            JsonValue b = JsonValue::makeArray(), bi = JsonValue::makeArray(), lb = JsonValue::makeArray();
+            for (size_t i = 0; i < L.bossSketches.size(); ++i) {
+                b.push(idx(L.bossSketches[i]));
+                bi.push(matJson(i < L.bossLinkInv.size() ? L.bossLinkInv[i] : mat4::identity()));
+            }
+            for (const auto& p : L.lastBossProfiles) lb.push(pointsJson(p));
+            jl.set("b", b);
+            jl.set("bi", bi);
+            jl.set("lb", lb);
+        }
+        links.push(jl);
+    }
+    root.set("featureLinks", links);
     LOT_LOG("scene: saved " << count << " objects");
     return dumpJson(root, 1);
 }
@@ -416,7 +571,16 @@ LoadStats load(const std::string& text, lot_web_device& device,
         return it == layerMap.end() ? LotLayers::kDefault : it->second;
     };
 
+    std::vector<LotGameObject::id_t> idxToId(arr->array.size(), LotGameObject::kInvalidId);
+    size_t objIdx = 0;
     for (const JsonValue& jo : arr->array) {
+        const size_t myIdx = objIdx++;
+        const LotGameObject::id_t firstNew = LotGameObject::peekNextId();
+        // 이 항목이 객체를 하나 만들었으면 그 id 를 저장 번호에 묶는다 (피처 기록 복원용)
+        struct Bind {
+            std::vector<LotGameObject::id_t>& map; size_t i; LotGameObject::id_t first;
+            ~Bind() { if (LotGameObject::peekNextId() > first) map[i] = first; }
+        } bind{idxToId, myIdx, firstNew};
         if (!jo.isObject()) continue;
         const std::string kind = jo.find("kind") ? jo.find("kind")->stringOr("mesh") : "mesh";
         const TransformComponent t = transformFromJson(jo.find("transform"));
@@ -568,6 +732,20 @@ LoadStats load(const std::string& text, lot_web_device& device,
             lot_hatch::attach(obj, std::move(h));
             objects.emplace(obj.getId(), std::move(obj));
             ++stats.hatches;
+        } else if (const auto shape = jo.find("brep") ? brepFrom(*jo.find("brep")) : nullptr) {
+            // 솔리드 - 저장된 삼각형 대신 해석 형상에서 메시를 다시 만든다 (네이티브와 같다)
+            auto model = lot_feature::buildSolidModel(device, *shape);
+            if (!model) { ++stats.skipped; continue; }
+            auto obj = LotGameObject::createGameObject();
+            obj.transform = t;
+            obj.color = color;
+            obj.layer = layerId;
+            obj.colorByLayer = colorByLayer;
+            obj.model = std::move(model);
+            obj.brep = shape;
+            objects.emplace(obj.getId(), std::move(obj));
+            ++stats.meshes;
+            ++stats.solids;
         } else if (jo.find("mesh")) {
             if (loadMesh(*jo.find("mesh"), device, t, color, layerId, defaultMaterial, objects)) ++stats.meshes;
             else ++stats.skipped;
@@ -580,10 +758,48 @@ LoadStats load(const std::string& text, lot_web_device& device,
         }
     }
 
+    // 피처 기록 복원 - 저장 번호 -> 새 id
+    if (const JsonValue* links = root.find("featureLinks"); links && links->isArray()) {
+        auto idOf = [&](const JsonValue* v) -> unsigned {
+            const int i = v ? static_cast<int>(v->numberOr(-1.0)) : -1;
+            return (i >= 0 && i < static_cast<int>(idxToId.size())) ? idxToId[static_cast<size_t>(i)] : FeatureLink::kNone;
+        };
+        for (const JsonValue& jl : links->array) {
+            if (!jl.isObject()) continue;
+            LotGameObject* solid = LotGameObject::find(objects, idOf(jl.find("s")));
+            if (!solid || !solid->brep) continue;
+            FeatureLink L;
+            L.sketch = idOf(jl.find("k"));
+            L.linkInv = matFrom(jl.find("inv"));
+            const JsonValue* c = jl.find("c");
+            const JsonValue* ci = jl.find("ci");
+            if (c && c->isArray()) {
+                for (size_t i = 0; i < c->array.size(); ++i) {
+                    L.cutSketches.push_back(idOf(&c->array[i]));
+                    L.cutLinkInv.push_back(ci && ci->isArray() && i < ci->array.size() ? matFrom(&ci->array[i]) : mat4::identity());
+                }
+            }
+            L.lastProfile = pointsFrom(jl.find("lp"));
+            if (const JsonValue* lc = jl.find("lc"); lc && lc->isArray()) for (const JsonValue& p : lc->array) L.lastCutProfiles.push_back(pointsFrom(&p));
+            const JsonValue* b = jl.find("b");
+            const JsonValue* bi = jl.find("bi");
+            if (b && b->isArray()) {
+                for (size_t i = 0; i < b->array.size(); ++i) {
+                    L.bossSketches.push_back(idOf(&b->array[i]));
+                    L.bossLinkInv.push_back(bi && bi->isArray() && i < bi->array.size() ? matFrom(&bi->array[i]) : mat4::identity());
+                }
+            }
+            if (const JsonValue* lb = jl.find("lb"); lb && lb->isArray()) for (const JsonValue& p : lb->array) L.lastBossProfiles.push_back(pointsFrom(&p));
+            solid->featureLink = std::make_shared<const FeatureLink>(std::move(L));
+            ++stats.featureLinks;
+        }
+    }
+
     LOT_LOG("scene: loaded " << stats.meshes << " meshes, " << stats.lines << " lines, "
             << stats.polylines << " polylines, " << stats.circles << " circles, "
             << stats.arcs << " arcs, " << stats.dimensions << " dimensions, " << stats.texts
-            << " texts, " << stats.lights << " lights, " << stats.layers << " layers, " << stats.hatches << " hatches"
+            << " texts, " << stats.lights << " lights, " << stats.layers << " layers, " << stats.hatches << " hatches, " << stats.solids << " solids, "
+            << stats.featureLinks << " feature links"
             << (stats.skipped ? " (skipped " + std::to_string(stats.skipped) + ": "
                                 + stats.skippedKinds + ")" : ""));
     return stats;

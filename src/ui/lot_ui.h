@@ -43,6 +43,7 @@ struct State {
     bool breakTool = false;    // 끊기
     bool stretch = false;      // 늘이기
     bool lengthen = false;     // 길이조정
+    int solidTool = -1;        // 돌출 0 / 보스 1 / 포켓 2 (-1 = 없음)
     bool canUndo = false;
     bool canRedo = false;
     std::string hint;      // 열린 도구의 다음 할 일

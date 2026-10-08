@@ -242,6 +242,7 @@ LotGameObject TransformTool::mirrored(const LotGameObject& src, const vec3& orig
     out.colorByLayer = src.colorByLayer;
     out.model = src.model;
     out.material = src.material;
+    out.brep = src.brep;
     out.hatch = src.hatch;
     out.hatchSegments = src.hatchSegments;
     out.points = src.points;
@@ -348,6 +349,7 @@ void TransformTool::confirm(const Context& ctx, EditHistory& history) {
             copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;
+            copy.brep = src->brep;
             copy.hatch = src->hatch;
             copy.hatchSegments = src->hatchSegments;
             copy.points = src->points;

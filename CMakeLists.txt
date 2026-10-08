@@ -75,6 +75,10 @@ file(GLOB SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/ui/*.cpp")
 
 add_executable(WebGPUApp ${SOURCE_FILES})
 
+# Manifold - 솔리드 불리언 (B-rep 이 겹친 컷/보스를 만들 때. 네이티브 lot_brep_shape 와 같다)
+add_subdirectory(third_party/manifold)
+target_link_libraries(WebGPUApp PRIVATE manifold)
+
 # src/ 를 포함 경로에 둔다 - src/ui 의 파일들이 "lot_camera.h" 처럼 짧게 쓴다.
 target_include_directories(WebGPUApp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 

@@ -21,6 +21,7 @@ bool same(const EditHistory::Record& a, const EditHistory::Record& b) {
         && same(a.color, b.color)
         && a.layer == b.layer && a.linetype == b.linetype && a.colorByLayer == b.colorByLayer
         && a.model == b.model
+        && a.brep == b.brep && a.featureLink == b.featureLink
         && a.material == b.material
         && a.closed == b.closed
         && a.text.valid == b.text.valid && a.text.content == b.text.content
@@ -64,6 +65,8 @@ EditHistory::Record EditHistory::Record::capture(const LotGameObject& obj) {
     r.light = obj.light;
     r.hatch = obj.hatch;
     r.hatchSegments = obj.hatchSegments;
+    r.brep = obj.brep;
+    r.featureLink = obj.featureLink;
     return r;
 }
 
@@ -83,6 +86,8 @@ void EditHistory::Record::apply(LotGameObject& obj) const {
     obj.light = light;
     obj.hatch = hatch;
     obj.hatchSegments = hatchSegments;
+    obj.brep = brep;
+    obj.featureLink = featureLink;
 }
 
 EditHistory::Record EditHistory::snapshot(const LotGameObject::Map& objects, id_t id) {

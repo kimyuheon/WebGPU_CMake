@@ -186,6 +186,7 @@ std::set<LotGameObject::id_t> ArrayTool::create(LotGameObject::Map& objects, Edi
             copy.colorByLayer = src->colorByLayer;
             copy.model = src->model;
             copy.material = src->material;
+            copy.brep = src->brep;   // 솔리드 사본도 솔리드 (피처 연결은 원본에만)
             copy.hatch = src->hatch;
             copy.hatchSegments = src->hatchSegments;
             copy.points = src->points;

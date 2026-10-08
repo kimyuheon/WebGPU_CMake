@@ -29,6 +29,8 @@ struct LoadStats {
     int texts = 0;
     int lights = 0;
     int hatches = 0;
+    int solids = 0;          // meshes 중 해석 형상(brep)이 있는 것
+    int featureLinks = 0;
     int layers = 0;
     int skipped = 0;          // 지원하지 않는 종류
     std::string skippedKinds; // 로그용: "circle, text" 처럼

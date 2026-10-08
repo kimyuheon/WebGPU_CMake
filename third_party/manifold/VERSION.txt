@@ -1,0 +1,2 @@
+Manifold v3.5.1-13-gbf47ebcc (https://github.com/elalish/manifold), Apache-2.0.
+Only src/ and include/ are vendored; built by third_party/manifold/CMakeLists.txt (no TBB, no bindings).

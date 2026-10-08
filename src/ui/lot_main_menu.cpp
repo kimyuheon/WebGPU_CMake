@@ -96,6 +96,12 @@ LotMainMenu::LotMainMenu() {
             item("gizmo.rotate",  "기즈모: 회전",  "Digit2", false, "2", "링으로 돌리기", "gizmo:1"),
             item("gizmo.scale",   "기즈모: 축척",  "Digit3", false, "3", "핸들로 키우기", "gizmo:2"),
         }},
+        {"3D", {
+            item("solid.extrude", "돌출",   "#extrude", false, "", "닫힌 스케치 -> 높이 (끌기 / 값 + Enter). 스케치와 피처로 묶인다", "solid:0"),
+            item("solid.boss",    "보스",   "#boss", false, "", "돌출 솔리드 + 닫힌 스케치를 고르고 -> 높이 (가까운 캡에서 밖으로)", "solid:1", true),
+            item("solid.pocket",  "포켓 컷", "#pocket", false, "", "돌출 솔리드 + 닫힌 스케치를 고르고 -> 위 캡에서 깊이", "solid:2"),
+            item("solid.cutThrough","관통 컷", "#cutthrough", false, "", "돌출 솔리드 + 닫힌 스케치를 고르면 끝까지 뚫는다"),
+        }},
         {"설정", {
             item("snap.osnap", "객체 스냅",   "F3", false, "F3", "끝점·중점·중심·교차·수직에 붙인다", "osnap"),
             item("snap.ortho", "직교 트랙킹", "F8", false, "F8", "작업평면의 한 축으로만 나가게", "orthoTrack"),

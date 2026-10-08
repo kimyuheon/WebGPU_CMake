@@ -10,6 +10,24 @@
 
 class LotModel;
 class LotMaterial;
+namespace lot { class LotBRepShape; }
+
+// 피처 기록 (네이티브 FeatureLink) - 솔리드가 어떤 스케치에서 나왔는지. 스케치가 바뀌면
+// 솔리드를 다시 만들고(재생성), .lot 에 같이 저장된다. linkInv 는 연결할 때의 솔리드 변환의
+// 역 (월드 -> 솔리드 로컬). last* 는 마지막으로 만든 입력 - 스케치가 그대로면 다시 만들지 않는다.
+struct FeatureLink {
+    static constexpr unsigned kNone = ~0u;
+    unsigned sketch = kNone;
+    mat4 linkInv = mat4::identity();
+    std::vector<unsigned> cutSketches;
+    std::vector<mat4> cutLinkInv;
+    std::vector<std::vector<vec3>> lastCutProfiles;
+    std::vector<unsigned> bossSketches;
+    std::vector<mat4> bossLinkInv;
+    std::vector<std::vector<vec3>> lastBossProfiles;
+    std::vector<vec3> lastProfile;
+    std::string error;   // 비어 있지 않으면 마지막 재생성이 실패 (모양은 그 전 것)
+};
 
 // 게임 오브젝트 클래스
 class LotGameObject {
@@ -38,6 +56,9 @@ public:
 
     // 예전에 나갔던 id 로 다시 만든다 - 실행 취소가 지워진 오브젝트를 되살릴 때.
     // 카운터는 건드리지 않는다: 한 번 나간 id 는 다시 나가지 않으므로 충돌이 없다.
+    // 다음에 나갈 id (나가지는 않는다). 파일을 읽을 때 '이 항목이 만든 객체' 를 알아내는 데 쓴다.
+    static id_t peekNextId() { return nextId(); }
+
     static LotGameObject createWithId(id_t id) {
         if (id >= nextId()) nextId() = id + 1;  // 혹시 모를 앞선 id 도 안전하게
         return LotGameObject{id};
@@ -154,6 +175,13 @@ public:
     std::shared_ptr<const lot_hatch::HatchData> hatch;
     std::shared_ptr<const std::vector<vec3>> hatchSegments;
     bool isHatch() const { return hatch != nullptr; }
+
+    // 솔리드 (네이티브 LotBRepShape). 있으면 model 은 이것을 삼각형으로 나눈 캐시다 - 저장 · 편집은
+    // 해석 형상으로 하고, 화면 메시는 거기서 다시 만든다. 둘 다 바꿀 때마다 새 것으로 갈아 끼운다
+    // (공유되는 불변 객체라 히스토리 스냅샷이 싸다).
+    std::shared_ptr<const lot::LotBRepShape> brep;
+    std::shared_ptr<const FeatureLink> featureLink;
+    bool isSolid() const { return brep != nullptr; }
 
     bool isSketch() const { return !points.empty(); }
     bool isLight() const { return light.valid; }

@@ -27,3 +27,4 @@ Thumbs.db
 
 # Emscripten cache
 .emscripten_cache/
+build-tests/

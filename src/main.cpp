@@ -26,6 +26,8 @@
 #include "lot_array_tool.h"
 #include "lot_edit_ops.h"
 #include "lot_stretch_tool.h"
+#include "lot_extrude_tool.h"
+#include "lot_feature.h"
 #include "lot_transform_tool.h"
 #include "text_render_system.h"
 #include "lot_mouse_input.h"
@@ -96,6 +98,7 @@ ArrayTool g_array;
 BreakTool g_break;
 StretchTool g_stretch;
 LengthenTool g_lengthen;
+ExtrudeTool g_extrude;
 // 선택을 기다리는 즉시 명령 ("explode" / "join"). 선택하고 Enter 면 실행 (네이티브 requireSelectionThen).
 std::string g_pendingOp;
 
@@ -354,7 +357,15 @@ void lot_onCommandLine(const char* typed) {
     // 숫자(또는 부호/소수점)로 시작하면 값이다 - 진행 중인 변환 도구가 받는다.
     const char first = text[0];
     if (first == '-' || first == '.' || (first >= '0' && first <= '9')) {
-        if (g_fillet.wantsNumber()) {
+        if (g_extrude.wantsNumber()) {
+            g_extrude.setNumberBuffer(text);
+            const auto& scx = g_renderer->getSwapchain();
+            ExtrudeTool::Context xctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                      static_cast<float>(scx.getWidth()), static_cast<float>(scx.getHeight())};
+            g_extrude.finish(xctx, doc().edit.history(), g_renderer->getDevice());
+            if (auto r = g_extrude.consumeResult(); !r.empty()) doc().edit.setSelection(r);
+            LOT_LOG("command: value " << text);
+        } else if (g_fillet.wantsNumber()) {
             g_fillet.setNumberBuffer(text);
             g_fillet.finish();
             LOT_LOG("command: value " << text);
@@ -462,6 +473,7 @@ void lot_onArrayAction(const char* action) {
         g_break.cancel();
         g_stretch.cancel();
         g_lengthen.cancel();
+        g_extrude.cancel();
         g_pendingOp.clear();
     } else if (a == "pickCenter") {
         g_array.beginPickCenter();
@@ -472,6 +484,16 @@ void lot_onArrayAction(const char* action) {
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onPropertyEdit(const char* key, const char* value) {
     if (key == nullptr || value == nullptr) return;
+    // 솔리드 높이는 형상을 다시 만들어야 해서 (GPU 메시) 여기서 - 네이티브 setBRepParameters
+    if (std::string(key) == "solidHeight" && doc().edit.selection().size() == 1) {
+        std::string why;
+        const float h = static_cast<float>(std::atof(value));
+        if (!lot_feature::setHeight(doc().objects, *doc().edit.selection().begin(), h, g_renderer->getDevice(),
+                                    doc().edit.history(), why)) {
+            LOT_LOG("property: height " << value << " - " << why);
+        }
+        return;
+    }
     g_ui.propertyPanel().edit(key, value, doc().objects, doc().edit);
 }
 
@@ -580,6 +602,7 @@ static void putDownTools() {
     g_break.cancel();
     g_stretch.cancel();
     g_lengthen.cancel();
+    g_extrude.cancel();
     g_pendingOp.clear();
     g_editingTextId = LotGameObject::kInvalidId;
     js_hideTextInput();
@@ -633,6 +656,30 @@ void lot_onDocumentTab(const char* action, int index) {
     else if (a == "close") closeDocument(static_cast<size_t>(index));
 }
 
+// 관통 컷 (네이티브 requestCutThroughSelected): 돌출 솔리드 하나 + 닫힌 스케치들. 스케치마다 한 번의 실행 취소.
+static void cutThroughSelected() {
+    LotGameObject::id_t solid = LotGameObject::kInvalidId;
+    std::vector<LotGameObject::id_t> sketches;
+    int solids = 0;
+    for (const auto id : doc().edit.selection()) {
+        const LotGameObject* o = LotGameObject::find(doc().objects, id);
+        if (!o) continue;
+        if (o->isSolid()) { solid = id; ++solids; }
+        else if (o->isSketch() && o->closed) sketches.push_back(id);
+    }
+    if (solids != 1 || sketches.empty()) {
+        LOT_LOG("cutthrough: select one extruded solid and closed sketch(es) first");
+        return;
+    }
+    int done = 0;
+    for (const auto sk : sketches) {
+        std::string why;
+        if (lot_feature::cut(doc().objects, solid, sk, 0.0f, true, g_renderer->getDevice(), doc().edit.history(), why)) ++done;
+        else LOT_LOG("cutthrough: sketch " << sk << " - " << why);
+    }
+    if (done > 0) doc().edit.setSelection({solid});
+}
+
 // 분해 / 결합을 지금 선택에
 static void runPendingOp(const std::string& op) {
     if (op == "explode") {
@@ -654,6 +701,21 @@ static void runPendingOp(const std::string& op) {
 static bool runAction(const char* code) {
     if (code == nullptr || code[0] != '#') return false;
     const std::string name(code + 1);
+    // 3D 피처 명령
+    if (name == "extrude" || name == "boss" || name == "pocket") {
+        putDownTools();
+        g_extrude.start(name == "extrude" ? ExtrudeTool::Mode::Extrude
+                        : name == "boss"  ? ExtrudeTool::Mode::Boss : ExtrudeTool::Mode::Pocket,
+                        doc().edit.selection(), doc().objects);
+        if (g_extrude.isActive() && g_extrude.wantsNumber()) doc().edit.clearSelection();
+        return true;
+    }
+    if (name == "cutthrough") {
+        putDownTools();
+        cutThroughSelected();
+        return true;
+    }
+    if (name != "dims" && name.rfind("style:", 0) != 0 && name.rfind("osnap", 0) != 0) g_extrude.cancel();
     if (name == "cube") { addCube(); return true; }
     if (name == "eraseAll") { doc().edit.deleteAll(doc().objects); return true; }
     if (name == "newDoc") { newDocument(); return true; }
@@ -671,6 +733,7 @@ static bool runAction(const char* code) {
         g_break.cancel();
         g_stretch.cancel();
         g_lengthen.cancel();
+        g_extrude.cancel();
         if (doc().edit.selection().empty()) {
             g_pendingOp = name;
             LOT_LOG(name << ": select objects, then Enter (Esc cancels)");
@@ -690,6 +753,7 @@ static bool runAction(const char* code) {
         g_pendingOp.clear();
         g_stretch.cancel();
         g_lengthen.cancel();
+        g_extrude.cancel();
         doc().edit.clearSelection();
         if (name == "stretch") g_stretch.start(doc().camera);
         else g_lengthen.start(doc().camera);
@@ -744,6 +808,7 @@ static bool runAction(const char* code) {
         g_break.cancel();
         g_stretch.cancel();
         g_lengthen.cancel();
+        g_extrude.cancel();
         g_pendingOp.clear();
         // 기본 거리는 도면 크기에 맞춘 그리드 간격 (한 번 쳤으면 그 값을 기억한다)
         g_offset.start(doc().camera, doc().gridSpacing);
@@ -759,6 +824,7 @@ static bool runAction(const char* code) {
         g_break.cancel();
         g_stretch.cancel();
         g_lengthen.cancel();
+        g_extrude.cancel();
         g_pendingOp.clear();
         g_transform.start(TransformTool::Mode::Mirror, doc().edit.selection(), doc().camera, doc().objects);
         return true;
@@ -1162,7 +1228,8 @@ void renderLoop() {
                                         static_cast<float>(sc.getHeight()),
                                         g_sketch.anyActive() || g_transform.isActive() || g_offset.isActive()
                                             || g_trim.isActive() || g_fillet.isActive() || g_array.takesClicks()
-                                            || g_break.isActive() || g_stretch.takesClicks() || g_lengthen.isActive(),
+                                            || g_break.isActive() || g_stretch.takesClicks() || g_lengthen.isActive()
+                                            || g_extrude.isActive(),
                                         g_transform.isPreviewing(),
                                         g_stretch.referencePoint() ? g_stretch.referencePoint()
                                         : g_transform.isActive() ? g_transform.referencePoint()
@@ -1173,12 +1240,13 @@ void renderLoop() {
             // 변환 도구: 스냅을 쓰므로 편집기 뒤. 숫자 버퍼는 키 컨트롤러가 모은 것을 넘긴다.
             g_cameraController.setNumberCapture(g_transform.isPreviewing() || g_offset.wantsNumber()
                                                 || g_fillet.wantsNumber() || g_stretch.wantsNumber()
-                                                || g_lengthen.wantsNumber());
+                                                || g_lengthen.wantsNumber() || g_extrude.wantsNumber());
             g_transform.setNumberBuffer(g_cameraController.numberBuffer());
             g_offset.setNumberBuffer(g_cameraController.numberBuffer());
             g_fillet.setNumberBuffer(g_cameraController.numberBuffer());
             g_stretch.setNumberBuffer(g_cameraController.numberBuffer());
             g_lengthen.setNumberBuffer(g_cameraController.numberBuffer());
+            g_extrude.setNumberBuffer(g_cameraController.numberBuffer());
             TransformTool::Context tctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                         static_cast<float>(sc.getWidth()),
                                         static_cast<float>(sc.getHeight())};
@@ -1205,6 +1273,20 @@ void renderLoop() {
                                        static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_stretch.update(stctx, doc().edit.history());
             g_lengthen.update(trctx, doc().edit.history());
+            ExtrudeTool::Context exctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                       static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_extrude.update(exctx, doc().edit.history(), g_renderer->getDevice());
+            if (auto r = g_extrude.consumeResult(); !r.empty()) doc().edit.setSelection(r);
+            // 피처 재생성: 연결된 스케치가 바뀐 솔리드를 다시 만든다 (편집 · 되돌리기마다 한 번)
+            {
+                static const LotDocument* lastDoc = nullptr;
+                static uint64_t lastRevision = ~0ull;
+                if (lastDoc != &doc() || lastRevision != doc().edit.history().revision()) {
+                    lastDoc = &doc();
+                    lastRevision = doc().edit.history().revision();
+                    lot_feature::regenerate(doc().objects, g_renderer->getDevice());
+                }
+            }
 
             // 스케치는 편집기가 찾아둔 스냅을 쓰므로 그 뒤에 온다. 활성이면 클릭을 가져간다.
             SketchController::Context sctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
@@ -1276,6 +1358,7 @@ void renderLoop() {
             g_break.cancel();
             g_stretch.cancel();
             g_lengthen.cancel();
+            g_extrude.cancel();
             g_pendingOp.clear();
             doc().edit.undo(doc().objects);
         }
@@ -1289,6 +1372,7 @@ void renderLoop() {
             g_break.cancel();
             g_stretch.cancel();
             g_lengthen.cancel();
+            g_extrude.cancel();
             g_pendingOp.clear();
             doc().edit.redo(doc().objects);
         }
@@ -1303,6 +1387,7 @@ void renderLoop() {
             g_break.cancel();
             g_stretch.cancel();
             g_lengthen.cancel();
+            g_extrude.cancel();
             g_pendingOp.clear();
             doc().edit.clearSelection();
             g_sketch.start(static_cast<SketchController::Kind>(tool), doc().camera);
@@ -1318,12 +1403,20 @@ void renderLoop() {
             g_break.cancel();
             g_stretch.cancel();
             g_lengthen.cancel();
+            g_extrude.cancel();
             g_pendingOp.clear();
             g_transform.start(static_cast<TransformTool::Mode>(mode + 1), doc().edit.selection(),
                               doc().camera, doc().objects);
         }
         if (g_cameraController.consumeEnter()) {
-            if (g_stretch.isActive()) {
+            if (g_extrude.isActive()) {
+                const auto& scx = g_renderer->getSwapchain();
+                ExtrudeTool::Context xctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                          static_cast<float>(scx.getWidth()), static_cast<float>(scx.getHeight())};
+                g_extrude.finish(xctx, doc().edit.history(), g_renderer->getDevice());
+                if (auto r = g_extrude.consumeResult(); !r.empty()) doc().edit.setSelection(r);
+                g_cameraController.clearNumberBuffer();
+            } else if (g_stretch.isActive()) {
                 const auto& sc1 = g_renderer->getSwapchain();
                 StretchTool::Context stctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                            static_cast<float>(sc1.getWidth()), static_cast<float>(sc1.getHeight())};
@@ -1344,6 +1437,7 @@ void renderLoop() {
                 g_break.cancel();
                 g_stretch.cancel();
                 g_lengthen.cancel();
+                g_extrude.cancel();
             } else if (g_array.isActive()) {
                 g_array.enter(doc().edit.selection(), doc().objects, doc().edit.history());
             } else if (g_fillet.isActive()) {
@@ -1365,7 +1459,8 @@ void renderLoop() {
             }
         }
         if (g_cameraController.consumeEscape()) {
-            if (g_stretch.isActive()) { g_stretch.cancel(); g_cameraController.clearNumberBuffer(); }
+            if (g_extrude.isActive()) { g_extrude.cancel(); g_cameraController.clearNumberBuffer(); }
+            else if (g_stretch.isActive()) { g_stretch.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (g_lengthen.isActive()) { g_lengthen.cancel(); g_cameraController.clearNumberBuffer(); }
             else if (!g_pendingOp.empty()) { LOT_LOG(g_pendingOp << ": cancelled"); g_pendingOp.clear(); }
             else if (g_break.isActive()) g_break.cancel();
@@ -1501,7 +1596,8 @@ void renderLoop() {
             ui.outline = g_postSystem->mode == PostProcessSystem::Mode::Outline;
             ui.canUndo = doc().edit.history().canUndo();
             ui.canRedo = doc().edit.history().canRedo();
-            ui.hint = g_stretch.isActive() ? g_stretch.hint()
+            ui.hint = g_extrude.isActive() ? g_extrude.hint()
+                    : g_stretch.isActive() ? g_stretch.hint()
                     : g_lengthen.isActive() ? g_lengthen.hint()
                     : !g_pendingOp.empty() ? g_pendingOp + ": select objects, then Enter  [Esc cancels]"
                     : g_break.isActive() ? g_break.hint()
@@ -1519,6 +1615,7 @@ void renderLoop() {
             ui.breakTool = g_break.isActive();
             ui.stretch = g_stretch.isActive();
             ui.lengthen = g_lengthen.isActive();
+            ui.solidTool = g_extrude.isActive() ? static_cast<int>(g_extrude.mode()) : -1;
             if (const std::string aj = g_array.dialogJson(); !aj.empty() && js_uiArrayDialog(aj.c_str()) == 0) {
                 g_array.invalidateDialog();   // DOM 이 아직 - 다음 프레임에 다시
             }
@@ -1700,6 +1797,9 @@ void renderLoop() {
             StretchTool::Context stctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
                                        static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
             g_stretch.drawOverlay(*g_lineSystem, stctx);
+            ExtrudeTool::Context exctx{doc().camera, g_mouse, doc().objects, doc().edit.snap(),
+                                       static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight())};
+            g_extrude.drawOverlay(*g_lineSystem, exctx);
         }
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로

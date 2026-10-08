@@ -22,6 +22,8 @@ std::string LotNodeTree::label(const LotGameObject& obj, LotGameObject::id_t id)
     }
     if (obj.isDimension()) return "치수" + tag;
     if (obj.isLight()) return "광원" + tag;
+    if (obj.isSolid()) return std::string(obj.featureLink && !obj.featureLink->error.empty() ? "솔리드 (오류)" : "솔리드") + tag;
+    if (obj.isHatch()) return "해치 " + obj.hatch->patternName + tag;
     if (obj.isSketch()) {
         if (obj.curve.kind == LotGameObject::Curve::Kind::Circle) return "원" + tag;
         if (obj.curve.kind == LotGameObject::Curve::Kind::Arc) return "호" + tag;

@@ -4,6 +4,7 @@
 #include "lot_model.h"
 #include "lot_node_tree.h"
 #include "lot_ui_command.h"
+#include "lot_brep_shape.h"
 
 #include <cmath>
 #include <cstdio>
@@ -33,6 +34,8 @@ const char* kindName(const LotGameObject& o) {
     if (o.isText()) return "문자";
     if (o.isDimension()) return "치수";
     if (o.isLight()) return "광원";
+    if (o.isSolid()) return "솔리드";
+    if (o.isHatch()) return "해치";
     if (o.isSketch()) {
         if (o.curve.kind == LotGameObject::Curve::Kind::Circle) return "원";
         if (o.curve.kind == LotGameObject::Curve::Kind::Arc) return "호";
@@ -132,6 +135,17 @@ std::string LotPropertyPanel::diffJson(const LotLayers& layers, const LotGameObj
             const char* v[] = {"기준선", "가운데", "위"};
             add("맞춤", std::string(h[std::max(0, std::min(2, o.text.hAlign))]) + " / "
                         + v[std::max(0, std::min(2, o.text.vAlign))]);
+        } else if (o.isSolid()) {
+            // 해석 형상의 값 (네이티브 속성 창의 B-Rep 칸). 높이는 고칠 수 있다 - 관통 컷은 새 높이까지 관통.
+            const auto& f = o.brep->feature();
+            if (f.kind == lot::LotBRepShape::FeatureKind::Extrude) j += ",\"solidHeight\":" + num(f.height);
+            add("부피", num(o.brep->volume()));
+            add("겉넓이", num(o.brep->surfaceArea()));
+            add("면 / 모서리", std::to_string(o.brep->faces().size()) + " / " + std::to_string(o.brep->edges().size()));
+            if (!f.cuts.empty()) add("컷", std::to_string(f.cuts.size()));
+            if (!f.bosses.empty()) add("보스", std::to_string(f.bosses.size()));
+            if (o.brep->layered()) add("모양", "층 (불리언)");
+            if (o.featureLink && !o.featureLink->error.empty()) add("오류", o.featureLink->error);
         } else if (o.model) {
             add("삼각형", std::to_string(o.model->getTriangleCount()));
             const vec3& s = o.transform.scale;

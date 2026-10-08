@@ -91,7 +91,13 @@ LotRibbon::LotRibbon() {
         }},
         {"3D", {
             {"만들기", {
+                icon("solid.extrude", "돌출", "\xE2\xAC\x86", "#extrude", false, "", "닫힌 스케치 -> 높이 (x)", "solid:0"),
                 icon("draw.cube", "큐브", "\xE2\xAC\xA1", "#cube", false, "", "보고 있는 자리에 큐브 하나"),
+            }},
+            {"피처", {
+                icon("solid.boss",   "보스", "\xE2\x96\xB2", "#boss", false, "", "솔리드 + 스케치 -> 높이", "solid:1"),
+                icon("solid.pocket", "포켓", "\xE2\x96\xBD", "#pocket", false, "", "솔리드 + 스케치 -> 깊이", "solid:2"),
+                icon("solid.cutThrough", "관통", "\xE2\x8A\x98", "#cutthrough", false, "", "솔리드 + 스케치 -> 끝까지 (ct)"),
             }},
             {"표시", {
                 icon("view.parallel", "평행",   "\xE2\x96\xB1", "KeyP", false, "P", "원근 / 평행 투영", "ortho"),
