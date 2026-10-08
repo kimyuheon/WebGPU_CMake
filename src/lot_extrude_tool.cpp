@@ -78,7 +78,12 @@ void ExtrudeTool::cancel() {
 // 네이티브 computeMouseHeight: 축을 품고 카메라를 향한 평면과 커서 레이의 교점을 축에 투영.
 // 축이 시선과 거의 나란하면 (위에서 본 돌출) 마우스 세로 이동을 월드 길이로.
 float ExtrudeTool::mouseHeight(const Context& ctx) const {
-    if (ctx.snap.valid()) return dot(ctx.snap.point - center_, axis_);   // "옆 기둥 꼭대기와 같은 높이"
+    // 객체스냅: 그 점의 높이 ("옆 기둥 꼭대기와 같은 높이"). 단면 평면 위의 점(높이 0)은 뜻이 없어 건너뛴다 -
+    // 바닥에 그린 다른 스케치의 끝점에 붙어 높이가 0 이 되던 것.
+    if (ctx.snap.valid()) {
+        const float h = dot(ctx.snap.point - center_, axis_);
+        if (std::fabs(h) > ctx.camera.worldPerPixel(center_, ctx.height)) return h;
+    }
     const lot_pick::Ray ray = lot_pick::screenToRay(ctx.camera, ctx.mouse.x(), ctx.mouse.y(), ctx.width, ctx.height);
     const vec3 toCamera = normalize(ctx.camera.getPosition() - center_);
     if (std::fabs(dot(toCamera, axis_)) < 0.999f) {
@@ -122,7 +127,7 @@ void ExtrudeTool::update(const Context& ctx, EditHistory& history, lot_web_devic
     float h = mouseHeight(ctx);
     // 0 높이 방지 - 마우스로 정할 때만, 화면 1픽셀 만큼 (친 값에는 걸지 않는다, 네이티브와 같다)
     const float minH = ctx.camera.worldPerPixel(center_, ctx.height);
-    if (!ctx.snap.valid() && std::fabs(h) < minH) h = (h >= 0.0f ? 1.0f : -1.0f) * minH;
+    if (std::fabs(h) < minH) h = (h >= 0.0f ? 1.0f : -1.0f) * minH;
     height_ = h;
     if (!ctx.mouse.consumeLeftPress()) { ctx.mouse.consumeLeftRelease(); return; }
     ctx.mouse.consumeLeftRelease();
@@ -157,11 +162,13 @@ void ExtrudeTool::commit(const Context& ctx, float h, EditHistory& history, lot_
             if (id != LotGameObject::kInvalidId) made.insert(id);
             else LOT_LOG("extrude: sketch " << s.id << " - " << why);
         }
-        if (!made.empty()) {
-            history.recordCreated("extrude", ctx.objects, made);
-            result_ = made;
-            LOT_LOG("extrude: " << made.size() << " solid(s), height " << h);
+        if (made.empty()) {   // 아무것도 못 만들었으면 도구는 그대로 - 다시 끌거나 값을 친다
+            number_.clear();
+            return;
         }
+        history.recordCreated("extrude", ctx.objects, made);
+        result_ = made;
+        LOT_LOG("extrude: " << made.size() << " solid(s), height " << h);
     } else {
         if (!(h > 0.0f)) {
             LOT_LOG(modeName(mode_) << ": the " << (mode_ == Mode::Pocket ? "depth" : "height")
@@ -177,7 +184,11 @@ void ExtrudeTool::commit(const Context& ctx, float h, EditHistory& history, lot_
             if (ok) ++done;
             else LOT_LOG(modeName(mode_) << ": sketch " << s.id << " - " << why);
         }
-        if (done > 0) result_ = {solid_};
+        if (done == 0) {   // 아무것도 못 했으면 도구는 그대로
+            number_.clear();
+            return;
+        }
+        result_ = {solid_};
     }
     state_ = State::Idle;
     sources_.clear();
