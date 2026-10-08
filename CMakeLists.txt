@@ -71,7 +71,7 @@ endif()
 add_link_options($<$<CONFIG:Release>:--closure=1>)
 
 # 소스 파일
-file(GLOB SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/ui/*.cpp" "src/app/*.cpp")
+file(GLOB SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/ui/*.cpp" "src/app/*.cpp" "src/dxf/*.cpp")
 
 add_executable(WebGPUApp ${SOURCE_FILES})
 
