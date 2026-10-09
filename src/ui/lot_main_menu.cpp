@@ -62,6 +62,9 @@ LotMainMenu::LotMainMenu() {
             item("panel.props",   "속성 창",            "@panel:props", false, "", "속성 패널 열기/닫기"),
             item("panel.tree",    "노드 트리 창",       "@panel:tree", false, "", "노드 트리 패널 열기/닫기"),
             item("panel.reset",   "패널 배치 초기화",   "@panel:reset", false, "", "패널을 처음 자리로"),
+            item("view.ribbon1",  "리본: 한 줄",        "@ribbon:1", false, "", "단추마다 아이콘 위 · 이름 아래로 늘어놓는다", "", true),
+            item("view.ribbon2",  "리본: 두 줄",        "@ribbon:2", false, "", "그룹의 첫 단추는 크게, 나머지는 두 줄로 쌓는다"),
+            item("view.ribbon3",  "리본: 세 줄",        "@ribbon:3", false, "", "네이티브 리본처럼 세 줄로 쌓는다"),
         }},
         {"그리기", {
             item("draw.line",     "선",        "KeyL", false, "L", "두 점씩 이어 그린다", "sketch:0"),

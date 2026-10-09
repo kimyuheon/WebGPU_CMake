@@ -32,7 +32,7 @@ mergeInto(LibraryManager.library, {
     js_uiInstall__deps: ['lot_onToolbarKey', 'lot_onLayerCommand', 'lot_onTextEntered',
                          'lot_onTextCancelled', 'lot_saveScene', 'lot_onLotFileLoaded',
                          'lot_onDxfFileLoaded', 'lot_onCommandLine', '$LotUiTheme',
-                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free', '$LotCmdLog'],
+                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free', '$LotCmdLog', '$LotRibbon'],
     js_uiInstall: function(menuPtr, ribbonPtr, namesPtr, statusPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         var dom = Module.lotDom;
@@ -55,6 +55,7 @@ mergeInto(LibraryManager.library, {
         // 명령 실행: 키 코드를 C++ 로 (키보드와 같은 경로), '@' 로 시작하면 JS 동작.
         var run = function(cmd) {
             var key = cmd['key'];
+            if (key.indexOf('@ribbon:') === 0) { setRibbonRows(parseInt(key.substring(8), 10)); return; }
             if (key.charAt(0) === '@') {
                 var fn = dom.actions[key.substring(1)];
                 if (fn) fn();
@@ -75,6 +76,14 @@ mergeInto(LibraryManager.library, {
             if (cmd['state']) {
                 (dom.stateItems[cmd['state']] = dom.stateItems[cmd['state']] || []).push(el);
             }
+        };
+        // 다시 만든 리본 단추를 상태 목록에서 뺀다
+        var unregister = function(el) {
+            var drop = function(map) {
+                Object.keys(map).forEach(function(k) { map[k] = map[k].filter(function(x) { return x !== el; }); });
+            };
+            drop(dom.idItems);
+            drop(dom.stateItems);
         };
 
         var root = document.createElement('div');
@@ -211,132 +220,23 @@ mergeInto(LibraryManager.library, {
         bar.appendChild(barHint);
         dom.barHint = barHint;
 
-        // ── 리본 ───────────────────────────────────────────────
-        var ribbonBox = document.createElement('div');
-        ribbonBox.style.background = T.ribbonBg;
-        ribbonBox.style.borderBottom = '1px solid ' + T.border;
-
-        var tabRow = document.createElement('div');
-        tabRow.style.display = 'flex';
-        tabRow.style.background = T.menuBg;
-        tabRow.style.borderBottom = '1px solid ' + T.border;
-
-        var body = document.createElement('div');
-        body.style.display = 'flex';
-        body.style.alignItems = 'flex-start';
-        body.style.gap = '2px';
-        body.style.padding = '3px 6px';
-
-        var tabs = [];
-        var panels = [];
-        var activeTab = 0;
-        var collapsed = false;
-
-        var applyTabs = function() {
-            tabs.forEach(function(t, i) {
-                t.style.color = (i === activeTab) ? T.text : T.textDim;
-                t.style.borderBottom = (i === activeTab && !collapsed)
-                    ? '2px solid ' + T.accent : '2px solid transparent';
+        // ── 리본 (lot_ribbon.js) ── 한 줄 / 두 줄 / 세 줄
+        var rib = LotRibbon.build(ribbon, { register: register, unregister: unregister, run: run, closeMenu: closeMenu });
+        // 뷰 메뉴의 '리본: N 줄' 항목에 지금 것을 표시
+        var markRibbonRows = function() {
+            [1, 2, 3].forEach(function(n) {
+                (dom.idItems['view.ribbon' + n] || []).forEach(function(el) { el.__lotStyle(rib.rows() === n, true); });
             });
-            panels.forEach(function(p, i) { p.style.display = (i === activeTab) ? 'flex' : 'none'; });
-            body.style.display = collapsed ? 'none' : 'flex';
+        };
+        var setRibbonRows = function(n) {
+            if (n === rib.rows()) return;
+            rib.setRows(n);
+            markRibbonRows();
+            if (dom.applyUiState && dom.lastUiState) dom.applyUiState(dom.lastUiState);   // 새 단추에 켜짐 표시
         };
 
-        ribbon.forEach(function(tabDef, index) {
-            var tab = document.createElement('div');
-            tab.textContent = tabDef['tab'];
-            tab.style.padding = '3px 14px';
-            tab.style.cursor = 'default';
-            tab.style.fontSize = '12px';
-            tab.addEventListener('mousedown', function(e) { e.preventDefault(); });
-            tab.addEventListener('click', function() { activeTab = index; collapsed = false; applyTabs(); });
-            tab.addEventListener('dblclick', function() { collapsed = !collapsed; applyTabs(); });
-            tabRow.appendChild(tab);
-            tabs.push(tab);
-
-            var panel = document.createElement('div');
-            panel.style.display = 'none';
-            panel.style.gap = '2px';
-            panel.style.alignItems = 'flex-start';
-
-            tabDef['groups'].forEach(function(g, gi) {
-                var group = document.createElement('div');
-                group.style.display = 'flex';
-                group.style.flexDirection = 'column';
-                group.style.alignItems = 'center';
-                group.style.padding = '0 8px';
-                if (gi > 0) group.style.borderLeft = '1px solid ' + T.border;
-
-                var icons = document.createElement('div');
-                icons.style.display = 'flex';
-                icons.style.gap = '2px';
-
-                g['items'].forEach(function(cmd) {
-                    var b = document.createElement('button');
-                    b.title = cmd['tip'] + (cmd['shortcut'] ? '  (' + cmd['shortcut'] + ')' : '');
-                    b.style.display = 'flex';
-                    b.style.flexDirection = 'column';
-                    b.style.alignItems = 'center';
-                    b.style.gap = '1px';
-                    b.style.width = '46px';
-                    b.style.padding = '3px 2px';
-                    b.style.border = '1px solid transparent';
-                    b.style.borderRadius = '3px';
-                    b.style.background = 'transparent';
-                    b.style.color = T.text;
-                    b.style.font = 'inherit';
-                    b.style.cursor = 'default';
-
-                    var glyph = document.createElement('span');
-                    glyph.textContent = cmd['icon'] || cmd['label'].charAt(0);
-                    glyph.style.fontSize = '15px';
-                    glyph.style.lineHeight = '17px';
-                    var cap = document.createElement('span');
-                    cap.textContent = cmd['label'];
-                    cap.style.fontSize = '10px';
-                    cap.style.color = T.textDim;
-                    b.appendChild(glyph);
-                    b.appendChild(cap);
-
-                    b.addEventListener('mouseenter', function() {
-                        if (!b.disabled && !b.__lotOn) b.style.background = T.hover;
-                    });
-                    b.addEventListener('mouseleave', function() {
-                        b.style.background = b.__lotOn ? T.accentDim : 'transparent';
-                    });
-                    b.addEventListener('mousedown', function(e) { e.preventDefault(); });
-                    b.addEventListener('click', function() { closeMenu(); run(cmd); });
-
-                    register(cmd, b, function(on, enabled) {
-                        b.__lotOn = on;
-                        b.setAttribute('data-on', on ? '1' : '0');
-                        b.style.background = on ? T.accentDim : 'transparent';
-                        b.style.borderColor = on ? T.accent : 'transparent';
-                        b.disabled = !enabled;
-                        b.style.opacity = enabled ? '1' : '0.45';
-                    });
-                    icons.appendChild(b);
-                });
-
-                var caption = document.createElement('div');
-                caption.textContent = g['caption'];
-                caption.style.fontSize = '10px';
-                caption.style.color = T.textDim;
-                caption.style.marginTop = '1px';
-
-                group.appendChild(icons);
-                group.appendChild(caption);
-                panel.appendChild(group);
-            });
-
-            panels.push(panel);
-            body.appendChild(panel);
-        });
-
-        ribbonBox.appendChild(tabRow);
-        ribbonBox.appendChild(body);
         root.appendChild(bar);
-        root.appendChild(ribbonBox);
+        root.appendChild(rib.box);
 
         // ── 도면 탭 (리본 아래, 도면 바로 위 - AutoCAD 의 파일 탭 자리) ──
         // 내용은 js_uiSetTabs 가 채운다. 하나뿐이어도 보인다 - 높이가 바뀌면 아래 패널이 들썩인다.
@@ -352,7 +252,7 @@ mergeInto(LibraryManager.library, {
         root.appendChild(docTabs);
         dom.docTabs = docTabs;
         document.body.appendChild(root);
-        applyTabs();
+        markRibbonRows();
 
         // ── 하단 상태바: 명령행 + 토글 단추 ─────────────────────
         // [        명령: [            ][^]        [치수][그리드]...[객체스냅]]
@@ -685,6 +585,25 @@ mergeInto(LibraryManager.library, {
         };
 
         dom.uiRoot = root;
+        // 켜짐 / 사용 불가 표시 (js_uiSetState 가 부르고, 리본을 다시 만들 때도 다시 부른다)
+        dom.applyUiState = function(s) {
+            var on = {};
+            s['active'].forEach(function(k) { on[k] = true; });
+            var off = {};
+            s['disabled'].forEach(function(k) { off[k] = true; });
+
+            Object.keys(dom.stateItems).forEach(function(key) {
+                dom.stateItems[key].forEach(function(el) {
+                    el.__lotStyle(!!on[key], !off[key]);
+                });
+            });
+            // 상태 키가 없는 명령도 사용 불가 표시를 받을 수 있다 (실행 취소 등)
+            ['undo', 'redo'].forEach(function(key) {
+                (dom.idItems['edit.' + key] || []).forEach(function(el) {
+                    el.__lotStyle(false, !off[key]);
+                });
+            });
+        };
         dom.uiHeight = function() { return root.offsetHeight; };
         return 1;
     },
@@ -790,23 +709,8 @@ mergeInto(LibraryManager.library, {
         var s;
         try { s = JSON.parse(UTF8ToString(jsonPtr)); } catch (e) { return 0; }
 
-        var on = {};
-        s['active'].forEach(function(k) { on[k] = true; });
-        var off = {};
-        s['disabled'].forEach(function(k) { off[k] = true; });
-
-        Object.keys(dom.stateItems).forEach(function(key) {
-            dom.stateItems[key].forEach(function(el) {
-                el.__lotStyle(!!on[key], !off[key]);
-            });
-        });
-        // 상태 키가 없는 명령도 사용 불가 표시를 받을 수 있다 (실행 취소 등)
-        ['undo', 'redo'].forEach(function(key) {
-            (dom.idItems['edit.' + key] || []).forEach(function(el) {
-                el.__lotStyle(false, !off[key]);
-            });
-        });
-
+        dom.lastUiState = s;
+        if (dom.applyUiState) dom.applyUiState(s);
         dom.lastHint = s['hint'];
         LotCmdLog.hint(s['hint']);
         if (dom.barHint) dom.barHint.textContent = s['hint'];
