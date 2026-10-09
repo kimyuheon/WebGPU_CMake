@@ -499,6 +499,24 @@ mergeInto(LibraryManager.library, {
                 self.expanded = {};    // 층 id -> {items:[], total}
                 self.collapsedScene = false;
                 self.T = T;
+                self.picked = {};      // 고른 피처 줄 "객체id|cut0" - Delete 로 지운다 (네이티브 pickedFeatures)
+                // Delete: 고른 피처 줄이 있으면 그것만 지운다 (객체 삭제로 새지 않게 캔버스 키보다 먼저 잡는다)
+                window.addEventListener('keydown', function(e) {
+                    if (e.key !== 'Delete') return;
+                    var t = document.activeElement;
+                    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+                    var byObject = {};
+                    Object.keys(self.picked).forEach(function(k) {
+                        var bar = k.indexOf('|');
+                        (byObject[k.substring(0, bar)] = byObject[k.substring(0, bar)] || []).push(k.substring(bar + 1));
+                    });
+                    var ids = Object.keys(byObject);
+                    if (!ids.length) return;
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    self.picked = {};
+                    ids.forEach(function(oid) { self.send('deleteFeatures:' + byObject[oid].join(','), parseInt(oid, 10), 0); });
+                }, true);
             },
 
             fetch: function(layerId, offset, limit) {
@@ -559,6 +577,7 @@ mergeInto(LibraryManager.library, {
                     }
                     r.appendChild(arrow);
                     var cb = document.createElement('input');
+                    if (opts.noCheck) cb.style.visibility = 'hidden';   // 피처 줄 - 표시 전환이 없다
                     cb.type = 'checkbox';
                     cb.checked = opts.checked;
                     cb.indeterminate = !!opts.mixed;
@@ -572,7 +591,8 @@ mergeInto(LibraryManager.library, {
                     name.textContent = opts.label;
                     name.style.overflow = 'hidden';
                     name.style.textOverflow = 'ellipsis';
-                    name.style.color = opts.dim ? T.textDim : T.text;
+                    name.style.color = opts.color || (opts.dim ? T.textDim : T.text);
+                    if (opts.title) r.title = opts.title;
                     name.style.cursor = 'default';
                     r.appendChild(name);
                     if (opts.onClick) r.addEventListener('click', function(e) {
@@ -631,6 +651,31 @@ mergeInto(LibraryManager.library, {
                             onCheck: function(on) { self.send('hide', oid, on ? 0 : 1); },
                             onClick: function(ev) { self.send('select', oid, (ev.ctrlKey || ev.metaKey || ev.shiftKey) ? 1 : 0); },
                             onDouble: function() { self.send('zoom', oid, 0); },
+                        });
+                        // 솔리드의 피처 줄: 스케치 (누르면 그 스케치를 고른다 - 면 아래에 가려진 것도),
+                        // 돌출, 보스 / 컷 (눌러 고르고 Ctrl 로 더해 Delete), 오류는 빨갛게
+                        (it['features'] || []).forEach(function(f) {
+                            var tag = f['tag'], key = oid + '|' + tag;
+                            var deletable = tag.indexOf('cut') === 0 || tag.indexOf('boss') === 0;
+                            var r = row(3, {
+                                label: f['label'], noCheck: true, checked: false, onCheck: function() {},
+                                selected: !!self.picked[key],
+                                color: tag === 'error' ? '#ff7366' : (deletable || tag === 'sketch') ? T.text : T.textDim,
+                                title: deletable ? '클릭으로 고르고 (Ctrl+클릭 여러 개) Delete 로 지우기'
+                                     : tag === 'sketch' ? '클릭: 이 스케치를 고른다' : '',
+                                onClick: function(ev) {
+                                    if (deletable) {
+                                        if (!(ev.ctrlKey || ev.metaKey)) self.picked = {};
+                                        if (self.picked[key] && (ev.ctrlKey || ev.metaKey)) delete self.picked[key];
+                                        else self.picked[key] = true;
+                                        self.render();
+                                    } else if (f['ref'] >= 0) {
+                                        self.picked = {};
+                                        self.send('select', f['ref'], (ev.ctrlKey || ev.metaKey || ev.shiftKey) ? 1 : 0);
+                                    }
+                                },
+                            });
+                            r.setAttribute('data-tree-feature', key);
                         });
                     });
                     if (e.items.length < e.total) {

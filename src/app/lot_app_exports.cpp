@@ -49,6 +49,23 @@ void lot_onTreeCommand(const char* action, int id, int value) {
     } else if (a == "hide") {
         g_ui.nodeTree().setHidden(id < 0 ? LotGameObject::kInvalidId : oid, value != 0,
                                   doc().objects, doc().edit);
+    } else if (a.rfind("deleteFeatures:", 0) == 0) {
+        // 트리에서 고른 컷 · 보스 줄 - "deleteFeatures:cut0,boss1" (네이티브 deleteTreeSelectedFeatures)
+        std::vector<unsigned> cuts, bosses;
+        size_t pos = 15;
+        while (pos < a.size()) {
+            const size_t comma = a.find(',', pos);
+            const std::string tag = a.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+            if (tag.rfind("cut", 0) == 0 && tag.size() > 3) cuts.push_back(static_cast<unsigned>(std::atoi(tag.c_str() + 3)));
+            else if (tag.rfind("boss", 0) == 0 && tag.size() > 4) bosses.push_back(static_cast<unsigned>(std::atoi(tag.c_str() + 4)));
+            if (comma == std::string::npos) break;
+            pos = comma + 1;
+        }
+        cancelTools();
+        std::string why;
+        if (!lot_feature::removeFeatures(doc().objects, oid, cuts, bosses, g_renderer->getDevice(), doc().edit.history(), why)) {
+            LOT_LOG("tree: cannot delete features of object " << id << " - " << why);
+        }
     }
 }
 

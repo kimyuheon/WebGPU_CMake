@@ -1,4 +1,5 @@
 #include "lot_node_tree.h"
+#include "lot_feature.h"
 #include "lot_log.h"
 #include "lot_ui_command.h"
 
@@ -83,7 +84,8 @@ std::string LotNodeTree::summaryJson(const LotLayers& layers, const LotGameObjec
            + ",\"visible\":" + (l->visible ? "true" : "false") + "}";
     }
     // 선택은 많으면 앞의 것만 (트리 강조용 - 수천 개를 다 칠할 일은 없다)
-    j += "],\"total\":" + std::to_string(total) + ",\"hiddenTotal\":" + std::to_string(hidden)
+    // rev: 편집마다 오른다 - 개수가 그대로여도 피처 줄 (돌출 높이 · 컷) 이 바뀌면 다시 그리게
+    j += "],\"rev\":" + std::to_string(revision_) + ",\"total\":" + std::to_string(total) + ",\"hiddenTotal\":" + std::to_string(hidden)
        + ",\"selectedCount\":" + std::to_string(edit.selection().size()) + ",\"selected\":[";
     int k = 0;
     for (LotGameObject::id_t id : edit.selection()) {
@@ -114,7 +116,20 @@ std::string LotNodeTree::childrenJson(uint32_t layerId, int offset, int limit,
         if (i > offset) j += ",";
         j += "{\"id\":" + std::to_string(id) + ",\"label\":" + quote(label(*obj, id))
            + ",\"hidden\":" + (obj->hidden ? "true" : "false")
-           + ",\"selected\":" + (edit.selection().count(id) ? "true" : "false") + "}";
+           + ",\"selected\":" + (edit.selection().count(id) ? "true" : "false");
+        // 솔리드의 피처 줄 (스케치 -> 돌출 -> 보스 -> 컷)
+        if (obj->isSolid()) {
+            j += ",\"features\":[";
+            bool firstRow = true;
+            for (const auto& r : lot_feature::treeRows(*obj)) {
+                if (!firstRow) j += ",";
+                firstRow = false;
+                j += "{\"tag\":" + quote(r.tag) + ",\"label\":" + quote(r.label) + ",\"ref\":"
+                   + (r.ref == FeatureLink::kNone ? std::string("-1") : std::to_string(r.ref)) + "}";
+            }
+            j += "]";
+        }
+        j += "}";
     }
     j += "]}";
     return j;

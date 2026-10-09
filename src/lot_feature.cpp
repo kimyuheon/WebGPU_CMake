@@ -7,7 +7,9 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
 #include <functional>
+#include <set>
 
 namespace lot_feature {
 namespace {
@@ -240,6 +242,98 @@ bool setHeight(LotGameObject::Map& objects, id_t solidId, float height, lot_web_
     commitSolid(objects, *solid, shape, std::move(model), history, "extrude height", nullptr);
     LOT_LOG("feature: solid " << solidId << " height " << height);
     return true;
+}
+
+bool removeFeatures(LotGameObject::Map& objects, id_t solidId, std::vector<unsigned> cutIdx, std::vector<unsigned> bossIdx,
+                    lot_web_device& device, EditHistory& history, std::string& why) {
+    LotGameObject* solid = LotGameObject::find(objects, solidId);
+    if (!isExtrudeSolid(solid)) { why = "not an extruded solid"; return false; }
+    auto norm = [](std::vector<unsigned>& v) { std::sort(v.begin(), v.end()); v.erase(std::unique(v.begin(), v.end()), v.end()); };
+    norm(cutIdx);
+    norm(bossIdx);
+    const auto& F = solid->brep->feature();
+    if (cutIdx.empty() && bossIdx.empty()) { why = "nothing to remove"; return false; }
+    if ((!cutIdx.empty() && cutIdx.back() >= F.cuts.size()) || (!bossIdx.empty() && bossIdx.back() >= F.bosses.size())) {
+        why = "no such cut / boss";
+        return false;
+    }
+    auto cuts = solid->brep->remakeCuts();
+    auto bosses = F.bosses;
+    for (auto i = cutIdx.rbegin(); i != cutIdx.rend(); ++i) cuts.erase(cuts.begin() + *i);
+    for (auto i = bossIdx.rbegin(); i != bossIdx.rend(); ++i) bosses.erase(bosses.begin() + *i);
+    auto shape = LotBRepShape::makeCutExtrude(F.profile, F.direction, F.height, cuts, bosses);
+    if (!shape) { why = "the remaining cuts / bosses do not make a solid (a cut inside a removed boss?)"; return false; }
+    auto model = buildSolidModel(device, *shape);
+    if (!model) { why = "tessellation failed"; return false; }
+
+    // 그 피처만 쓰던 스케치 - 다른 솔리드가 쓰면 남긴다
+    std::set<id_t> sketches;
+    if (solid->featureLink) {
+        const FeatureLink& L = *solid->featureLink;
+        for (unsigned i : cutIdx) if (i < L.cutSketches.size() && L.cutSketches[i] != FeatureLink::kNone) sketches.insert(L.cutSketches[i]);
+        for (unsigned i : bossIdx) if (i < L.bossSketches.size() && L.bossSketches[i] != FeatureLink::kNone) sketches.insert(L.bossSketches[i]);
+    }
+    for (auto it = sketches.begin(); it != sketches.end();) {
+        bool used = !objects.count(*it);
+        for (const auto& entry : objects) {
+            const LotGameObject& o = entry.second;
+            if (used || !o.featureLink) continue;
+            const FeatureLink& L = *o.featureLink;
+            if (L.sketch == *it) used = true;
+            if (entry.first == solidId) continue;   // 이 솔리드의 컷 · 보스는 지금 빠진다
+            if (std::find(L.cutSketches.begin(), L.cutSketches.end(), *it) != L.cutSketches.end()) used = true;
+            if (std::find(L.bossSketches.begin(), L.bossSketches.end(), *it) != L.bossSketches.end()) used = true;
+        }
+        it = used ? sketches.erase(it) : std::next(it);
+    }
+
+    EditHistory::Edit edit;
+    edit.label = "delete features";
+    edit.before = {EditHistory::Record::capture(*solid)};
+    for (id_t s : sketches) edit.before.push_back(EditHistory::snapshot(objects, s));
+    solid->brep = std::move(shape);
+    solid->model = std::move(model);
+    if (solid->featureLink) {   // 연결 목록도 같은 번호를 뺀다 (컷 i <-> cutSketches[i])
+        FeatureLink L = *solid->featureLink;
+        auto drop = [](auto& v, const std::vector<unsigned>& idx) {
+            for (auto i = idx.rbegin(); i != idx.rend(); ++i) if (*i < v.size()) v.erase(v.begin() + *i);
+        };
+        drop(L.cutSketches, cutIdx); drop(L.cutLinkInv, cutIdx); drop(L.lastCutProfiles, cutIdx);
+        drop(L.bossSketches, bossIdx); drop(L.bossLinkInv, bossIdx); drop(L.lastBossProfiles, bossIdx);
+        L.error.clear();
+        solid->featureLink = std::make_shared<const FeatureLink>(std::move(L));
+    }
+    for (id_t s : sketches) objects.erase(s);
+    edit.after = {EditHistory::Record::capture(*LotGameObject::find(objects, solidId))};
+    history.record(std::move(edit));
+    LOT_LOG("feature: removed " << cutIdx.size() << " cut(s), " << bossIdx.size() << " boss(es) from solid " << solidId
+            << " (and " << sketches.size() << " sketch(es) only they used)");
+    return true;
+}
+
+std::vector<TreeRow> treeRows(const LotGameObject& o) {
+    std::vector<TreeRow> rows;
+    if (!o.featureLink || !isExtrudeSolid(&o)) return rows;
+    const FeatureLink& L = *o.featureLink;
+    const auto& F = o.brep->feature();
+    char b[160];
+    auto from = [](unsigned id) { return id == FeatureLink::kNone ? std::string() : " ← #" + std::to_string(id); };
+    if (L.sketch != FeatureLink::kNone) rows.push_back({"sketch", "스케치 #" + std::to_string(L.sketch), L.sketch});
+    std::snprintf(b, sizeof(b), "돌출 %.4g", F.height);
+    rows.push_back({"extrude", b, FeatureLink::kNone});
+    for (size_t i = 0; i < F.bosses.size(); ++i) {   // 보스 - 높이 (+ 위 / - 아래)
+        const unsigned ref = i < L.bossSketches.size() ? L.bossSketches[i] : FeatureLink::kNone;
+        std::snprintf(b, sizeof(b), "보스 %zu %.4g", i + 1, F.bosses[i].height);
+        rows.push_back({"boss" + std::to_string(i), b + from(ref), ref});
+    }
+    for (size_t i = 0; i < F.cuts.size(); ++i) {
+        const unsigned ref = i < L.cutSketches.size() ? L.cutSketches[i] : FeatureLink::kNone;
+        if (o.brep->cutThrough(i)) std::snprintf(b, sizeof(b), "컷 %zu 관통", i + 1);
+        else std::snprintf(b, sizeof(b), "컷 %zu 깊이 %.4g", i + 1, F.cuts[i].depth);
+        rows.push_back({"cut" + std::to_string(i), b + from(ref), ref});
+    }
+    if (!L.error.empty()) rows.push_back({"error", "! " + L.error, FeatureLink::kNone});
+    return rows;
 }
 
 int regenerate(LotGameObject::Map& objects, lot_web_device& device) {

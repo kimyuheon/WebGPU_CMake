@@ -41,6 +41,20 @@ bool boss(LotGameObject::Map& objects, LotGameObject::id_t solid, LotGameObject:
 bool setHeight(LotGameObject::Map& objects, LotGameObject::id_t solid, float height, lot_web_device& device,
                EditHistory& history, std::string& why);
 
+// 컷 · 보스 지우기 (네이티브 removeBRepFeatures). 번호는 feature().cuts / bosses 순서. 그 피처만 쓰던 스케치도
+// 함께 지운다 (다른 솔리드가 쓰면 남긴다). 한 번의 실행 취소. 남은 것으로 모양을 못 만들면 false 와 why.
+bool removeFeatures(LotGameObject::Map& objects, LotGameObject::id_t solid, std::vector<unsigned> cutIdx,
+                    std::vector<unsigned> bossIdx, lot_web_device& device, EditHistory& history, std::string& why);
+
+// 노드 트리의 피처 줄 (네이티브 LotSceneTreePanel::buildTree): 스케치 · 돌출 높이 · 보스 · 컷 · 오류.
+// tag = "sketch" / "extrude" / "boss<i>" / "cut<i>" / "error", ref = 원본 스케치 id (없으면 kNone).
+struct TreeRow {
+    std::string tag;
+    std::string label;
+    unsigned ref = FeatureLink::kNone;
+};
+std::vector<TreeRow> treeRows(const LotGameObject& solid);
+
 // 연결된 스케치가 바뀐 솔리드를 다시 만든다 (네이티브 updateFeatureRegeneration). 같은 id 를 지키고
 // 히스토리에는 남기지 않는다 - 스케치 편집을 되돌리면 다음 번에 다시 맞춰진다. 다시 만든 개수.
 int regenerate(LotGameObject::Map& objects, lot_web_device& device);

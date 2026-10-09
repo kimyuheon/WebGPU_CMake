@@ -1390,6 +1390,26 @@ const scenarios = [
       const regen = JSON.parse(await a.sceneSave())['objects'].find(o => o['brep']);
       const cx = regen ? regen['brep']['cuts'][0]['profile'].reduce((m, p) => m + p[0], 0) / regen['brep']['cuts'][0]['profile'].length : 0;
       t.expect(cx < -0.15, `the hole moved with its sketch (cut centre x ${cx.toFixed(3)})`);
+      // 노드 트리의 피처 줄 (네이티브 buildTree): 솔리드 아래 스케치 · 돌출 · 보스 · 컷
+      await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
+      await sleep(400);
+      const feats = await a.evaluate(`[...document.querySelectorAll('[data-tree-feature]')].map(r => r.textContent)`);
+      t.expect(feats.some(f => /^돌출 0\.8/.test(f)) && feats.some(f => /^보스 1 -0\.3/.test(f)) && feats.some(f => /^컷 1 관통 ← #\d+/.test(f)),
+               `feature rows under the solid (${feats.join(' | ')})`);
+      // 컷 줄을 고르고 Delete -> 컷과 그 원(이 컷만 쓰던 스케치)이 같이 지워지고, Ctrl+Z 로 돌아온다
+      await a.evaluate(`[...document.querySelectorAll('[data-tree-feature]')].find(r => /^컷 1/.test(r.textContent)).click()`);
+      await sleep(200);
+      await a.evaluate(`document.activeElement && document.activeElement.blur()`);
+      await a.key('Delete');
+      await sleep(400);
+      t.expect(a.has(/feature: removed 1 cut\(s\), 0 boss\(es\) from solid \d+ \(and 1 sketch\(es\) only they used\)/),
+               `cut row + Delete removes the cut and its sketch (${a.last(/feature:|tree:/) ?? ''})`);
+      const afterDel = JSON.parse(await a.sceneSave())['objects'];
+      t.expect(!afterDel.find(o => o['brep'])['brep']['cuts'] && !afterDel.some(o => o['kind'] === 'circle'), 'cut and circle are gone');
+      await a.ctrl('KeyZ');
+      const undone = JSON.parse(await a.sceneSave())['objects'];
+      t.expect((undone.find(o => o['brep'])['brep']['cuts'] || []).length === 1 && undone.some(o => o['kind'] === 'circle'),
+               'Ctrl+Z brings the cut and the circle back');
       await a.key('KeyI'); await a.key('KeyZ');
       t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
     },
