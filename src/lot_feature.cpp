@@ -244,6 +244,22 @@ bool setHeight(LotGameObject::Map& objects, id_t solidId, float height, lot_web_
     return true;
 }
 
+bool setBossHeight(LotGameObject::Map& objects, id_t solidId, unsigned bossIndex, float height, lot_web_device& device,
+                   EditHistory& history, std::string& why) {
+    LotGameObject* solid = LotGameObject::find(objects, solidId);
+    if (!isExtrudeSolid(solid)) { why = "not an extruded solid"; return false; }
+    const auto& F = solid->brep->feature();
+    if (bossIndex >= F.bosses.size()) { why = "no such boss"; return false; }
+    if (!(std::fabs(height) > 1e-3f)) { why = "the boss height must not be zero"; return false; }
+    auto shape = solid->brep->editBoss(bossIndex, F.bosses[bossIndex].profile, height);
+    if (!shape) { why = "a cut inside the boss would reach past it at this height"; return false; }
+    auto model = buildSolidModel(device, *shape);
+    if (!model) { why = "tessellation failed"; return false; }
+    commitSolid(objects, *solid, shape, std::move(model), history, "boss height", nullptr);
+    LOT_LOG("feature: solid " << solidId << " boss " << bossIndex + 1 << " height " << height);
+    return true;
+}
+
 bool removeFeatures(LotGameObject::Map& objects, id_t solidId, std::vector<unsigned> cutIdx, std::vector<unsigned> bossIdx,
                     lot_web_device& device, EditHistory& history, std::string& why) {
     LotGameObject* solid = LotGameObject::find(objects, solidId);

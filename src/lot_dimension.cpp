@@ -68,7 +68,7 @@ Geometry build(const LotGameObject::Dim& dim, const mat4& m, const LotCamera* ca
     arrowAt(b, -1.0f);
 
     // 글자: 치수선 가운데, 오프셋 쪽으로 글자 높이의 반쯤 띄워서. 방향은 치수선을 따라.
-    g.text = formatValue(len, dim.precision);
+    g.text = dim.prefix + formatValue(len, dim.precision);
     g.textHeight = dim.textHeight;
     // 글자 틀은 right x up = normal 을 지켜야 거울상이 아니다. 치수선이 측정 방향의
     // 반대편(sign < 0)에 있으면 up 만 뒤집는 게 아니라 180도 돌린다 (둘 다 뒤집기).

@@ -247,6 +247,7 @@ void renderLoop() {
 
         drawSceneObjects(static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
         drawToolOverlays(static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
+        drawFeatureDims(static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
 
         // 패스 1 에는 메시만. 격자/보조선/기즈모는 후처리에 걸리면 안 되므로
         // (선 하나하나가 뎁스 불연속이라 전부 외곽선으로 잡힌다) 패스 3 으로 미룬다.

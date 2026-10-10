@@ -123,6 +123,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onTextEntered(const char* text) {
     if (text == nullptr) return;
     const std::string content(text);
+    if (featureDimTextEntered(content)) return;   // 피처 치수 값
 
     // 기존 문자를 고치는 중이면 내용만 바꾼다 (히스토리에 남는다)
     if (g_editingTextId != LotGameObject::kInvalidId) {
@@ -156,6 +157,7 @@ void lot_onTextEntered(const char* text) {
 // 문자 입력창에서 Esc (또는 포커스 잃음).
 extern "C" EMSCRIPTEN_KEEPALIVE
 void lot_onTextCancelled() {
+    cancelFeatureDimEdit();
     g_editingTextId = LotGameObject::kInvalidId;
     if (g_sketch.waitingForTextInput()) g_sketch.cancel();
 }

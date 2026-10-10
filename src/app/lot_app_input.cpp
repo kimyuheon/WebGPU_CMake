@@ -21,6 +21,8 @@ void handleFrameInput(double deltaSec) {
                                     g_transform.isPreviewing(),
                                     toolReferencePoint(),
                                     g_transform.isActive() ? nullptr : g_sketch.draftPoints()};
+        // 피처 치수 위의 클릭은 치수 것 (선택이 풀리지 않게) - 편집기보다 먼저
+        updateFeatureDims(static_cast<float>(sc.getWidth()), static_cast<float>(sc.getHeight()));
         doc().edit.update(ctx);
 
         // 도구들: 스냅을 쓰므로 편집기 뒤 (app/lot_app_tools.cpp)

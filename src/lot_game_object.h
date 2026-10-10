@@ -136,6 +136,7 @@ public:
         float arrowSize = 0.12f;
         int precision = 2;
         bool arrowsOutside = false;
+        std::string prefix;               // 값 앞 글자 ("Ø" 지름 - 피처 치수)
     };
     Dim dim;
 

@@ -32,6 +32,8 @@ public:
 
     // 이번 프레임에 왼쪽 버튼이 눌렸으면 true. 부르면 플래그가 지워진다.
     bool consumeLeftPress();
+    // 눌림이 있었나만 본다 (비우지 않는다) - 피처 치수가 자기 위의 클릭만 가져갈 때
+    bool peekLeftPress() const { return leftPressed_; }
 
     // 방금 누름이 더블 클릭이었나 (같은 자리에서 빠르게 두 번). consumeLeftPress 와
     // 같은 프레임에 묻는다 - 더블 클릭도 누름이므로 평소 선택은 그대로 일어나고,

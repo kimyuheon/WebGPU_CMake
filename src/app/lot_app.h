@@ -187,6 +187,12 @@ std::string toolHint();
 void fillToolUiState(lot_ui::State& ui);
 void drawToolOverlays(float width, float height);
 
+// ── lot_app_feature_dims.cpp ── 고른 솔리드의 피처 치수 (네이티브 feature_dims.cpp)
+void updateFeatureDims(float width, float height);       // 치수를 모으고, 그 위의 클릭을 가져간다 (편집기보다 먼저)
+void drawFeatureDims(float width, float height);
+bool featureDimTextEntered(const std::string& text);     // 입력창 Enter - 치수를 고치는 중이었으면 true
+void cancelFeatureDimEdit();
+
 // ── lot_app_input.cpp ──
 // 선택 · 도구 · 토글 · 실행 취소 · Enter/Esc · 카메라 조작 (프레임마다 한 번)
 void handleFrameInput(double deltaSec);

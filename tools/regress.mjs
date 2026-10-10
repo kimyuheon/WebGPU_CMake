@@ -1415,6 +1415,68 @@ const scenarios = [
     },
   },
   {
+    // 피처 치수 (네이티브 feature_dims.cpp): 솔리드 하나를 고르면 치수가 뜨고, 더블클릭 -> 입력창 -> Enter 로 고친다.
+    // 스케치 치수는 스케치를 고쳐 다시 만들고, 실패하면 (판보다 큰 구멍) 되돌린다. 한 번의 실행 취소.
+    name: 'feature-dimensions',
+    async run(t) {
+      const a = t.api;
+      const pickInTree = async (labelRe, add) => {
+        await a.evaluate(`Module.lotDom['dockOpen']('tree')`);
+        await a.evaluate(`(() => { const l = document.querySelector('[data-tree-layer="0"]'); if (l && !document.querySelector('[data-tree-object]')) l.querySelector('span').click(); })()`);
+        await sleep(300);
+        await a.evaluate(`(() => { const re = new RegExp(${JSON.stringify(labelRe)});`
+          + ` const r = [...document.querySelectorAll('[data-tree-object]')].find(x => re.test(x.textContent));`
+          + ` r.dispatchEvent(new MouseEvent('click', {bubbles: true, ctrlKey: ${add ? 'true' : 'false'}})); })()`);
+        await sleep(250);
+      };
+      const dims = () => a.evaluate(`Module.lotDom['featureDims']()`);
+      const editDim = async (labelRe, value) => {
+        const d = (await dims()).find(x => new RegExp(labelRe).test(x['label']));
+        if (!d) return false;
+        await a.doubleClick(d['x'], d['y']);
+        const open = await a.evaluate(`document.getElementById('lot-text-input').style.display`);
+        await a.evaluate(`(() => { const i = document.getElementById('lot-text-input'); i.value = ${JSON.stringify(String(value))};`
+          + ` i.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); })()`);
+        await sleep(400);
+        return open === 'block';
+      };
+      await a.command('eraseall');
+      await a.key('KeyT');
+      await a.command('rec'); await a.command('-1,-0.5'); await a.command('2,1');
+      await pickInTree('^닫힌 폴리선', false);
+      await a.command('x'); await a.command('0.5');
+      await a.command('c'); await a.command('0.4,0,0.5'); await a.command('0.2');
+      await pickInTree('^원 #', false); await pickInTree('^솔리드 #', true);
+      await a.command('ct');
+      await a.key('Escape');
+      await pickInTree('^솔리드 #', false);
+      await a.key('KeyI');
+      await sleep(300);
+      const list = await dims();
+      const val = re => (list.find(x => new RegExp(re).test(x['label'])) || {})['value'];
+      t.expect(Math.abs(val('^돌출 높이$') - 0.5) < 1e-3 && Math.abs(val('^단면 가로$') - 2) < 1e-3 && Math.abs(val('^단면 세로$') - 1) < 1e-3,
+               `extrude height + profile width / length (${list.map(x => x['label'] + ' ' + x['value'].toFixed(2)).join(' | ')})`);
+      t.expect(Math.abs(val('^컷 1 Ø$') - 0.4) < 1e-3 && list.some(x => /^컷 1 위치/.test(x['label'])), 'hole Ø and location dimensions');
+      // 구멍 Ø 0.4 -> 0.6 (원 스케치를 고쳐 다시 만든다)
+      t.expect(await editDim('^컷 1 Ø$', 0.6), 'double-click opens the value box');
+      t.expect(a.has(/feature: dimension 컷 1 Ø 0\.4 -> 0\.6/), `hole diameter changed (${a.last(/feature:/) ?? ''})`);
+      t.expect(Math.abs(((await dims()).find(x => /^컷 1 Ø$/.test(x['label'])) || {})['value'] - 0.6) < 1e-3, 'the shown Ø follows');
+      // 돌출 높이 0.5 -> 0.8, Ctrl+Z 로 0.5
+      await editDim('^돌출 높이$', 0.8);
+      t.expect(a.has(/feature: solid \d+ height 0\.8/), 'extrude height changed from its dimension');
+      await a.ctrl('KeyZ');
+      const back = JSON.parse(await a.sceneSave())['objects'].find(o => o['brep']);
+      t.expect(back && Math.abs(back['brep']['height'] - 0.5) < 1e-5, 'Ctrl+Z restores the height');
+      // 판보다 큰 구멍 -> 다시 만들 수 없어 되돌린다
+      await pickInTree('^솔리드 #', false);
+      await sleep(200);
+      await editDim('^컷 1 Ø$', 5);
+      t.expect(a.has(/feature: cannot change the dimension/), `too large a hole is refused (${a.last(/feature:/) ?? ''})`);
+      t.expect(Math.abs(((await dims()).find(x => /^컷 1 Ø$/.test(x['label'])) || {})['value'] - 0.6) < 1e-3, 'and the hole stays Ø0.6');
+      t.expect(!a.has(/ERROR/), `no ERROR (${a.last(/ERROR/) ?? ''})`);
+    },
+  },
+  {
     name: 'status-bar',
     async run(t) {
       const a = t.api;

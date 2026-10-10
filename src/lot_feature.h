@@ -41,6 +41,10 @@ bool boss(LotGameObject::Map& objects, LotGameObject::id_t solid, LotGameObject:
 bool setHeight(LotGameObject::Map& objects, LotGameObject::id_t solid, float height, lot_web_device& device,
                EditHistory& history, std::string& why);
 
+// 보스 i 의 높이 (+ 위 캡에서 위로, - 아래 캡에서 아래로). 한 번의 실행 취소.
+bool setBossHeight(LotGameObject::Map& objects, LotGameObject::id_t solid, unsigned boss, float height,
+                   lot_web_device& device, EditHistory& history, std::string& why);
+
 // 컷 · 보스 지우기 (네이티브 removeBRepFeatures). 번호는 feature().cuts / bosses 순서. 그 피처만 쓰던 스케치도
 // 함께 지운다 (다른 솔리드가 쓰면 남긴다). 한 번의 실행 취소. 남은 것으로 모양을 못 만들면 false 와 why.
 bool removeFeatures(LotGameObject::Map& objects, LotGameObject::id_t solid, std::vector<unsigned> cutIdx,

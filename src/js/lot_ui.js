@@ -32,7 +32,7 @@ mergeInto(LibraryManager.library, {
     js_uiInstall__deps: ['lot_onToolbarKey', 'lot_onLayerCommand', 'lot_onTextEntered',
                          'lot_onTextCancelled', 'lot_saveScene', 'lot_onLotFileLoaded',
                          'lot_onDxfFileLoaded', 'lot_onCommandLine', '$LotUiTheme',
-                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free', '$LotCmdLog', '$LotRibbon'],
+                         '$stringToNewUTF8', '$UTF8ToString', 'malloc', 'free', '$LotCmdLog', '$LotRibbon', 'lot_featureDimsJson'],
     js_uiInstall: function(menuPtr, ribbonPtr, namesPtr, statusPtr) {
         if (!Module.lotDom) Module.lotDom = {};
         var dom = Module.lotDom;
@@ -578,6 +578,23 @@ mergeInto(LibraryManager.library, {
 
         document.body.appendChild(cmdBox);
         dom.cmdInput = cmdInput;
+        // 지금 보이는 피처 치수 [{label, value, x, y}] - 테스트 도구가 더블클릭할 자리를 찾는다
+        dom['featureDims'] = function() {
+            var ptr = _lot_featureDimsJson();
+            if (!ptr) return [];
+            var text = UTF8ToString(ptr);
+            _free(ptr);
+            var list;
+            try { list = JSON.parse(text); } catch (e) { return []; }
+            // 캔버스 픽셀 -> 페이지 좌표 (캔버스는 상태바 아래에서 시작, 화면 배율이 있을 수 있다)
+            var cv = document.getElementById('webgpu-canvas');
+            if (cv) {
+                var r = cv.getBoundingClientRect();
+                var sx = cv.width ? r.width / cv.width : 1, sy = cv.height ? r.height / cv.height : 1;
+                list.forEach(function(d) { d['x'] = r.left + d['x'] * sx; d['y'] = r.top + d['y'] * sy; });
+            }
+            return list;
+        };
         dom['commandRun'] = function(text) {   // 테스트 도구가 부른다 (Closure 이름 고정)
             var ptr = stringToNewUTF8(text);
             _lot_onCommandLine(ptr);
