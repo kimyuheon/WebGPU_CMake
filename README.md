@@ -13,7 +13,7 @@ Tool : Visual Studio Code
 │   │       │   ├── simple_shader.frag
 │   │       │   ├── simple_shader.vert
 │   │       │   └── ...
-│   │       └── VulkanApp           # 실행파일
+│   │       └── LotCAD              # 실행파일
 │   ├── shaders/                    # 원본 셰이더 파일들
 │   │   ├── simple_shader.frag
 │   │   ├── simple_shader.vert
